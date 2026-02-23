@@ -1,0 +1,131 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+
+}
+
+model SuperAdmin {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String
+  createdAt DateTime @default(now())
+}
+
+model Admin {
+  id         String   @id @default(uuid())
+  username   String   @unique
+  branchName String
+  state      String
+  password   String
+  role       String   @default("ADMIN")
+  createdAt  DateTime @default(now())
+  createdBy  String
+
+  purchases  Purchase[]   // ✅ ADD THIS
+}
+
+
+model Product {
+  id              String   @id @default(uuid())
+  name            String
+  metalType       String
+  grams           Float
+  carats          String
+  cost            Float
+  manufactureDate DateTime
+  uniqueCode      String   @unique
+  isSold          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  soldAt          DateTime?
+
+  purchaseItems   PurchaseItem[]   // ✅ ADD THIS
+}
+
+model Purchase {
+  id              String   @id @default(uuid())
+  customerName    String
+  totalAmount     Float
+  gstAmount       Float
+  discountAmount  Float
+  finalAmount     Float
+  phoneNumber     String
+  paymentId       String?   // Razorpay payment id
+  paymentStatus   String    @default("PENDING") // PENDING / SUCCESS / FAILED
+  purchasedAt     DateTime  @default(now())
+
+  adminId         String
+  admin           Admin     @relation(fields: [adminId], references: [id])
+
+  items           PurchaseItem[]
+}
+
+
+model PurchaseItem {
+  id          String   @id @default(uuid())
+
+  purchaseId  String
+  purchase    Purchase @relation(fields: [purchaseId], references: [id])
+
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+
+  name        String
+  grams       Float
+  cost        Float
+}
+
+
+model Scheme {
+  id              String   @id @default(uuid())
+  name            String
+  durationMonths  Int
+  monthlyAmount   Float
+  maturityAmount  Float
+  completionCoupon String?  // coupon given after full payment
+  createdAt       DateTime @default(now())
+
+  customers       CustomerScheme[]
+}
+
+model Customer {
+  id          String   @id @default(uuid())
+  name        String
+  username    String   @unique
+  password    String
+  phone       String
+  createdAt   DateTime @default(now())
+
+  schemes     CustomerScheme[]
+}
+
+
+
+model CustomerScheme {
+  id                 String   @id @default(uuid())
+
+  customerId         String
+  schemeId           String
+
+  totalPaid          Float    @default(0)
+  remainingAmount    Float
+  installmentsPaid   Int      @default(0)
+  installmentsLeft   Int
+
+  isCompleted        Boolean  @default(false)
+  couponGenerated    Boolean  @default(false)
+
+  startDate          DateTime @default(now())
+
+  customer           Customer @relation(fields: [customerId], references: [id])
+  scheme             Scheme   @relation(fields: [schemeId], references: [id])
+}
