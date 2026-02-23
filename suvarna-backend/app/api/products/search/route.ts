@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 const allowedOrigin = "http://localhost:8080";
 
@@ -22,16 +23,22 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const query = searchParams.get("query") || "";
 
+    // ✅ Build OR conditions safely
+    const orConditions: Prisma.ProductWhereInput[] = [
+      { name: { contains: query, mode: "insensitive" } },
+      { id: { contains: query, mode: "insensitive" } },
+    ];
+
+    // Only add grams filter if query is number
+    const numericQuery = Number(query);
+    if (!isNaN(numericQuery)) {
+      orConditions.push({ grams: numericQuery });
+    }
+
     const products = await prisma.product.findMany({
       where: {
         isSold: false,
-        OR: [
-          { name: { contains: query, mode: "insensitive" } },
-          { id: { contains: query, mode: "insensitive" } },
-          isNaN(Number(query))
-            ? undefined
-            : { grams: Number(query) },
-        ].filter(Boolean),
+        OR: orConditions,
       },
       take: 100,
       orderBy: { createdAt: "desc" },
@@ -41,6 +48,7 @@ export async function GET(req: Request) {
       { products },
       { headers: corsHeaders }
     );
+
   } catch (error) {
     console.error("Search error:", error);
 
