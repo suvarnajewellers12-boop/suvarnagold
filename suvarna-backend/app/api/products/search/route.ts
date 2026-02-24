@@ -2,10 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
-const allowedOrigin = "http://localhost:8080";
-
 const corsHeaders = {
-  "Access-Control-Allow-Origin": allowedOrigin,
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
