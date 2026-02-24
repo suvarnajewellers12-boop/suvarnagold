@@ -37,7 +37,7 @@ const BillingPOS = () => {
   const fetchProducts = async (query = "") => {
     if (!query) { setProducts([]); return; }
     try {
-      const res = await fetch(`http://localhost:3000/api/products/search?query=${query}`, {
+      const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/products/search?query=${query}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -65,7 +65,7 @@ const BillingPOS = () => {
     }
 
     try {
-      const res = await fetch(`http://localhost:3000/api/products/scan/${productId}`, {
+      const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/products/scan/${productId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
