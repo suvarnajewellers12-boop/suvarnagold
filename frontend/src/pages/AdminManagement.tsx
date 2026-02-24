@@ -42,7 +42,7 @@ const AdminManagement = () => {
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this admin?")) return;
     try {
-      await fetch(`http://localhost:3000/api/admin/delete/${id}`, {
+      await fetch(`https://suvarnagold-16e5.vercel.app/api/admin/delete/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -58,7 +58,7 @@ const AdminManagement = () => {
     if (!newBranch || !newState) return;
 
     try {
-      await fetch(`http://localhost:3000/api/admin/update/${admin.id}`, {
+      await fetch(`https://suvarnagold-16e5.vercel.app/api/admin/update/${admin.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -75,7 +75,7 @@ const AdminManagement = () => {
   const handleCreateAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch("https://suvarnagold-nd6t.vercel.app/api/admin/create", {
+      const response = await fetch("https://suvarnagold-16e5.vercel.app/api/admin/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -100,7 +100,7 @@ const AdminManagement = () => {
   const fetchAdmins = async () => {
     setIsLoading(true); // Trigger loading immediately
     try {
-      const response = await fetch("http://localhost:3000/api/admin/all", {
+      const response = await fetch("https://suvarnagold-16e5.vercel.app/api/admin/all", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();
