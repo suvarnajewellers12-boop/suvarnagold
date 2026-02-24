@@ -21,8 +21,8 @@ const Login = () => {
   try {
     const endpoint =
       userType === "admin"
-        ? "https://suvarnagold-nd6t.vercel.app/api/auth/admin-login"
-        : "https://suvarnagold-nd6t.vercel.app/api/auth/super-admin-login";
+        ? "https://suvarnagold-16e5.vercel.app/api/auth/admin-login"
+        : "https://suvarnagold-16e5.vercel.app/api/auth/super-admin-login";
 
     const response = await fetch(endpoint, {
       method: "POST",
