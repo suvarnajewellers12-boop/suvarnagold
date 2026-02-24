@@ -127,7 +127,7 @@ const AdminProducts = () => {
   const fetchProducts = async () => {
     setIsLoading(true); // Trigger loading immediately
     try {
-      const res = await fetch("http://localhost:3000/api/products/all", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/products/all", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -146,7 +146,7 @@ const AdminProducts = () => {
   }, []);
 
   const handleShowQR = async (uniqueCode: string) => {
-    const res = await fetch(`http://localhost:3000/api/products/qr/${uniqueCode}`, {
+    const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/products/qr/${uniqueCode}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
