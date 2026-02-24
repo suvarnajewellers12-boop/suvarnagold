@@ -71,8 +71,8 @@ const CustomerManagement = () => {
     setIsInitialLoading(true);
     try {
       const [resS, resC] = await Promise.all([
-        fetch("http://localhost:3000/api/schemes/all", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("http://localhost:3000/api/customers/all", { headers: { Authorization: `Bearer ${token}` } })
+        fetch("https://suvarnagold-16e5.vercel.app/api/schemes/all", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("https://suvarnagold-16e5.vercel.app/api/customers/all", { headers: { Authorization: `Bearer ${token}` } })
       ]);
       const dataS = await resS.json();
       const dataC = await resC.json();
@@ -90,7 +90,7 @@ const CustomerManagement = () => {
       setShowToast(true);
       return;
     }
-    const res = await fetch("http://localhost:3000/api/customers/create", {
+    const res = await fetch("https://suvarnagold-16e5.vercel.app/api/customers/create", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ ...form, schemeIds: [selectedSchemeId] }),
@@ -113,7 +113,7 @@ const CustomerManagement = () => {
 
     setIsSavingPassword(true);
     try {
-      const res = await fetch(`http://localhost:3000/api/customers/change-password/${selectedCustomer.id}`, {
+      const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/customers/change-password/${selectedCustomer.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
