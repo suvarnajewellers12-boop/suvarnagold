@@ -20,7 +20,11 @@ const Login = () => {
 
   try {
     const endpoint =
+<<<<<<< HEAD
        userType === "admin"
+=======
+      userType === "admin"
+>>>>>>> 4579d58 (Update: implemented changes in suvarna-backend source files)
         ? "https://suvarnagold-nd6t.vercel.app/api/auth/admin-login"
         : "https://suvarnagold-nd6t.vercel.app/api/auth/super-admin-login";
 

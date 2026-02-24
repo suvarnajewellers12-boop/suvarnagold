@@ -75,7 +75,7 @@ const AdminManagement = () => {
   const handleCreateAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch("http://localhost:3000/api/admin/create", {
+      const response = await fetch("https://suvarnagold-nd6t.vercel.app/api/admin/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
