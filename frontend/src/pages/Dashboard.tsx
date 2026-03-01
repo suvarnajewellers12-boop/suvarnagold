@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState,useEffect } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { StatCard } from "@/components/StatCard";
@@ -15,6 +15,9 @@ import {
   Wallet,
   Plus,
   Search,
+  Settings2,
+  Unlock,
+  Lock
 } from "lucide-react";
 
 const sampleProducts = [
@@ -60,176 +63,131 @@ const sampleProducts = [
   },
 ];
 
-const Dashboard = () => {
-  const [showToast, setShowToast] = useState(false);
-  const [toastMessage, setToastMessage] = useState("");
+export default function Dashboard() {
+  const [rates, setRates] = useState({ gold: 0, silver: 0 });
+  const [manualRates, setManualRates] = useState({ gold: 6500, silver: 75 });
+  const [isManual, setIsManual] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleProductSave = () => {
-    setToastMessage("Product updated successfully!");
-    setShowToast(true);
+  const fetchLiveRates = async () => {
+    try {
+      setLoading(true);
+      const headers = { "x-access-token": "goldapi-1kvaiz19mm28p80g-io" };
+
+      // Fetch Gold and Silver in parallel for efficiency
+      const [goldRes, silverRes] = await Promise.all([
+        fetch("https://www.goldapi.io/api/XAU/INR", { headers }),
+        fetch("https://www.goldapi.io/api/XAG/INR", { headers })
+      ]);
+
+      const goldData = await goldRes.json();
+      const silverData = await silverRes.json();
+
+      setRates({ 
+        gold: goldData.price_gram_24k || 0, 
+        silver: silverData.price_gram_24k || 0 
+      }); 
+    } catch (error) {
+      console.error("Failed to fetch rates", error);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    if (!isManual) fetchLiveRates();
+  }, [isManual]);
+
+  const displayRates = isManual ? manualRates : rates;
 
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
         <DashboardSidebar />
-        
-        <main className="flex-1 overflow-auto">
-          {/* Header */}
-          <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-serif font-bold text-foreground">
-                  Dashboard
-                </h1>
-                <p className="text-sm text-muted-foreground">
-                  Welcome back, Super Admin
-                </p>
+        <main className="flex-1 p-6 space-y-8">
+          
+          {/* Live Rates Display */}
+          <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <StatCard
+              title="Gold Rate (1g)"
+              value={displayRates.gold}
+              prefix="₹"
+              icon={TrendingUp}
+              loading={loading && !isManual}
+              className={isManual ? "border-orange-500/50" : "border-primary/20"}
+            />
+            <StatCard
+              title="Silver Rate (1g)"
+              value={displayRates.silver}
+              prefix="₹"
+              icon={TrendingUp}
+              loading={loading && !isManual}
+              className={isManual ? "border-orange-500/50" : "border-primary/20"}
+            />
+          </section>
+
+          <GoldDivider />
+
+          {/* Rate Controller */}
+          <section className="bg-card p-6 rounded-xl border border-border shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <Settings2 className="w-5 h-5 text-gold" />
+                <h2 className="text-xl font-serif font-bold">Rate Management</h2>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search..."
-                    className="pl-9 w-64"
-                  />
-                </div>
-                <Button variant="gold">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Product
+              <div className="flex items-center gap-3 bg-muted p-2 rounded-lg">
+                <span className="text-sm font-medium">Manual Mode</span>
+                <Button 
+                  variant={isManual ? "destructive" : "secondary"} 
+                  size="sm"
+                  onClick={() => setIsManual(!isManual)}
+                >
+                  {isManual ? <Lock className="w-4 h-4 mr-2"/> : <Unlock className="w-4 h-4 mr-2"/>}
+                  {isManual ? "Disable" : "Enable"}
                 </Button>
               </div>
             </div>
-          </header>
 
-          <div className="p-6 space-y-8">
-            {/* Stats Grid */}
-            <section>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard
-                  title="Total Products"
-                  value={1247}
-                  icon={Package}
-                  trend={{ value: 12, isPositive: true }}
-                  delay={0}
-                />
-                <StatCard
-                  title="Active Admins"
-                  value={24}
-                  icon={Users}
-                  trend={{ value: 8, isPositive: true }}
-                  delay={100}
-                />
-                <StatCard
-                  title="Monthly Revenue"
-                  value={4580000}
-                  prefix="₹"
-                  icon={TrendingUp}
-                  trend={{ value: 23, isPositive: true }}
-                  delay={200}
-                />
-                <StatCard
-                  title="Active Schemes"
-                  value={156}
-                  icon={Wallet}
-                  trend={{ value: 5, isPositive: false }}
-                  delay={300}
-                />
-              </div>
-            </section>
-
-            <GoldDivider />
-
-            {/* Products Section */}
-            <section>
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-xl font-serif font-bold text-foreground">
-                    Recent Products
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    Manage and track your inventory
-                  </p>
-                </div>
-                <Button variant="gold-outline">View All</Button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {sampleProducts.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    onSave={handleProductSave}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-end">
+              <div className="space-y-4">
+                <label className="text-sm text-muted-foreground font-medium">Manual Gold Rate (₹/g)</label>
+                <div className="relative">
+                   <Input 
+                    type="number" 
+                    disabled={!isManual}
+                    value={manualRates.gold}
+                    onChange={(e) => setManualRates({...manualRates, gold: Number(e.target.value)})}
+                    className="text-lg font-bold pl-8"
                   />
-                ))}
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₹</span>
+                </div>
               </div>
-            </section>
-
-            <GoldDivider />
-
-            {/* Quick Actions */}
-            <section>
-              <h2 className="text-xl font-serif font-bold text-foreground mb-6">
-                Quick Actions
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <LuxuryCard delay={0}>
-                  <div className="text-center py-4">
-                    <div className="w-14 h-14 mx-auto mb-4 gradient-gold rounded-full flex items-center justify-center shadow-gold">
-                      <Users className="w-7 h-7 text-primary-foreground" />
-                    </div>
-                    <h3 className="font-serif font-bold text-lg mb-2">Create Admin</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Add new branch administrators
-                    </p>
-                    <Button variant="gold-outline" className="w-full">
-                      Create Now
-                    </Button>
-                  </div>
-                </LuxuryCard>
-
-                <LuxuryCard delay={100}>
-                  <div className="text-center py-4">
-                    <div className="w-14 h-14 mx-auto mb-4 gradient-luxury rounded-full flex items-center justify-center shadow-gold">
-                      <Package className="w-7 h-7 text-primary-foreground" />
-                    </div>
-                    <h3 className="font-serif font-bold text-lg mb-2">Add Product</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Register new jewelry items
-                    </p>
-                    <Button variant="gold-outline" className="w-full">
-                      Add Product
-                    </Button>
-                  </div>
-                </LuxuryCard>
-
-                <LuxuryCard delay={200}>
-                  <div className="text-center py-4">
-                    <div className="w-14 h-14 mx-auto mb-4 gradient-maroon rounded-full flex items-center justify-center shadow-gold">
-                      <TrendingUp className="w-7 h-7 text-secondary-foreground" />
-                    </div>
-                    <h3 className="font-serif font-bold text-lg mb-2">View Reports</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Analyze sales and performance
-                    </p>
-                    <Button variant="gold-outline" className="w-full">
-                      View Reports
-                    </Button>
-                  </div>
-                </LuxuryCard>
+              <div className="space-y-4">
+                <label className="text-sm text-muted-foreground font-medium">Manual Silver Rate (₹/g)</label>
+                <div className="relative">
+                  <Input 
+                    type="number" 
+                    disabled={!isManual}
+                    value={manualRates.silver}
+                    onChange={(e) => setManualRates({...manualRates, silver: Number(e.target.value)})}
+                    className="text-lg font-bold pl-8"
+                  />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₹</span>
+                </div>
               </div>
-            </section>
-          </div>
+            </div>
+            {!isManual && (
+              <p className="mt-4 text-xs text-muted-foreground flex items-center gap-1">
+                <TrendingUp className="w-3 h-3 text-green-500" />
+                Rates are currently syncing with live market data.
+              </p>
+            )}
+          </section>
+
+          {/* ... Rest of your Dashboard (Stats, Products, etc.) */}
+          
         </main>
       </div>
-
-      <SuccessToast
-        message={toastMessage}
-        isVisible={showToast}
-        onClose={() => setShowToast(false)}
-      />
     </SidebarProvider>
   );
-};
-
-export default Dashboard;
+}

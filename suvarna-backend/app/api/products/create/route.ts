@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { v4 as uuidv4 } from "uuid";
-import { generateQRCode } from "@/lib/qr";
+import { generateBarcode } from "@/lib/barcode";
 import { verifyToken } from "@/lib/auth";
 
 // 🔹 CORS helper
@@ -79,12 +79,11 @@ export async function POST(req: Request) {
         },
       });
 
-      const qrImage = await generateQRCode(uniqueCode);
-
+      const barcodeImage = await generateBarcode(uniqueCode);
       createdItems.push({
         id: product.id,
         uniqueCode,
-        qrImage,
+        barcodeImage,
       });
     }
 
