@@ -44,13 +44,19 @@ export async function GET(
 
     // 🔥 Generate Barcode (Code128)
     const barcodeBuffer = await bwipjs.toBuffer({
-      bcid: "code128", // industry standard
-      text: code,      // uniqueCode
-      scale: 3,
-      height: 10,
-      includetext: true,
-      textxalign: "center",
-    });
+  bcid: "code128",
+
+  text: code,
+
+  scale: 2,            // 🔥 Smaller width
+  height: 12,          // Medium height (good for scanning)
+  
+  includetext: true,
+  textxalign: "center",
+
+  paddingwidth: 20,    // 🔥 Quiet zone left/right
+  paddingheight: 10,   // Top/bottom spacing
+});
 
     const barcodeImage = `data:image/png;base64,${barcodeBuffer.toString("base64")}`;
 
