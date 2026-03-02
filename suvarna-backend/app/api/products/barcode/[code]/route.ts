@@ -59,6 +59,7 @@ export async function GET(
     backgroundcolor: "FFFFFF",
   });
 
+
     const barcodeImage = `data:image/png;base64,${barcodeBuffer.toString("base64")}`;
 
     return NextResponse.json(
