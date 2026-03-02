@@ -11,7 +11,7 @@ const corsHeaders = {
 // ✅ Handle Preflight
 export async function OPTIONS() {
   return new NextResponse(null, {
-    status: 200,
+    status: 200,     
     headers: corsHeaders,
   });
 }
@@ -43,14 +43,21 @@ export async function GET(
     }
 
     // 🔥 Generate Barcode (Code128)
-    const barcodeBuffer = await bwipjs.toBuffer({
-      bcid: "code128", // industry standard
-      text: code,      // uniqueCode
-      scale: 3,
-      height: 10,
-      includetext: true,
-      textxalign: "center",
-    });
+   const png = await bwipjs.toBuffer({
+    bcid: "code128",
+
+    text: text,
+
+    scale: 3,          // 🔥 Increase width resolution
+    height: 18,        // 🔥 Proper scan height
+    includetext: true,
+    textxalign: "center",
+
+    paddingwidth: 30,  // 🔥 Critical quiet zone
+    paddingheight: 20,
+
+    backgroundcolor: "FFFFFF",
+  });
 
     const barcodeImage = `data:image/png;base64,${barcodeBuffer.toString("base64")}`;
 
