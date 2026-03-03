@@ -46,7 +46,7 @@ export async function GET(
    const png = await bwipjs.toBuffer({
     bcid: "code128",
 
-    text: text,
+    text: code,
 
     scale: 3,          // 🔥 Increase width resolution
     height: 22,        // 🔥 Proper scan height
@@ -60,7 +60,7 @@ export async function GET(
   });
 
 
-    const barcodeImage = `data:image/png;base64,${barcodeBuffer.toString("base64")}`;
+    const barcodeImage = `data:image/png;base64,${png.toString("base64")}`;
 
     return NextResponse.json(
       {
