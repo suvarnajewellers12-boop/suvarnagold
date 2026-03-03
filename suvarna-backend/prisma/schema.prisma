@@ -35,6 +35,19 @@ model Admin {
 }
 
 
+model Staff {
+  id            String   @id @default(uuid())
+  fullName      String
+  dateOfJoining DateTime
+  monthlySalary Float
+  gender        String
+  phoneNumber   String   @unique
+  aadharNumber  String   @unique
+  createdAt     DateTime @default(now())
+
+  createdBy     String   // SuperAdmin ID
+}
+
 model Product {
   id              String   @id @default(uuid())
   name            String

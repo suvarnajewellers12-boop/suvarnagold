@@ -176,7 +176,7 @@ const Products = () => {
                 src={barcodeModal.image}
                 alt="Barcode"
               className="mx-auto object-contain"
-style={{ maxWidth: "320px" }} />
+                style={{ maxWidth: "400px" }}  />
 
               {/* 🔥 PRODUCT ID BELOW BARCODE */}
               <div className="text-sm text-gray-600 mt-2">
