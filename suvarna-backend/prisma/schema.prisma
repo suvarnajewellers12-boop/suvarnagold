@@ -57,6 +57,7 @@ model Product {
   cost            Float
   manufactureDate DateTime
   uniqueCode      String   @unique
+  sku             String   @unique
   isSold          Boolean  @default(false)
   createdAt       DateTime @default(now())
   soldAt          DateTime?

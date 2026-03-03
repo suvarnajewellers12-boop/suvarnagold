@@ -62,12 +62,28 @@ export async function POST(req: Request) {
     }
 
     const createdItems = [];
-
     for (let i = 0; i < quantity; i++) {
+
+      // 🔥 Get last product to increment SKU
+      const lastProduct = await prisma.product.findFirst({
+        orderBy: { createdAt: "desc" },
+      });
+
+      let nextNumber = 1;
+
+      if (lastProduct?.sku) {
+        const lastNumber = parseInt(lastProduct.sku.slice(-4));
+        nextNumber = lastNumber + 1;
+      }
+
+      const year = new Date().getFullYear().toString().slice(-2);
+      const sku = `SV${year}${String(nextNumber).padStart(4, "0")}`;
+
       const uniqueCode = uuidv4();
 
       const product = await prisma.product.create({
         data: {
+          sku,
           name,
           metalType,
           grams,
@@ -79,11 +95,9 @@ export async function POST(req: Request) {
         },
       });
 
-      const barcodeImage = await generateBarcode(uniqueCode);
       createdItems.push({
         id: product.id,
-        uniqueCode,
-        barcodeImage,
+        sku,
       });
     }
 

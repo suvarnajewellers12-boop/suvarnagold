@@ -11,7 +11,7 @@ const corsHeaders = {
 // ✅ Handle Preflight
 export async function OPTIONS() {
   return new NextResponse(null, {
-    status: 200,     
+    status: 200,
     headers: corsHeaders,
   });
 }
@@ -21,18 +21,18 @@ export async function GET(
   context: { params: Promise<{ code: string }> }
 ) {
   try {
-    // 🔥 FIX: await params
     const { code } = await context.params;
 
     if (!code) {
       return NextResponse.json(
-        { error: "Invalid barcode" },
+        { error: "Invalid SKU" },
         { status: 400, headers: corsHeaders }
       );
     }
 
+    // 🔥 Find by SKU (NOT uniqueCode anymore)
     const product = await prisma.product.findUnique({
-      where: { uniqueCode: code },
+      where: { sku: code },
     });
 
     if (!product) {
@@ -42,30 +42,30 @@ export async function GET(
       );
     }
 
-    // 🔥 Generate Barcode (Code128)
-   const png = await bwipjs.toBuffer({
-    bcid: "code128",
+    // 🔥 Generate SCAN-OPTIMIZED Barcode using SKU
+    const barcodeBuffer = await bwipjs.toBuffer({
+      bcid: "code39",        // 🔥 Better for short SKU
+      text: product.sku,     // 🔥 IMPORTANT: use SKU
 
-    text: code,
+      scale: 3,              // Medium size
+      height: 20,            // Good scan height
 
-    scale: 3,          // 🔥 Increase width resolution
-    height: 22,        // 🔥 Proper scan height
-    includetext: true,
-    textxalign: "center",
+      includetext: true,
+      textxalign: "center",
 
-    paddingwidth: 30,  // 🔥 Critical quiet zone
-    paddingheight: 20,
+      paddingwidth: 25,      // Quiet zone (VERY important)
+      paddingheight: 15,
 
-    backgroundcolor: "FFFFFF",
-  });
+      backgroundcolor: "FFFFFF",
+    });
 
-
-    const barcodeImage = `data:image/png;base64,${png.toString("base64")}`;
+    const barcodeImage = `data:image/png;base64,${barcodeBuffer.toString("base64")}`;
 
     return NextResponse.json(
       {
         barcodeImage,
         productId: product.id,
+        sku: product.sku,
       },
       { headers: corsHeaders }
     );
