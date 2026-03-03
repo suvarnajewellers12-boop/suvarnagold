@@ -49,7 +49,7 @@ export async function GET(
     text: text,
 
     scale: 3,          // 🔥 Increase width resolution
-    height: 18,        // 🔥 Proper scan height
+    height: 22,        // 🔥 Proper scan height
     includetext: true,
     textxalign: "center",
 
