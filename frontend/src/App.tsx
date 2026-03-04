@@ -13,6 +13,7 @@ import Billing from "./pages/Billing";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import SuperAdminCreateScheme from "./pages/admin/AdminCreateSchemes";
 
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -20,7 +21,7 @@ import AdminProducts from "./pages/admin/AdminProducts";
 import AdminBilling from "./pages/admin/AdminBilling";
 import AdminReports from "./pages/admin/AdminReports";
 import AdminSettings from "./pages/admin/AdminSettings";
-import SuperAdminCreateScheme from "./pages/CreateScheme";
+import AdminSchemesView from "./pages/admin/AdminCreateSchemes";
 import CustomerManagement from "./pages/admin/AdminCustomer";
 import StaffManagement from "./pages/staff";
 
@@ -44,7 +45,7 @@ const App = () => (
           <Route path="/dashboard/billing" element={<Billing />} />
           <Route path="/dashboard/reports" element={<Reports />} />
           <Route path="/dashboard/settings" element={<Settings />} />
-          <Route path="/dashboard/create-scheme" element={<SuperAdminCreateScheme />} />
+          <Route path="/dashboard/create-scheme" element={<AdminSchemesView />} />
           <Route path="/dashboard/customers" element={<CustomerManagement />} />
           <Route path="/dashboard/staff" element={<StaffManagement />} />
              

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { AdminSidebar } from "@/components/AdminSidebar"; // Aligned with Product page
+import { AdminSidebar } from "@/components/AdminSidebar"; 
 import { LuxuryCard } from "@/components/LuxuryCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -57,7 +57,8 @@ const CustomerSkeleton = () => (
   </div>
 );
 
-// Memory Cache outside component
+// ================= CACHE CONFIGURATION =================
+// Declared outside the component to persist across tab switches within the same session
 let customerRegistryCache: { 
   customers: any[] | null, 
   schemes: any[] | null 
@@ -87,7 +88,9 @@ const CustomerManagement = () => {
   const [toastMessage, setToastMessage] = useState("");
   const [showToast, setShowToast] = useState(false);
 
+  // ================= FETCH WITH CACHE LOGIC =================
   const fetchData = async (forceRefresh = false) => {
+    // 1. Check if we can return data from the cache
     if (!forceRefresh && customerRegistryCache.customers && customerRegistryCache.schemes) {
       setCustomers(customerRegistryCache.customers);
       setSchemes(customerRegistryCache.schemes);
@@ -95,6 +98,7 @@ const CustomerManagement = () => {
       return;
     }
 
+    // 2. Fetch fresh data if cache is empty or forceRefresh is true
     setIsLoading(true);
     try {
       const [resS, resC] = await Promise.all([
@@ -105,15 +109,26 @@ const CustomerManagement = () => {
       const dataC = await resC.json();
       
       if (resS.ok && resC.ok) {
-        setSchemes(dataS.schemes || []);
-        setCustomers(dataC.customers || []);
-        customerRegistryCache = { customers: dataC.customers, schemes: dataS.schemes };
+        const fetchedSchemes = dataS.schemes || [];
+        const fetchedCustomers = dataC.customers || [];
+        
+        // Update Local States
+        setSchemes(fetchedSchemes);
+        setCustomers(fetchedCustomers);
+        
+        // Update Global Cache
+        customerRegistryCache = { customers: fetchedCustomers, schemes: fetchedSchemes };
       }
-    } catch (error) { console.error(error); }
-    finally { setIsLoading(false); }
+    } catch (error) { 
+        console.error("Registry fetch error", error); 
+    } finally { 
+        setIsLoading(false); 
+    }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { 
+      fetchData(); 
+  }, []);
 
   const filteredCustomers = useMemo(() => {
     return customers.filter(c => 
@@ -141,6 +156,8 @@ const CustomerManagement = () => {
       setForm({ name: "", username: "", password: "", phone: "" });
       setSelectedSchemeId(null);
       setShowForm(false);
+      
+      // Force refresh the cache so the list updates immediately
       fetchData(true);
     }
     setIsCreating(false);
@@ -168,7 +185,7 @@ const CustomerManagement = () => {
         <AdminSidebar />
         
         <main className="flex-1 flex flex-col h-screen overflow-hidden">
-          {/* HEADER - Aligned with Product Page */}
+          {/* HEADER */}
           <header className="sticky top-0 z-20 bg-background/90 backdrop-blur-md border-b border-border px-6 py-4">
             <div className="flex items-center justify-between">
               <div>
@@ -194,7 +211,6 @@ const CustomerManagement = () => {
           </header>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-8">
-            {/* REGISTRATION FORM - Aligned Aside Style */}
             <div className="flex flex-col lg:flex-row gap-6 items-start">
               {showForm && (
                 <aside className="w-full lg:w-[400px] animate-in slide-in-from-left duration-300">
@@ -246,7 +262,6 @@ const CustomerManagement = () => {
                 </aside>
               )}
 
-              {/* CUSTOMER GRID */}
               <div className="flex-1 w-full">
                 <div className="flex items-center gap-2 mb-6">
                   <Filter className="w-4 h-4 text-muted-foreground" />
@@ -306,7 +321,7 @@ const CustomerManagement = () => {
                   <div>
                     <DialogTitle className="text-2xl font-serif font-bold">{selectedCustomer?.name}</DialogTitle>
                     <div className="flex items-center gap-3 mt-1">
-                      <Badge variant="gold" className="text-[10px]">@{selectedCustomer?.username}</Badge>
+                      <Badge variant="outline" className="text-[10px] border-gold/40 text-gold">@{selectedCustomer?.username}</Badge>
                       <span className="text-xs text-muted-foreground font-medium">{selectedCustomer?.phone}</span>
                     </div>
                   </div>
@@ -317,7 +332,7 @@ const CustomerManagement = () => {
             </div>
           </DialogHeader>
 
-          <div className="p-8 max-h-[60vh] overflow-y-auto">
+          <div className="p-8 max-h-[60vh] overflow-y-auto custom-scrollbar">
             {isUpdatingPassword && (
               <div className="mb-8 p-4 bg-gold/5 border border-gold/10 rounded-lg flex items-end gap-4 animate-in fade-in zoom-in-95">
                 <div className="flex-1 space-y-2">
