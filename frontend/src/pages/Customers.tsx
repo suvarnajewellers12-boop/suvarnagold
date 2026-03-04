@@ -12,7 +12,7 @@ import {
   Plus, X, Phone, UserCircle, 
   ShieldCheck, LayoutGrid, Check, ChevronsUpDown,
   Calendar, IndianRupee, Layers, KeyRound, ChevronRight,
-  TrendingUp, Lock
+  TrendingUp, Lock, Loader2
 } from "lucide-react";
 import {
   Dialog,
@@ -33,6 +33,16 @@ import {
   CommandItem,
   CommandList
 } from "@/components/ui/command";
+
+// ================= CACHE CONFIGURATION =================
+// Declared outside to persist in memory during the session
+let customerRegistryCache: { 
+  customers: any[] | null, 
+  schemes: any[] | null 
+} = {
+  customers: null,
+  schemes: null
+};
 
 const CustomerSkeleton = () => (
   <div className="border border-gold/10 rounded-[22px] overflow-hidden bg-white animate-pulse p-6">
@@ -58,16 +68,25 @@ const CustomerManagement = () => {
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [openDropdown, setOpenDropdown] = useState(false);
   
-  // Security Update States
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   const [form, setForm] = useState({ name: "", username: "", password: "", phone: "" });
   const [toastMessage, setToastMessage] = useState("");
   const [showToast, setShowToast] = useState(false);
 
-  const fetchData = async () => {
+  // ================= FETCH WITH CACHE LOGIC =================
+  const fetchData = async (forceRefresh = false) => {
+    // Check if we can use the cache
+    if (!forceRefresh && customerRegistryCache.customers && customerRegistryCache.schemes) {
+      setCustomers(customerRegistryCache.customers);
+      setSchemes(customerRegistryCache.schemes);
+      setIsInitialLoading(false);
+      return;
+    }
+
     setIsInitialLoading(true);
     try {
       const [resS, resC] = await Promise.all([
@@ -76,10 +95,24 @@ const CustomerManagement = () => {
       ]);
       const dataS = await resS.json();
       const dataC = await resC.json();
-      if (resS.ok) setSchemes(dataS.schemes || []);
-      if (resC.ok) setCustomers(dataC.customers || []);
-    } catch (error) { console.error("Fetch error", error); }
-    finally { setIsInitialLoading(false); }
+      
+      if (resS.ok && resC.ok) {
+        const fetchedSchemes = dataS.schemes || [];
+        const fetchedCustomers = dataC.customers || [];
+        
+        // Update states
+        setSchemes(fetchedSchemes);
+        setCustomers(fetchedCustomers);
+        
+        // Update global cache
+        customerRegistryCache.schemes = fetchedSchemes;
+        customerRegistryCache.customers = fetchedCustomers;
+      }
+    } catch (error) { 
+      console.error("Fetch error", error); 
+    } finally { 
+      setIsInitialLoading(false); 
+    }
   };
 
   useEffect(() => { fetchData(); }, []);
@@ -90,17 +123,26 @@ const CustomerManagement = () => {
       setShowToast(true);
       return;
     }
-    const res = await fetch("https://suvarnagold-16e5.vercel.app/api/customers/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ ...form, schemeIds: [selectedSchemeId] }),
-    });
-    if (res.ok) {
-      setToastMessage("Customer Registry Updated 🎉");
-      setShowToast(true);
-      setForm({ name: "", username: "", password: "", phone: "" });
-      setSelectedSchemeId(null);
-      fetchData();
+
+    setIsCreating(true);
+    try {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/customers/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...form, schemeIds: [selectedSchemeId] }),
+      });
+      
+      if (res.ok) {
+        setToastMessage("Customer Registry Updated 🎉");
+        setShowToast(true);
+        setForm({ name: "", username: "", password: "", phone: "" });
+        setSelectedSchemeId(null);
+        setShowForm(false);
+        // Force refresh cache after creation
+        await fetchData(true);
+      }
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -141,7 +183,7 @@ const CustomerManagement = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex bg-[#fdfdfc] dark:bg-[#0a0a0a] w-full overflow-hidden">
+      <div className="min-h-screen flex w-full bg-[#fdfdfc] dark:bg-[#0a0a0a] overflow-hidden">
         <DashboardSidebar />
         <main className="flex-1 flex flex-col h-screen w-full overflow-hidden">
           <header className="bg-transparent px-8 py-6 flex justify-between items-center shrink-0 w-full z-10">
@@ -149,10 +191,19 @@ const CustomerManagement = () => {
               <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-gold/60 font-sans">Registry Management</span>
               <h1 className="text-3xl font-serif font-bold tracking-tight text-slate-900">Customer Registry</h1>
             </div>
-            <Button onClick={() => setShowForm(!showForm)} variant={showForm ? "outline" : "gold"} className="gap-2 rounded-full font-bold uppercase tracking-widest text-[10px] h-11 px-7 border-gold/20 shadow-sm transition-all active:scale-95">
-              {showForm ? <X size={14} /> : <Plus size={14} />}
-              {showForm ? "Close Form" : "New Customer"}
-            </Button>
+            <div className="flex gap-3">
+              <Button 
+                onClick={() => fetchData(true)} 
+                variant="outline" 
+                className="rounded-full h-11 px-6 border-gold/10 text-[10px] uppercase font-bold tracking-widest"
+              >
+                Sync Data
+              </Button>
+              <Button onClick={() => setShowForm(!showForm)} variant={showForm ? "outline" : "gold"} className="gap-2 rounded-full font-bold uppercase tracking-widest text-[10px] h-11 px-7 border-gold/20 shadow-sm transition-all active:scale-95">
+                {showForm ? <X size={14} /> : <Plus size={14} />}
+                {showForm ? "Close Form" : "New Customer"}
+              </Button>
+            </div>
           </header>
 
           <div className="flex-1 flex overflow-hidden w-full px-6 pb-6 gap-6">
@@ -203,7 +254,10 @@ const CustomerManagement = () => {
                       </Popover>
                     </div>
                   </div>
-                  <Button variant="gold" className="w-full h-14 rounded-2xl text-[11px] uppercase tracking-[0.2em] font-bold shadow-xl shadow-gold/20 mt-6 shrink-0 transition-all active:scale-95" onClick={handleCreateCustomer}>Authorize Registration</Button>
+                  <Button variant="gold" className="w-full h-14 rounded-2xl text-[11px] uppercase tracking-[0.2em] font-bold shadow-xl shadow-gold/20 mt-6 shrink-0 transition-all active:scale-95" onClick={handleCreateCustomer} disabled={isCreating}>
+                    {isCreating ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : null}
+                    {isCreating ? "Processing Authorization..." : "Authorize Registration"}
+                  </Button>
                 </div>
               </div>
             </aside>
@@ -256,6 +310,7 @@ const CustomerManagement = () => {
         </main>
       </div>
 
+      {/* Profile Dialog and Toast logic remains unchanged */}
       <Dialog open={!!selectedCustomer} onOpenChange={() => { setSelectedCustomer(null); setIsUpdatingPassword(false); }}>
         <DialogContent className="max-w-3xl rounded-[2.5rem] border-gold/20 bg-white/95 backdrop-blur-xl p-0 overflow-hidden shadow-2xl ring-1 ring-gold/10">
           <DialogHeader className="p-8 border-b border-gold/10 bg-slate-50/50">
@@ -281,7 +336,6 @@ const CustomerManagement = () => {
             </div>
           </DialogHeader>
 
-          {/* PASSWORD UPDATE COMPONENT */}
           {isUpdatingPassword && (
             <div className="bg-gold/[0.03] border-b border-gold/10 px-8 py-6 animate-in slide-in-from-top duration-300">
                 <div className="flex items-end gap-4 max-w-md">

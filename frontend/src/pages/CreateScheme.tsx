@@ -16,11 +16,15 @@ import {
   TrendingUp,
   LayoutGrid,
   Plus,
-  X
+  X,
+  Loader2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-// --- SKELETON COMPONENT (Shimmer effect for original loading) ---
+// ================= CACHE CONFIGURATION =================
+// Declared outside the component to persist during the session
+let schemesCache: any[] | null = null;
+
 const SchemeSkeleton = () => (
   <div className="border border-gold/10 rounded-[22px] overflow-hidden bg-white/50 animate-pulse">
     <div className="p-6 space-y-6">
@@ -56,26 +60,35 @@ const SuperAdminCreateScheme = () => {
   });
 
   const [schemes, setSchemes] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false); // For button "creating" state
-  const [isInitialLoading, setIsInitialLoading] = useState(true); // For original API loading
+  const [loading, setLoading] = useState(false); 
+  const [isInitialLoading, setIsInitialLoading] = useState(true); 
   const [toastMessage, setToastMessage] = useState("");
   const [showToast, setShowToast] = useState(false);
   const [showCreateBox, setShowCreateBox] = useState(false);
 
-  // ================= FETCH SCHEMES (Natural Loading) =================
-  const fetchSchemes = async () => {
+  // ================= FETCH SCHEMES WITH CACHE =================
+  const fetchSchemes = async (forceRefresh = false) => {
+    // Check if we can use the cache
+    if (!forceRefresh && schemesCache !== null) {
+      setSchemes(schemesCache);
+      setIsInitialLoading(false);
+      return;
+    }
+
     try {
+      if (forceRefresh) setIsInitialLoading(true); // Show loading only on manual/create refresh
       const res = await fetch("https://suvarnagold-16e5.vercel.app/api/schemes/all", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (res.ok) {
-        setSchemes(data.schemes || []);
+        const fetchedSchemes = data.schemes || [];
+        setSchemes(fetchedSchemes);
+        schemesCache = fetchedSchemes; // Update global cache
       }
     } catch (error) {
       console.error("Fetch error", error);
     } finally {
-      // Set to false as soon as the API responds
       setIsInitialLoading(false);
     }
   };
@@ -110,7 +123,10 @@ const SuperAdminCreateScheme = () => {
         setToastMessage("Scheme catalog updated successfully.");
         setShowToast(true);
         setForm({ name: "", durationMonths: "", monthlyAmount: "", maturityAmount: "", completionCoupon: "" });
-        fetchSchemes();
+        setShowCreateBox(false); // Close form on success
+        
+        // CRITICAL: Refresh cache after creation
+        await fetchSchemes(true);
       }
     } catch (error) {
       setToastMessage("An error occurred.");
@@ -126,7 +142,6 @@ const SuperAdminCreateScheme = () => {
         <DashboardSidebar />
 
         <main className="flex-1 flex flex-col h-screen w-full overflow-hidden">
-          {/* HEADER AREA */}
           <header className="bg-white dark:bg-[#0f0f0f] border-b border-gold/10 px-8 py-4 flex justify-between items-center shrink-0 w-full z-10">
             <div className="flex items-center gap-6">
               <div>
@@ -143,19 +158,27 @@ const SuperAdminCreateScheme = () => {
               </div>
             </div>
 
-            <Button 
-              onClick={() => setShowCreateBox(!showCreateBox)}
-              variant={showCreateBox ? "outline" : "gold"} 
-              className="gap-2 shadow-sm font-bold uppercase tracking-widest text-[11px] h-10 px-5 transition-all duration-300 rounded-full"
-            >
-              {showCreateBox ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-              {showCreateBox ? "Close Form" : "New Portfolio"}
-            </Button>
+            <div className="flex gap-3">
+               <Button 
+                onClick={() => fetchSchemes(true)} 
+                variant="outline" 
+                size="sm"
+                className="h-10 rounded-full border-gold/10 text-[10px] uppercase font-bold tracking-widest"
+              >
+                Refresh
+              </Button>
+              <Button 
+                onClick={() => setShowCreateBox(!showCreateBox)}
+                variant={showCreateBox ? "outline" : "gold"} 
+                className="gap-2 shadow-sm font-bold uppercase tracking-widest text-[11px] h-10 px-5 transition-all duration-300 rounded-full"
+              >
+                {showCreateBox ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                {showCreateBox ? "Close Form" : "New Portfolio"}
+              </Button>
+            </div>
           </header>
 
           <div className="flex-1 flex overflow-hidden w-full relative">
-            
-            {/* INLINE CREATE BOX PANEL */}
             <aside 
               className={`h-full transition-all duration-500 ease-in-out shrink-0 z-20
                 ${showCreateBox ? "w-[400px] opacity-100" : "w-0 opacity-0 overflow-hidden"}`}
@@ -166,29 +189,28 @@ const SuperAdminCreateScheme = () => {
                     <div className="p-2 bg-gold/10 rounded-xl">
                       <FilePlus2 className="w-5 h-5 text-gold" />
                     </div>
-                    <h2 className="text-xl font-serif font-bold  text-slate-900 dark:text-white">Create New Scheme</h2>
+                    <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-white">Create New Scheme</h2>
                   </div>
 
-                  {/* COMPACT FORM FIELDS - NO SCROLLING */}
                   <div className="space-y-4 flex-1">
                     <div className="space-y-1.5">
-                      <label className="text-[14px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Scheme Identity</label>
+                      <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Scheme Identity</label>
                       <Input name="name" placeholder="Royal Sovereign" value={form.name} onChange={handleChange} className="h-10 rounded-xl bg-slate-50/50 border-gold/10 focus-visible:ring-gold" />
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
-                        <label className="text-[14px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Tenure (Mo.)</label>
+                        <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Tenure (Mo.)</label>
                         <Input name="durationMonths" type="number" placeholder="12" value={form.durationMonths} onChange={handleChange} className="h-10 rounded-xl bg-slate-50/50 border-gold/10 focus-visible:ring-gold" />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[14px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Coupon</label>
+                        <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Coupon</label>
                         <Input name="completionCoupon" placeholder="Code" value={form.completionCoupon} onChange={handleChange} className="h-10 rounded-xl bg-slate-50/50 border-gold/10 focus-visible:ring-gold" />
                       </div>
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[14px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Monthly Contribution</label>
+                      <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Monthly Contribution</label>
                       <div className="relative">
                         <IndianRupee className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gold/40" />
                         <Input name="monthlyAmount" type="number" placeholder="0.00" className="h-10 pl-10 rounded-xl bg-slate-50/50 border-gold/10 font-semibold" value={form.monthlyAmount} onChange={handleChange} />
@@ -196,16 +218,17 @@ const SuperAdminCreateScheme = () => {
                     </div>
 
                     <div className="mt-2 space-y-1 bg-gold/5 p-4 rounded-[1.8rem] border border-gold/10">
-                      <label className="text-[14px] uppercase font-bold tracking-widest text-gold ml-1">Expected Maturity</label>
+                      <label className="text-[10px] uppercase font-bold tracking-widest text-gold ml-1">Expected Maturity</label>
                       <div className="relative flex items-center">
                         <IndianRupee className="w-5 h-5 text-gold mr-1" />
-                        <Input name="maturityAmount" type="number" placeholder="0.00" className="h-10 border-none bg-transparent focus-visible:ring-0 font-semibold font-bold text-gold text-2xl p-0" value={form.maturityAmount} onChange={handleChange} />
+                        <Input name="maturityAmount" type="number" placeholder="0.00" className="h-10 border-none bg-transparent focus-visible:ring-0 font-bold text-gold text-2xl p-0" value={form.maturityAmount} onChange={handleChange} />
                       </div>
                     </div>
                   </div>
 
                   <div className="pt-6 shrink-0">
                     <Button variant="gold" className="w-full h-12 rounded-2xl text-[10px] uppercase tracking-[0.2em] font-bold shadow-lg shadow-gold/10 hover:shadow-gold/20 transition-all duration-300" onClick={handleCreateScheme} disabled={loading}>
+                      {loading ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : null}
                       {loading ? "Processing..." : "Create Scheme"}
                     </Button>
                   </div>
@@ -213,7 +236,6 @@ const SuperAdminCreateScheme = () => {
               </div>
             </aside>
 
-            {/* SCROLLABLE SCHEMES AREA */}
             <section className="flex-1 flex flex-col min-w-0 bg-[#fafaf9] dark:bg-[#0a0a0a]">
               <div className="flex items-center justify-between px-8 py-6 shrink-0">
                 <div className="flex items-center gap-3">
@@ -235,7 +257,6 @@ const SuperAdminCreateScheme = () => {
                   }`}
                 >
                   {isInitialLoading ? (
-                    // Show skeletons while actual fetching is happening
                     Array.from({ length: 8 }).map((_, i) => <SchemeSkeleton key={i} />)
                   ) : (
                     <>
@@ -243,7 +264,7 @@ const SuperAdminCreateScheme = () => {
                         <LuxuryCard key={scheme.id} className="group hover:border-gold/40 transition-all duration-300 p-0 overflow-hidden flex flex-col shadow-sm hover:shadow-xl rounded-[22px]">
                           <div className="p-6 flex-1">
                             <div className="flex justify-between items-start mb-6">
-                              <h3 className="font-serif font-bold text-lg leading-tight group-hover:text-gold transition-colors truncate pr-2 uppercase tracking-tight">
+                              <h3 className="font-serif font-bold text-sm leading-tight group-hover:text-gold transition-colors truncate pr-2 uppercase tracking-tight">
                                 {scheme.name}
                               </h3>
                               <div className="bg-emerald-50 dark:bg-emerald-950/30 p-1.5 rounded-full">
@@ -255,28 +276,28 @@ const SuperAdminCreateScheme = () => {
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                   <Calendar className="w-3 h-3 text-gold/60" />
-                                  <span className="text-[9px] uppercase font-bold tracking-tighter">Tenure</span>
+                                  <span className="text-[8px] uppercase font-bold tracking-tighter">Tenure</span>
                                 </div>
                                 <p className="font-bold text-xs pl-5">{scheme.durationMonths} Months</p>
                               </div>
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                   <IndianRupee className="w-3 h-3 text-gold/60" />
-                                  <span className="text-[9px] uppercase font-bold tracking-tighter">Monthly</span>
+                                  <span className="text-[8px] uppercase font-bold tracking-tighter">Monthly</span>
                                 </div>
                                 <p className="font-bold text-xs pl-5">₹{Number(scheme.monthlyAmount).toLocaleString()}</p>
                               </div>
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                   <TicketPercent className="w-3 h-3 text-gold/60" />
-                                  <span className="text-[9px] uppercase font-bold tracking-tighter">Coupon</span>
+                                  <span className="text-[8px] uppercase font-bold tracking-tighter">Coupon</span>
                                 </div>
                                 <p className="font-bold text-xs pl-5 truncate max-w-[80px]">{scheme.completionCoupon || "—"}</p>
                               </div>
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                   <Users className="w-3 h-3 text-gold/60" />
-                                  <span className="text-[9px] uppercase font-bold tracking-tighter">Members</span>
+                                  <span className="text-[8px] uppercase font-bold tracking-tighter">Members</span>
                                 </div>
                                 <p className="font-bold text-xs pl-5">{scheme.customers?.length || 0}</p>
                               </div>
@@ -284,7 +305,7 @@ const SuperAdminCreateScheme = () => {
                           </div>
                           
                           <div className="bg-gold/[0.04] border-t border-gold/5 px-6 py-4 flex justify-between items-center group-hover:bg-gold/[0.07] transition-colors">
-                            <p className="text-[10px] font-bold text-muted-foreground/60 uppercase italic">Maturity</p>
+                            <p className="text-[9px] font-bold text-muted-foreground/60 uppercase italic">Maturity</p>
                             <p className="font-serif font-bold text-gold">₹{Number(scheme.maturityAmount).toLocaleString()}</p>
                           </div>
                         </LuxuryCard>

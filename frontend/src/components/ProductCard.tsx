@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Edit2, Save, X, QrCode } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Loader2 } from "lucide-react"; // Ensure Loader2 is imported
 
 interface Product {
   id: string;
@@ -12,6 +13,7 @@ interface Product {
   carats: number;
   cost: number;
   manufactureDate: string;
+  sku: string;
 }
 
 interface ProductCardProps {
@@ -32,6 +34,7 @@ export const ProductCard = ({
 }: ProductCardProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedProduct, setEditedProduct] = useState(product);
+  const [isLoadingQR, setIsLoadingQR] = useState(false);
   const [qrModal, setQrModal] = useState<{
     image: string;
     productId: string;
@@ -133,11 +136,25 @@ export const ProductCard = ({
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => {
-                  console.log("QR button clicked", product.sku);
-                  onShowQR?.(product.sku); // ✅ only UUID
-                }}              >
-                <QrCode className="w-5 h-5 text-primary" />
+                disabled={isLoadingQR}
+                onClick={async () => {
+                  setIsLoadingQR(true); // Start spinner
+                  try {
+                    console.log("QR button clicked", product.sku);
+                    // We await the parent's function so we know when the API is done
+                    await onShowQR?.(product.sku);
+                  } catch (error) {
+                    console.error("QR Error:", error);
+                  } finally {
+                    setIsLoadingQR(false); // Stop spinner
+                  }
+                }}
+              >
+                {isLoadingQR ? (
+                  <Loader2 className="w-5 h-5 text-primary animate-spin" />
+                ) : (
+                  <QrCode className="w-5 h-5 text-primary" />
+                )}
               </Button>
 
             </div>

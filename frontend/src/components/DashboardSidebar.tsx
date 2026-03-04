@@ -27,12 +27,14 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { title } from "process";
 
 const menuItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Admin Management", url: "/dashboard/admins", icon: Users },
   { title: "Create Scheme", url: "/dashboard/create-scheme", icon: Plus },
   { title: "Customer Management", url: "/dashboard/customers", icon: Users },
+  {title:"Staff Management",url:"/dashboard/staff",icon:Users},
   { title: "Products", url: "/dashboard/products", icon: Package },
   // { title: "Store", url: "/dashboard/store", icon: Store },
   { title: "Billing", url: "/dashboard/billing", icon: Receipt },

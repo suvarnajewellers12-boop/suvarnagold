@@ -22,6 +22,7 @@ import AdminReports from "./pages/admin/AdminReports";
 import AdminSettings from "./pages/admin/AdminSettings";
 import SuperAdminCreateScheme from "./pages/CreateScheme";
 import CustomerManagement from "./pages/Customers";
+import StaffManagement from "./pages/staff";
 
 const queryClient = new QueryClient();
 
@@ -45,6 +46,7 @@ const App = () => (
           <Route path="/dashboard/settings" element={<Settings />} />
           <Route path="/dashboard/create-scheme" element={<SuperAdminCreateScheme />} />
           <Route path="/dashboard/customers" element={<CustomerManagement />} />
+          <Route path="/dashboard/staff" element={<StaffManagement />} />
              
           {/* Admin Routes */}
           <Route path="/admin" element={<AdminDashboard />} />
