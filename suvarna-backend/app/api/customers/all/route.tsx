@@ -41,13 +41,14 @@ export async function GET(req: Request) {
         { status: 401, headers: corsHeaders() }
       );
     }
+    console.log("Decoded token in GET customers:", decoded.role);
 
-    if (decoded.role === "ADMIN" || decoded.role === "SUPER_ADMIN") {
-      return new NextResponse(
-        JSON.stringify({ error: "Forbidden" }),
+     if (decoded.role !== "ADMIN" && decoded.role !== "SUPER_ADMIN") {
+     return new NextResponse(
+         JSON.stringify({ error: "Forbidden" }),
         { status: 403, headers: corsHeaders() }
-      );
-    }
+       );
+     }
 
     // 🔹 Fetch Customers with Schemes
     const customers = await prisma.customer.findMany({

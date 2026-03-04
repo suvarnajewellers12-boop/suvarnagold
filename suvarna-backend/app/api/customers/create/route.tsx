@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (decoded.role === "ADMIN" || decoded.role === "SUPER_ADMIN") {
+    if (decoded.role !== "ADMIN" && decoded.role !== "SUPER_ADMIN") {
       return new NextResponse(
         JSON.stringify({ error: "Forbidden" }),
         { status: 403, headers: corsHeaders() }
