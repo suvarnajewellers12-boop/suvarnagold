@@ -24,10 +24,13 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { title } from "process";
 
 const menuItems = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Products", url: "/admin/products", icon: Package },
+  {title:"Create Scheme",url:"/admin/create-scheme",icon:Settings},
+  {title:"Customers",url:"/admin/customers",icon:Settings},
   { title: "Billing", url: "/admin/billing", icon: Receipt },
   { title: "Reports", url: "/admin/reports", icon: FileText },
   { title: "Settings", url: "/admin/settings", icon: Settings },

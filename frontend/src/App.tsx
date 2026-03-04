@@ -21,7 +21,7 @@ import AdminBilling from "./pages/admin/AdminBilling";
 import AdminReports from "./pages/admin/AdminReports";
 import AdminSettings from "./pages/admin/AdminSettings";
 import SuperAdminCreateScheme from "./pages/CreateScheme";
-import CustomerManagement from "./pages/Customers";
+import CustomerManagement from "./pages/admin/AdminCustomer";
 import StaffManagement from "./pages/staff";
 
 const queryClient = new QueryClient();
@@ -54,6 +54,9 @@ const App = () => (
           <Route path="/admin/billing" element={<AdminBilling />} />
           <Route path="/admin/reports" element={<AdminReports />} />
           <Route path="/admin/settings" element={<AdminSettings />} />
+          <Route path="/admin/create-scheme" element={<SuperAdminCreateScheme />} />
+          <Route path="/admin/customers" element={<CustomerManagement />} />
+          
           
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />

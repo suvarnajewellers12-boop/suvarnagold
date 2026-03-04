@@ -42,7 +42,7 @@ export async function GET(req: Request) {
       );
     }
 
-    if (decoded.role !== "SUPER_ADMIN") {
+    if (decoded.role === "ADMIN" || decoded.role === "SUPER_ADMIN") {
       return new NextResponse(
         JSON.stringify({ error: "Forbidden" }),
         { status: 403, headers: corsHeaders() }
@@ -55,7 +55,7 @@ export async function GET(req: Request) {
         id: true,
         name: true,
         username: true,
-        password:true,
+        password: true,
         phone: true,
         createdAt: true,
         schemes: {
