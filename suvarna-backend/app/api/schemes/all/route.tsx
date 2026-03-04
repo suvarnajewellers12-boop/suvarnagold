@@ -43,7 +43,8 @@ export async function GET(req: Request) {
     }
 
     // 🔐 Allow only SuperAdmin (you can expand later)
-    if (decoded.role !== "SUPER_ADMIN") {
+    console.log("Decoded token in GET schemes:", decoded);
+    if (decoded.role === "ADMIN" || decoded.role === "SUPER_ADMIN") {
       return new NextResponse(
         JSON.stringify({ error: "Forbidden" }),
         { status: 403, headers: corsHeaders() }

@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     }
 
     // 🔐 Role Check (match your system)
-    if (decoded.role !== "SUPER_ADMIN") {
+    if (decoded.role === "ADMIN" || decoded.role === "SUPER_ADMIN") {
       return new NextResponse(
         JSON.stringify({ error: "Forbidden: Only Super Admin can create schemes" }),
         { status: 403, headers: corsHeaders() }
