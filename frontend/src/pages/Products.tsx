@@ -56,7 +56,7 @@ const Products = () => {
   const [barcodeModal, setBarcodeModal] = useState<{
     image: string;
     productId: string;
-    uniqueCode: string;
+    sku: string;
   } | null>(null);
 
   const [showForm, setShowForm] = useState(false);
@@ -96,9 +96,11 @@ const Products = () => {
   }, []);
 
   // ================= SHOW BARCODE =================
-  const handleShowBarcode = async (uniqueCode: string, productId: string) => {
+  const handleShowBarcode = async (sku: string, productId: string) => {
+
+    console.log("Fetching barcode for SKU:", sku);
     const res = await fetch(
-      `https://suvarnagold-16e5.vercel.app/api/products/barcode/${uniqueCode}`,
+      `https://suvarnagold-16e5.vercel.app/api/products/barcode/${sku}`,
       {
         headers: { Authorization: `Bearer ${token}` },
       }
@@ -110,7 +112,7 @@ const Products = () => {
       setBarcodeModal({
         image: data.barcodeImage,
         productId,
-        uniqueCode,
+        sku,
       });
     } else {
       alert(data.error);
@@ -175,13 +177,8 @@ const Products = () => {
               <img
                 src={barcodeModal.image}
                 alt="Barcode"
-<<<<<<< HEAD
               className="mx-auto object-contain"
                 style={{ maxWidth: "400px" }}  />
-=======
-                className="mx-auto object-contain"
-                style={{ maxWidth: "320px" }} />
->>>>>>> 29dd201654bd99edfa53e6604407f90c9fbc23ea
 
               {/* 🔥 PRODUCT ID BELOW BARCODE */}
               <div className="text-sm text-gray-600 mt-2">

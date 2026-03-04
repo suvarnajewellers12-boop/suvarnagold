@@ -134,8 +134,8 @@ export const ProductCard = ({
                 variant="outline"
                 size="icon"
                 onClick={() => {
-                  console.log("QR button clicked", product.uniqueCode);
-                  onShowQR?.(product.uniqueCode); // ✅ only UUID
+                  console.log("QR button clicked", product.sku);
+                  onShowQR?.(product.sku); // ✅ only UUID
                 }}              >
                 <QrCode className="w-5 h-5 text-primary" />
               </Button>
