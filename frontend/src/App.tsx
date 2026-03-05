@@ -14,6 +14,8 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import SuperAdminCreateScheme from "./pages/admin/AdminCreateSchemes";
+import GoldJobWorkPage from "./pages/GoldJobWorkPage";
+import GoldPurchasePage from "./pages/GoldPurchasePage";
 
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -48,7 +50,9 @@ const App = () => (
           <Route path="/dashboard/create-scheme" element={<AdminSchemesView />} />
           <Route path="/dashboard/customers" element={<CustomerManagement />} />
           <Route path="/dashboard/staff" element={<StaffManagement />} />
-             
+          <Route path="/dashboard/jobwork" element={<GoldJobWorkPage />} />
+          <Route path="/dashboard/gold-purchase" element={<GoldPurchasePage />} />
+
           {/* Admin Routes */}
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/admin/products" element={<AdminProducts />} />

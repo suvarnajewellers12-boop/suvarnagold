@@ -36,6 +36,8 @@ const menuItems = [
   { title: "Customer Management", url: "/dashboard/customers", icon: Users },
   {title:"Staff Management",url:"/dashboard/staff",icon:Users},
   { title: "Products", url: "/dashboard/products", icon: Package },
+  {title:"Job Work",url:"/dashboard/jobwork",icon:Package},
+  {title:"Gold Purchase",url:"/dashboard/gold-purchase",icon:Package},
   // { title: "Store", url: "/dashboard/store", icon: Store },
   { title: "Billing", url: "/dashboard/billing", icon: Receipt },
   { title: "Reports", url: "/dashboard/reports", icon: FileText },
