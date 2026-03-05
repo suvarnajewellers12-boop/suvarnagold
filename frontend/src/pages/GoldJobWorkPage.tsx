@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
-import { Hammer, Loader2, Calendar, Factory, Scale, Info, RefreshCw, Clock, IndianRupee } from "lucide-react";
+import { Hammer, Loader2, Calendar, Factory, Scale, Info, RefreshCw, Clock, CheckCircle2, IndianRupee } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ================= CACHE CONFIGURATION =================
@@ -47,7 +47,7 @@ export default function GoldJobWorkPage() {
     notes: ""
   });
 
-  // ================= FETCH WITH CACHE =================
+  // ================= FETCH WITH CORRECT KEY MAPPING =================
   const fetchJobWorks = async (forceRefresh = false) => {
     if (!forceRefresh && jobWorkCache !== null) {
       setJobWorks(jobWorkCache);
@@ -61,9 +61,12 @@ export default function GoldJobWorkPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      const fetchedData = data.jobWorks || [];
+      
+      // 🔥 FIX: Mapping 'jobworks' from your API response
+      const fetchedData = data.jobworks || []; 
+      
       setJobWorks(fetchedData);
-      jobWorkCache = fetchedData; // Sync global cache
+      jobWorkCache = fetchedData; 
     } catch (error) {
       console.error("Fetch Error:", error);
     } finally {
@@ -108,7 +111,7 @@ export default function GoldJobWorkPage() {
           dateGiven: new Date().toISOString().split("T")[0],
           notes: ""
         });
-        await fetchJobWorks(true); // Force refresh cache
+        await fetchJobWorks(true); 
       }
     } catch {
       setToastMessage("Failed to record job work");
@@ -124,11 +127,10 @@ export default function GoldJobWorkPage() {
         <DashboardSidebar />
 
         <main className="flex-1 flex flex-col h-screen overflow-hidden">
-          {/* Header */}
           <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gold/10 px-8 py-6 flex justify-between items-center">
             <div>
               <h1 className="text-3xl font-serif font-bold tracking-tight text-slate-900">Manufacturing Vault</h1>
-              <p className="text-sm text-slate-500 italic flex items-center gap-2">
+              <p className="text-sm text-muted-foreground italic flex items-center gap-2">
                 <Clock className="w-3 h-3 text-gold" /> Track gold processing & job work
               </p>
             </div>
@@ -160,20 +162,31 @@ export default function GoldJobWorkPage() {
                   ) : jobWorks.length > 0 ? (
                     jobWorks.map((job) => (
                       <div key={job.id} className="group p-5 border border-gold/10 rounded-2xl bg-white hover:border-gold/30 hover:shadow-md transition-all flex justify-between items-center">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-full bg-gold/5 flex items-center justify-center text-gold">
-                            <Factory className="w-6 h-6" />
+                        <div className="flex items-center gap-4 text-left">
+                          <div className={cn(
+                            "w-12 h-12 rounded-full flex items-center justify-center transition-colors",
+                            job.status === "DELIVERED" ? "bg-blue-50 text-blue-600" : "bg-gold/5 text-gold"
+                          )}>
+                            {job.status === "DELIVERED" ? <CheckCircle2 className="w-6 h-6" /> : <Factory className="w-6 h-6" />}
                           </div>
                           <div>
                             <p className="font-serif font-bold text-slate-800 uppercase tracking-tight">{job.companyName}</p>
+                            <p className="text-[10px] font-bold text-gold uppercase mb-1">{job.productType}</p>
                             <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                               <Calendar className="w-3 h-3" /> {new Date(job.dateGiven).toLocaleDateString("en-GB")}
                             </p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-bold text-slate-900">{job.goldGivenGrams}g <span className="text-[10px] text-gold uppercase">{job.goldGivenType}</span></p>
-                          <Badge variant="outline" className="text-[9px] uppercase border-emerald-100 text-emerald-600 bg-emerald-50">In Progress</Badge>
+                          <p className="text-sm font-bold text-slate-900">{job.goldGivenGrams}g <span className="text-[10px] text-slate-400 uppercase font-medium">{job.goldGivenType}</span></p>
+                          <span className={cn(
+                            "inline-block px-2.5 py-0.5 rounded-full font-bold text-[9px] uppercase mt-2 border",
+                            job.status === "DELIVERED" 
+                                ? "border-blue-100 text-blue-600 bg-blue-50" 
+                                : "border-amber-100 text-amber-600 bg-amber-50"
+                          )}>
+                             {job.status === "DELIVERED" ? "Delivered" : "Pending"}
+                          </span>
                         </div>
                       </div>
                     ))
@@ -194,10 +207,10 @@ export default function GoldJobWorkPage() {
                   <div className="p-2 bg-gold/10 rounded-xl">
                     <Hammer className="w-6 h-6 text-gold" />
                   </div>
-                  <h2 className="text-xl font-serif font-bold text-slate-900">Dispatch Gold</h2>
+                  <h2 className="text-xl font-serif font-bold text-slate-900 text-left">Dispatch Gold</h2>
                 </div>
                 
-                <form onSubmit={handleSubmit} className="space-y-5">
+                <form onSubmit={handleSubmit} className="space-y-5 text-left">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Manufacturing Partner</label>
                     <div className="relative">
@@ -268,7 +281,7 @@ export default function GoldJobWorkPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Date Sent</label>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1 text-left block">Date Sent</label>
                     <Input
                       type="date"
                       className="h-12 border-gold/10"
@@ -279,11 +292,11 @@ export default function GoldJobWorkPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Special Instructions</label>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1 text-left block">Special Instructions</label>
                     <div className="relative">
                       <Info className="absolute left-3 top-3 w-4 h-4 text-gold/50" />
                       <textarea
-                        className="w-full min-h-[100px] border border-gold/10 rounded-xl p-3 pl-10 text-sm focus:ring-1 focus:ring-gold outline-none"
+                        className="w-full min-h-[80px] border border-gold/10 rounded-xl p-3 pl-10 text-sm focus:ring-1 focus:ring-gold outline-none"
                         placeholder="Add notes..."
                         value={form.notes}
                         onChange={(e) => handleChange("notes", e.target.value)}
@@ -298,7 +311,6 @@ export default function GoldJobWorkPage() {
                     variant="gold"
                     className="w-full h-14 text-lg font-serif font-bold shadow-xl hover:scale-[1.01] transition-transform"
                     disabled={isSubmitting}
-                    onClick={handleSubmit}
                   >
                     {isSubmitting ? (
                       <span className="flex items-center gap-2">
@@ -322,13 +334,4 @@ export default function GoldJobWorkPage() {
       />
     </SidebarProvider>
   );
-}
-
-// Utility component for status badge
-function Badge({ children, className, variant }: { children: React.ReactNode, className?: string, variant?: string }) {
-  return (
-    <span className={cn("px-2.5 py-0.5 rounded-full font-bold text-[10px]", className)}>
-      {children}
-    </span>
-  )
 }
