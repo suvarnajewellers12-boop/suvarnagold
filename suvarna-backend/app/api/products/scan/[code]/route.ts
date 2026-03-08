@@ -29,7 +29,7 @@ export async function GET(
   }
 
   const product = await prisma.product.findUnique({
-    where: { uniqueCode: code },
+    where: { sku: code },
   });
 
   if (!product) {
