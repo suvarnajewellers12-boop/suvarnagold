@@ -37,7 +37,7 @@ export async function GET(req: Request) {
       where: {
         isSold: false,
         OR: orConditions,
-      },
+      },  
       take: 100,
       orderBy: { createdAt: "desc" },
     });

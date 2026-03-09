@@ -56,7 +56,7 @@ const CustomerSkeleton = () => (
   </div>
 );
 
-const CustomerManagement = () => {
+const SuperadminCustomerManagement = () => {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
   const [customers, setCustomers] = useState<any[]>([]);
@@ -416,4 +416,4 @@ const CustomerManagement = () => {
   );
 };
 
-export default CustomerManagement;
+export default SuperadminCustomerManagement;

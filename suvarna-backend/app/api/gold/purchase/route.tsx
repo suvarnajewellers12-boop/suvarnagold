@@ -36,8 +36,7 @@ export async function POST(req: Request) {
       return new NextResponse(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: corsHeaders(),
-      });
-    }
+      });    }
 
     const body = await req.json();
 

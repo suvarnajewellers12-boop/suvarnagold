@@ -1,115 +1,144 @@
-import { useState, useMemo } from "react";
+"use client";
+
+import { useState, useMemo, useEffect } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { DashboardSidebar } from "@/components/DashboardSidebar"; // SuperAdmin Sidebar
+import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
 import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { FileText, Download, Calendar, TrendingUp, BarChart3, PieChart, User, Info, Phone, Receipt } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart as RechartsPieChart, Pie, Cell } from "recharts";
+import { FileText, Download, Calendar, User, Info, Phone, Receipt, Hash, Scale, IndianRupee, RefreshCcw } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
+import { cn } from "@/lib/utils";
 
-// --- DUMMY DATA GENERATOR (SuperAdmin Context) ---
-const generateSuperAdminPurchases = () => {
-  const categories = ["Gold", "Silver", "Platinum"];
-  const names = ["Aravind Sharma", "Priya Patel", "Rahul Verma", "Sneha Reddy", "Vikram Singh", "Ananya Iyer", "Karan Malhotra", "Meera Joshi"];
-  const products = ["Traditional Necklace", "Engagement Ring", "Diamond Studs", "Gold Bangle", "Silver Anklet", "Platinum Band"];
-  const purchases = [];
-  const now = new Date();
-
-  for (let i = 0; i < 60; i++) {
-    const date = new Date();
-    date.setDate(now.getDate() - Math.floor(Math.random() * 60));
-    const subtotal = Math.floor(Math.random() * 80000) + 10000;
-    const discount = Math.floor(subtotal * 0.1);
-    const gst = Math.floor((subtotal - discount) * 0.03);
-
-    purchases.push({
-      id: `TXN-${7000 + i}`,
-      date: date,
-      product: products[Math.floor(Math.random() * products.length)],
-      subtotal: subtotal,
-      discount: discount,
-      gst: gst,
-      total: subtotal - discount + gst,
-      category: categories[Math.floor(Math.random() * categories.length)],
-      customer: names[Math.floor(Math.random() * names.length)],
-      phone: `+91 98${Math.floor(Math.random() * 89999999 + 10000000)}`
-    });
-  }
-  return purchases;
-};
-
-const ALL_PURCHASES = generateSuperAdminPurchases();
+// ================= CACHE CONFIGURATION =================
+// Declared outside to persist during the entire browser session until reload
+let reportsCache: any[] | null = null;
 
 const Reports = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "quarter" | "half-year" | "year">("month");
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [ALL_PURCHASES, setPurchases] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // 1. DYNAMIC FILTERING
+  // ================= FETCH WITH CACHE LOGIC =================
+  const fetchReports = async (forceRefresh = false) => {
+    // 1. Check if we have valid cached data and aren't forcing a refresh
+    if (!forceRefresh && reportsCache !== null) {
+      setPurchases(reportsCache);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      // Updated to your Vercel URL for consistency with other modules
+      const res = await fetch("http://localhost:3000/api/reports/purchases", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const data = await res.json();
+      const formatted = (data.purchases || []).map((p: any) => ({
+        ...p,
+        date: new Date(p.date),
+        grams: p.grams ? Number(p.grams) : 0
+      }));
+
+      // 2. Update state AND global memory cache
+      setPurchases(formatted);
+      reportsCache = formatted;
+    } catch (error) {
+      console.error("Reports fetch error:", error);
+      setToastMessage("Failed to sync analytics");
+      setShowToast(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchReports();
+  }, []);
+
+  // 🔹 USEMEMO: FILTERED DATA
   const filteredData = useMemo(() => {
     const now = new Date();
     return ALL_PURCHASES.filter((item) => {
-      const itemDate = new Date(item.date);
+      const itemDate = item.date;
       if (timeRange === "day") return itemDate.toDateString() === now.toDateString();
       if (timeRange === "week") return itemDate >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       if (timeRange === "month") return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
-      if (timeRange === "quarter") return itemDate >= new Date(now.setMonth(now.getMonth() - 3));
-      if (timeRange === "half-year") return itemDate >= new Date(now.setMonth(now.getMonth() - 6));
+      if (timeRange === "quarter") return itemDate >= new Date(new Date().setMonth(now.getMonth() - 3));
+      if (timeRange === "half-year") return itemDate >= new Date(new Date().setMonth(now.getMonth() - 6));
       if (timeRange === "year") return itemDate.getFullYear() === now.getFullYear();
       return true;
     });
-  }, [timeRange]);
+  }, [timeRange, ALL_PURCHASES]);
 
-  // 2. CHRONOLOGICAL CHART DATA
+  // 🔹 USEMEMO: CHART DATA
   const chartData = useMemo(() => {
     const sorted = [...filteredData].sort((a, b) => a.date.getTime() - b.date.getTime());
-    const groups = sorted.reduce((acc: any, curr) => {
-      const label = curr.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      acc[label] = (acc[label] || 0) + curr.total;
-      return acc;
-    }, {});
-    return Object.keys(groups).map(key => ({ label: key, sales: groups[key] }));
+    const groups: Record<string, number> = {};
+    
+    sorted.forEach((curr) => {
+      const label = curr.date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      groups[label] = (groups[label] || 0) + curr.total;
+    });
+
+    return Object.keys(groups).map((key) => ({ 
+      label: key, 
+      sales: groups[key] 
+    }));
   }, [filteredData]);
 
   const tableData = useMemo(() => {
     return [...filteredData].sort((a, b) => b.date.getTime() - a.date.getTime());
   }, [filteredData]);
 
-  // --- EXPORT FUNCTIONS ---
+  // 🔹 EXPORTS
   const exportToExcel = () => {
-    const excelData = filteredData.map(d => ({
+    const excelData = filteredData.map((d) => ({
       "Transaction ID": d.id,
-      "Customer": d.customer,
-      "Product": d.product,
-      "Category": d.category,
-      "Date": d.date.toLocaleDateString(),
-      "Total Amount": d.total
+      Customer: d.customer,
+      Product: d.product,
+      Grams: d.grams,
+      Category: d.category,
+      Date: d.date.toLocaleDateString(),
+      Total: d.total,
     }));
     const worksheet = XLSX.utils.json_to_sheet(excelData);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "SuperAdmin_Report");
-    XLSX.writeFile(workbook, `SuperAdmin_Report_${timeRange}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
+    XLSX.writeFile(workbook, `Suvarna_Analytics_${timeRange}.xlsx`);
     setToastMessage("Excel Export Successful!");
     setShowToast(true);
   };
 
   const exportToPDF = () => {
     const doc = new jsPDF();
-    doc.text(`SuperAdmin Intelligence Report - ${timeRange.toUpperCase()}`, 14, 15);
+    doc.text(`Suvarna Jewellery Report - ${timeRange.toUpperCase()}`, 14, 15);
     autoTable(doc, {
       startY: 25,
-      head: [["ID", "Customer", "Product", "Total", "Date"]],
-      body: tableData.map(d => [d.id, d.customer, d.product, `Rs.${d.total.toLocaleString()}`, d.date.toLocaleDateString()]),
-      headStyles: { fillColor: [184, 134, 11] }
+      head: [["ID", "Customer", "Product", "Grams", "Total", "Date"]],
+      body: tableData.map((d) => [
+        d.id.substring(0, 8),
+        d.customer,
+        d.product,
+        `${d.grams}g`,
+        `₹${d.total.toLocaleString()}`,
+        d.date.toLocaleDateString(),
+      ]),
+      headStyles: { fillColor: [184, 134, 11] },
     });
-    doc.save(`SuperAdmin_Report_${timeRange}.pdf`);
+    doc.save(`Suvarna_Report_${timeRange}.pdf`);
     setToastMessage("PDF Export Successful!");
     setShowToast(true);
   };
@@ -118,138 +147,143 @@ const Reports = () => {
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background overflow-hidden">
         <DashboardSidebar />
-        
-        <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {/* STICKY HEADER */}
-          <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-md border-b border-border px-6 py-4">
+        <main className="flex-1 flex flex-col min-w-0 overflow-hidden text-left">
+          <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-md border-b border-border px-8 py-6">
             <div className="flex items-center justify-between">
               <div>
-                <h1 className="text-2xl font-serif font-bold text-foreground tracking-tight">SuperAdmin Intelligence</h1>
-                <p className="text-sm text-muted-foreground">High-level oversight and global performance metrics</p>
+                <h1 className="text-3xl font-serif font-bold tracking-tight">Sales Intelligence</h1>
+                <p className="text-sm text-muted-foreground font-medium flex items-center gap-2 mt-1">
+                   Suvarna Jewellers Global Analytics
+                </p>
               </div>
-              <div className="flex items-center gap-3">
-                <Button variant="gold-outline" onClick={exportToExcel}>
-                  <Download className="w-4 h-4 mr-2" />
-                  Excel
+              <div className="flex gap-3">
+                <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={() => fetchReports(true)}
+                    className="h-11 w-11 rounded-xl border-gold/20 text-gold"
+                >
+                    <RefreshCcw className={cn("w-5 h-5", isLoading && "animate-spin")} />
                 </Button>
-                <Button variant="gold" onClick={exportToPDF}>
-                  <FileText className="w-4 h-4 mr-2" />
-                  PDF
-                </Button>
+                <Button variant="gold-outline" className="rounded-xl h-11 px-6 border-gold/30 text-gold" onClick={exportToExcel}><Download className="w-4 h-4 mr-2" /> Excel</Button>
+                <Button variant="gold" className="rounded-xl h-11 px-6 shadow-lg" onClick={exportToPDF}><FileText className="w-4 h-4 mr-2" /> PDF</Button>
               </div>
             </div>
           </header>
 
-          {/* SCROLLABLE AREA */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-            
-            {/* Filter Controls */}
-            <div className="flex flex-wrap items-center gap-3 bg-muted/20 p-3 rounded-xl border border-border/50">
-              <Calendar className="w-4 h-4 text-primary" />
-              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground mr-2">Timeframe:</span>
+          <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+            <div className="flex flex-wrap items-center gap-2 bg-muted/30 p-2 rounded-2xl border border-border/50 w-fit">
+              <Calendar className="w-4 h-4 text-primary ml-2 mr-1" />
               {(["day", "week", "month", "quarter", "half-year", "year"] as const).map((range) => (
-                <Button
-                  key={range}
-                  variant={timeRange === range ? "gold" : "ghost"}
-                  size="sm"
+                <Button 
+                  key={range} 
+                  variant={timeRange === range ? "gold" : "ghost"} 
+                  size="sm" 
+                  className={cn("capitalize rounded-xl px-5 h-8 font-bold text-[10px] tracking-widest", timeRange === range ? "shadow-md" : "")}
                   onClick={() => setTimeRange(range)}
-                  className={`capitalize text-xs font-bold ${timeRange === range ? "shadow-md" : ""}`}
                 >
-                  {range.replace("-", " ")}
+                  {range}
                 </Button>
               ))}
             </div>
 
             <GoldDivider />
 
-            {/* CUSTOMER LEDGER (SuperAdmin View) */}
-            <LuxuryCard>
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <User className="text-primary w-5 h-5" />
-                  <h3 className="font-serif font-bold text-xl tracking-tight">Purchase Registry</h3>
-                </div>
-                <div className="text-xs font-black text-primary bg-primary/10 px-3 py-1 rounded-full uppercase">
-                   {filteredData.length} Entries
+            {/* PURCHASE REGISTRY TABLE */}
+            <LuxuryCard className="p-0 border-gold/5 shadow-none overflow-hidden bg-white">
+              <div className="flex justify-between items-center p-8 bg-slate-50/50 border-b border-gold/5">
+                <h3 className="font-serif font-bold text-xl">Purchase Registry</h3>
+                <div className="text-[10px] font-bold bg-primary/10 text-primary px-4 py-1.5 rounded-full uppercase tracking-widest border border-primary/20">
+                  {filteredData.length} Records In Scope
                 </div>
               </div>
-              <div className="border rounded-2xl overflow-hidden bg-card/50">
-                <div className="max-h-[400px] overflow-y-auto overflow-x-auto">
-                  <Table>
-                    <TableHeader className="sticky top-0 bg-card z-10">
-                      <TableRow className="border-b border-border/50">
-                        <TableHead className="font-bold text-xs">TXN ID</TableHead>
-                        <TableHead className="font-bold text-xs">Customer</TableHead>
-                        <TableHead className="font-bold text-xs">Category</TableHead>
-                        <TableHead className="font-bold text-xs text-right">Revenue</TableHead>
-                        <TableHead className="w-[50px]"></TableHead>
+
+              <div className="max-h-[450px] overflow-auto px-4 pb-4 custom-scrollbar">
+                <Table>
+                  <TableHeader className="bg-transparent sticky top-0 bg-white z-10">
+                    <TableRow className="border-b-2 border-gold/10 hover:bg-transparent">
+                      <TableHead className="uppercase text-[10px] font-black tracking-widest">Transaction</TableHead>
+                      <TableHead className="uppercase text-[10px] font-black tracking-widest">Customer Profile</TableHead>
+                      <TableHead className="uppercase text-[10px] font-black tracking-widest">Category</TableHead>
+                      <TableHead className="text-right uppercase text-[10px] font-black tracking-widest">Revenue</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {isLoading ? (
+                         Array.from({ length: 5 }).map((_, i) => (
+                            <TableRow key={i} className="animate-pulse">
+                                <TableCell><div className="h-4 w-16 bg-slate-100 rounded" /></TableCell>
+                                <TableCell><div className="h-4 w-32 bg-slate-100 rounded" /></TableCell>
+                                <TableCell><div className="h-4 w-20 bg-slate-100 rounded" /></TableCell>
+                                <TableCell><div className="h-4 w-12 bg-slate-100 rounded ml-auto" /></TableCell>
+                            </TableRow>
+                         ))
+                    ) : tableData.map((row, idx) => (
+                      <TableRow
+                        key={`${row.id}-${idx}`}
+                        onClick={() => setSelectedCustomer(row)}
+                        className="cursor-pointer hover:bg-primary/[0.03] transition-all group border-gold/5"
+                      >
+                        <TableCell className="font-mono text-[10px] text-muted-foreground group-hover:text-primary">
+                          #{row.id.slice(-8).toUpperCase()}
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-bold text-sm text-slate-800">{row.customer}</div>
+                          <div className="text-[10px] text-muted-foreground font-medium flex items-center gap-1"><Phone className="w-2.5 h-2.5" /> {row.phone}</div>
+                        </TableCell>
+                        <TableCell>
+                          <span className={cn(
+                            "px-3 py-1 rounded-full text-[9px] font-bold uppercase border",
+                            row.category === 'gold' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-700'
+                          )}>
+                            {row.category}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right font-serif font-black text-amber-700 text-base">
+                          ₹{row.total.toLocaleString()}
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {tableData.map((row) => (
-                        <TableRow 
-                          key={row.id} 
-                          className="cursor-pointer hover:bg-primary/5 group border-b border-border/30 last:border-0"
-                          onClick={() => setSelectedCustomer(row)}
-                        >
-                          <TableCell className="font-mono text-[10px] text-muted-foreground">{row.id}</TableCell>
-                          <TableCell>
-                            <div className="font-bold text-sm group-hover:text-primary transition-colors">{row.customer}</div>
-                            <div className="text-[10px] text-muted-foreground font-medium">{row.phone}</div>
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-[9px] px-2 py-0.5 rounded-md border border-primary/20 font-black uppercase tracking-widest bg-primary/5">
-                              {row.category}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right font-black text-foreground">₹{row.total.toLocaleString()}</TableCell>
-                          <TableCell><Info className="w-4 h-4 text-muted-foreground/50 group-hover:text-primary transition-opacity" /></TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             </LuxuryCard>
 
-            {/* CHARTS SECTION */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
-              <LuxuryCard>
-                <div className="flex items-center gap-3 mb-6">
-                  <BarChart3 className="w-6 h-6 text-primary" />
-                  <h3 className="font-serif font-bold text-xl">Revenue Flow</h3>
-                </div>
-                <div className="h-72">
+            {/* CHARTS */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-12">
+              <LuxuryCard title="Revenue Stream" className="p-8">
+                <div className="h-72 mt-6">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                      <XAxis dataKey="label" fontSize={10} tickLine={false} axisLine={false} />
-                      <YAxis fontSize={10} tickFormatter={(v) => `₹${v/1000}k`} tickLine={false} axisLine={false} />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
+                      <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} />
+                      <YAxis fontSize={10} axisLine={false} tickLine={false} />
                       <Tooltip 
-                        contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "12px" }}
-                        formatter={(v: any) => [`₹${v.toLocaleString()}`, "Revenue"]} 
+                        cursor={{ fill: 'rgba(212, 175, 55, 0.05)' }} 
+                        contentStyle={{ borderRadius: '12px', border: '1px solid #d4af37', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} 
                       />
-                      <Bar dataKey="sales" fill="hsl(38, 92%, 50%)" radius={[6, 6, 0, 0]} barSize={35} />
+                      <Bar dataKey="sales" fill="#d4af37" radius={[6, 6, 0, 0]} barSize={30} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </LuxuryCard>
-
-              <LuxuryCard>
-                <div className="flex items-center gap-3 mb-6">
-                  <TrendingUp className="w-6 h-6 text-primary" />
-                  <h3 className="font-serif font-bold text-xl">Operational Trend</h3>
-                </div>
-                <div className="h-72">
+              
+              <LuxuryCard title="Sales Velocity" className="p-8">
+                <div className="h-72 mt-6">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                      <XAxis dataKey="label" fontSize={10} tickLine={false} axisLine={false} />
-                      <YAxis fontSize={10} tickFormatter={(v) => `₹${v/1000}k`} tickLine={false} axisLine={false} />
-                      <Tooltip 
-                         contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "12px" }}
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
+                      <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} />
+                      <YAxis fontSize={10} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #d4af37' }} />
+                      <Line 
+                        type="monotone" 
+                        dataKey="sales" 
+                        stroke="#d4af37" 
+                        strokeWidth={4} 
+                        dot={{ fill: '#d4af37', r: 5, strokeWidth: 2, stroke: '#fff' }} 
+                        activeDot={{ r: 8, strokeWidth: 0 }} 
                       />
-                      <Line type="monotone" dataKey="sales" stroke="hsl(38, 92%, 50%)" strokeWidth={3} dot={{ fill: "hsl(38, 92%, 50%)", r: 4 }} activeDot={{ r: 6 }} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -257,49 +291,73 @@ const Reports = () => {
             </div>
           </div>
         </main>
+      </div>
 
-        {/* CUSTOMER DETAIL MODAL */}
-        <Dialog open={!!selectedCustomer} onOpenChange={() => setSelectedCustomer(null)}>
-          <DialogContent className="sm:max-w-[425px] border-gold bg-card backdrop-blur-xl">
-            <DialogHeader className="border-b border-border pb-4">
-              <DialogTitle className="font-serif text-2xl tracking-tight">SuperAdmin View: Ledger Entry</DialogTitle>
-              <DialogDescription className="text-[10px] uppercase font-black tracking-[0.2em] text-primary pt-1">
-                TRANSACTION REF: {selectedCustomer?.id}
-              </DialogDescription>
-            </DialogHeader>
-            {selectedCustomer && (
-              <div className="space-y-6 pt-6">
-                <div className="flex items-start gap-4 p-4 bg-muted/30 rounded-2xl border border-border/50">
-                  <div className="p-3 bg-card rounded-full shadow-sm ring-1 ring-primary/20"><User className="w-5 h-5 text-primary" /></div>
+      {/* DETAIL MODAL */}
+      <Dialog open={!!selectedCustomer} onOpenChange={() => setSelectedCustomer(null)}>
+        <DialogContent className="max-w-md border-gold/30 bg-white rounded-[2rem] p-0 overflow-hidden shadow-2xl">
+          <DialogHeader className="p-8 bg-slate-900 text-white border-b border-white/10 shrink-0">
+            <div className="flex items-center gap-3 text-amber-400 mb-2">
+              <Receipt className="w-6 h-6" />
+              <span className="text-[10px] font-black uppercase tracking-[0.2em]">Procurement Record</span>
+            </div>
+            <DialogTitle className="font-serif text-3xl font-bold">Transaction Details</DialogTitle>
+            <DialogDescription className="font-mono text-[10px] text-slate-400 truncate opacity-70">TXID: {selectedCustomer?.id}</DialogDescription>
+          </DialogHeader>
+
+          {selectedCustomer && (
+            <div className="p-8 space-y-8 text-left">
+              <div className="bg-slate-50 p-6 rounded-2xl border border-gold/10 space-y-4">
+                <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="font-black text-foreground">{selectedCustomer.customer}</h4>
-                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Phone className="w-3 h-3" /> {selectedCustomer.phone}</p>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Client Identity</label>
+                    <p className="font-serif font-black text-xl text-slate-900 mt-1 uppercase tracking-tight">{selectedCustomer.customer}</p>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-1 font-bold"><Phone className="w-3.5 h-3.5 text-gold" /> {selectedCustomer.phone}</p>
+                  </div>
+                  <div className="text-right">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Processed On</label>
+                    <p className="text-xs font-bold text-slate-900 mt-1">{selectedCustomer.date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                    <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tighter">{selectedCustomer.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                   </div>
                 </div>
+              </div>
 
-                <div className="space-y-3 px-1">
-                  <div className="flex justify-between text-sm"><span className="text-muted-foreground font-medium">Product Group</span><span className="font-bold">{selectedCustomer.product}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-muted-foreground font-medium">Subtotal</span><span className="font-bold">₹{selectedCustomer.subtotal.toLocaleString()}</span></div>
-                  <div className="flex justify-between text-sm text-red-500 font-medium"><span>Global Discount</span><span>-₹{selectedCustomer.discount.toLocaleString()}</span></div>
-                  <div className="flex justify-between text-sm text-green-600 font-medium"><span>Tax (GST)</span><span>+₹{selectedCustomer.gst.toLocaleString()}</span></div>
-                </div>
-
-                <div className="flex justify-between items-center p-5 bg-primary text-white rounded-2xl shadow-lg ring-4 ring-primary/10">
-                  <div className="flex items-center gap-3">
-                    <Receipt className="w-6 h-6" />
-                    <span className="font-black uppercase tracking-wider text-[10px]">Net Settlement</span>
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black uppercase flex items-center gap-3 text-gold">
+                  <div className="h-[1px] flex-1 bg-gold/10" /> Asset Valuation <div className="h-[1px] flex-1 bg-gold/10" />
+                </h4>
+                <div className="bg-white rounded-2xl border border-gold/10 overflow-hidden shadow-sm">
+                  <div className="p-6 flex justify-between items-center">
+                    <div className="flex items-center gap-4">
+                      <div className="h-12 w-12 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600 border border-amber-100">
+                        <Scale className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <p className="font-black text-base uppercase text-slate-900 leading-tight">{selectedCustomer.product}</p>
+                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">{selectedCustomer.category} Collection</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-black text-amber-700 leading-tight">{selectedCustomer.grams}g</p>
+                      <p className="text-[9px] text-slate-400 uppercase font-bold tracking-tighter">Net Weight</p>
+                    </div>
                   </div>
-                  <span className="text-3xl font-serif font-black">₹{selectedCustomer.total.toLocaleString()}</span>
+                  <div className="bg-amber-600 p-5 flex justify-between items-center">
+                    <span className="text-[10px] font-black text-white/80 uppercase tracking-[0.1em]">Settlement Amount</span>
+                    <span className="font-serif font-black text-2xl text-white">₹{selectedCustomer.total.toLocaleString()}</span>
+                  </div>
                 </div>
-                
-                <Button className="w-full h-12 bg-muted text-foreground hover:bg-muted/80 rounded-xl font-bold transition-all" onClick={() => setSelectedCustomer(null)}>
-                  Dismiss Entry
+              </div>
+
+              <div className="pt-2">
+                <Button className="w-full bg-slate-900 text-white hover:bg-black h-14 rounded-2xl font-black tracking-[0.2em] text-xs uppercase shadow-xl" onClick={() => setSelectedCustomer(null)}>
+                  Secure Registry
                 </Button>
               </div>
-            )}
-          </DialogContent>
-        </Dialog>
-      </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <SuccessToast message={toastMessage} isVisible={showToast} onClose={() => setShowToast(false)} />
     </SidebarProvider>

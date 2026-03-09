@@ -8,10 +8,11 @@ datasource db {
 }
 
 model SuperAdmin {
-  id        String   @id @default(uuid())
-  username  String   @unique
+  id        String     @id @default(uuid())
+  username  String     @unique
   password  String
-  createdAt DateTime @default(now())
+  createdAt DateTime   @default(now())
+  purchases Purchase[]
 }
 
 model Admin {
@@ -87,7 +88,7 @@ model Product {
 }
 
 model Purchase {
-  id             String         @id @default(uuid())
+  id             String   @id @default(uuid())
   customerName   String
   totalAmount    Float
   gstAmount      Float
@@ -95,11 +96,16 @@ model Purchase {
   finalAmount    Float
   phoneNumber    String
   paymentId      String?
-  paymentStatus  String         @default("PENDING")
-  purchasedAt    DateTime       @default(now())
-  adminId        String
-  admin          Admin          @relation(fields: [adminId], references: [id])
-  items          PurchaseItem[]
+  paymentStatus  String   @default("PENDING")
+  purchasedAt    DateTime @default(now())
+
+  adminId String?
+  admin   Admin?  @relation(fields: [adminId], references: [id])
+
+  superAdminId String?
+  superAdmin   SuperAdmin? @relation(fields: [superAdminId], references: [id])
+
+  items PurchaseItem[]
 }
 
 model PurchaseItem {
