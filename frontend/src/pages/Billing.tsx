@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Badge } from "@/components/ui/badge";
-import { 
-  ShoppingCart, Lock, Trash2, Search, Plus, 
-  ChevronRight, X, Camera, User, Phone, 
+import {
+  ShoppingCart, Lock, Trash2, Search, Plus,
+  ChevronRight, X, Camera, User, Phone,
   Mail, MapPin, Landmark, ReceiptText, ArrowLeft
 } from "lucide-react";
 
@@ -23,14 +23,14 @@ const BillingPOS = () => {
   const [scanning, setScanning] = useState(false);
   const [isProcessingScan, setIsProcessingScan] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [checkoutStep, setCheckoutStep] = useState(1); 
+  const [checkoutStep, setCheckoutStep] = useState(1);
 
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "" });
   const [isDiscountUnlocked, setIsDiscountUnlocked] = useState(false);
   const [otp, setOtp] = useState("");
   const [coupon, setCoupon] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
-  
+
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
@@ -50,7 +50,7 @@ const BillingPOS = () => {
   const handleScan = async (result: any) => {
     if (isProcessingScan || !result?.[0]?.rawValue) return;
     setIsProcessingScan(true);
-    
+
     const scannedValue = String(result[0].rawValue);
     const productId = scannedValue.includes('/') ? scannedValue.split('/').pop() : scannedValue;
 
@@ -91,12 +91,136 @@ const BillingPOS = () => {
   };
 
   const removeItem = (id: string) => setCart(prev => prev.filter(item => item.id !== id));
-  
+
   // CALCULATIONS
   const subtotal = cart.reduce((acc, item) => acc + (item.cost * item.quantity), 0);
   const gst = subtotal * 0.18;
   const managerWaiver = isDiscountUnlocked ? subtotal * 0.05 : 0;
   const total = Math.max(0, subtotal + gst - managerWaiver - couponDiscount);
+
+  const handleCheckout = async () => {
+
+    if (cart.length === 0) {
+      setToastMessage("Cart is empty");
+      setShowToast(true);
+      return;
+    }
+
+    if (!customer.name || !customer.phone) {
+      setToastMessage("Customer details required");
+      setShowToast(true);
+      return;
+    }
+
+    try {
+
+      // STEP 1️⃣ Create Razorpay Order
+      const orderRes = await fetch(
+        "https://suvarnagold-16e5.vercel.app/api/payment/create-order",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            amount: total,
+            customerName: customer.name,
+            phoneNumber: customer.phone,
+          }),
+        }
+      );
+
+      const orderData = await orderRes.json();
+
+      const order = orderData.order;
+
+      // STEP 2️⃣ Open Razorpay Checkout
+
+      const options = {
+        key: "rzp_test_SQBmMDbmpm3m0D",
+        amount: order.amount,
+        currency: "INR",
+        name: "Suvarna Jewellery",
+        description: "Jewellery Purchase",
+        order_id: order.id,
+
+        handler: async function (response) {
+
+          // STEP 3️⃣ Verify Payment + Create Purchase
+
+          const verifyRes = await fetch(
+            "https://suvarnagold-16e5.vercel.app/api/payment/verify",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+
+                purchaseData: {
+                  customerName: customer.name,
+                  phoneNumber: customer.phone,
+                  totalAmount: subtotal,
+                  gstAmount: gst,
+                  discountAmount: managerWaiver + couponDiscount,
+                  finalAmount: total,
+
+                  items: cart.map((item) => ({
+                    productId: item.id,
+                    name: item.name,
+                    grams: item.grams,
+                    cost: item.cost,
+                  })),
+                },
+              }),
+            }
+          );
+
+          const verifyData = await verifyRes.json();
+
+          if (verifyData.success) {
+
+            setToastMessage("Payment Successful & Purchase Completed");
+            setShowToast(true);
+
+            setCart([]);
+            setCustomer({ name: "", phone: "", email: "", address: "" });
+
+          } else {
+
+            setToastMessage("Payment verification failed");
+            setShowToast(true);
+
+          }
+        },
+
+        prefill: {
+          name: customer.name,
+          contact: customer.phone,
+          email: customer.email,
+        },
+
+        theme: {
+          color: "#C6A25D",
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.open();
+
+    } catch (error) {
+
+      console.error(error);
+      setToastMessage("Payment initialization failed");
+      setShowToast(true);
+
+    }
+  };
 
   return (
     <SidebarProvider>
@@ -115,8 +239,8 @@ const BillingPOS = () => {
 
               <div className="relative w-full max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gold/40" />
-                <Input 
-                  placeholder="Search Design..." 
+                <Input
+                  placeholder="Search Design..."
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); fetchProducts(e.target.value); }}
                   onFocus={() => search && setShowDropdown(true)}
@@ -132,16 +256,16 @@ const BillingPOS = () => {
                         </div>
                         <div className="flex items-center gap-4">
                           <span className="text-xs font-serif font-bold text-slate-900 leading-none">₹{p.cost.toLocaleString()}</span>
-                          <Button 
+                          <Button
                             onClick={() => {
-                                if(!cart.some(item => String(item.id) === String(p.id))) {
-                                    setCart(prev => [...prev, { ...p, quantity: 1 }]);
-                                    setShowToast(true); setToastMessage(`${p.name} Added`);
-                                } else {
-                                    setToastMessage("Item already in vault"); setShowToast(true);
-                                }
-                                setSearch(""); setShowDropdown(false);
-                            }} 
+                              if (!cart.some(item => String(item.id) === String(p.id))) {
+                                setCart(prev => [...prev, { ...p, quantity: 1 }]);
+                                setShowToast(true); setToastMessage(`${p.name} Added`);
+                              } else {
+                                setToastMessage("Item already in vault"); setShowToast(true);
+                              }
+                              setSearch(""); setShowDropdown(false);
+                            }}
                             variant="gold" size="icon" className="h-7 w-7 rounded-lg active:scale-90 transition-transform"
                           >
                             <Plus size={14} />
@@ -154,17 +278,17 @@ const BillingPOS = () => {
               </div>
             </div>
 
-            <Button 
-              onClick={() => setScanning(!scanning)} 
-              variant={scanning ? "gold" : "outline"} 
+            <Button
+              onClick={() => setScanning(!scanning)}
+              variant={scanning ? "gold" : "outline"}
               className="h-10 rounded-lg border-gold/20 gap-2 px-6 text-[9px] font-bold uppercase tracking-[0.2em]"
             >
-              {scanning ? <X size={14}/> : <Camera size={14}/>} Scan QR
+              {scanning ? <X size={14} /> : <Camera size={14} />} Scan QR
             </Button>
           </header>
 
           <div className="flex-1 flex overflow-hidden w-full px-6 py-6 gap-6">
-            
+
             {/* LEFT: VAULT */}
             <div className="w-[62%] flex flex-col overflow-hidden relative">
               {scanning && (
@@ -217,7 +341,7 @@ const BillingPOS = () => {
             {/* RIGHT: BILLING & CHECKOUT */}
             <div className="w-[38%] flex flex-col overflow-hidden h-full">
               <LuxuryCard className="flex-1 flex flex-col p-6 bg-[#FDFCF9] border-gold/20 rounded-[2rem] shadow-xl border-t-8 border-t-gold overflow-hidden">
-                
+
                 {checkoutStep === 1 ? (
                   <div className="flex-1 flex flex-col animate-in slide-in-from-right duration-300">
                     <div className="flex items-center gap-3 border-b border-gold/10 pb-3 mb-6">
@@ -228,7 +352,7 @@ const BillingPOS = () => {
                     <div className="space-y-5 flex-1 overflow-y-auto pr-2 custom-scrollbar">
                       <div className="flex gap-2">
                         <Input placeholder="ADMIN OTP" value={otp} onChange={(e) => setOtp(e.target.value)} className="h-12 rounded-xl bg-white border-2 border-gold/10 text-center tracking-[0.4em] font-bold text-md" />
-                        <Button onClick={() => otp === "1234" ? setIsDiscountUnlocked(true) : null} variant="outline" className="rounded-xl border-2 border-gold/10 text-gold h-12 w-16"><Lock size={18}/></Button>
+                        <Button onClick={() => otp === "1234" ? setIsDiscountUnlocked(true) : null} variant="outline" className="rounded-xl border-2 border-gold/10 text-gold h-12 w-16"><Lock size={18} /></Button>
                       </div>
                       <div className="flex gap-2">
                         <Input placeholder="REWARD CODE" value={coupon} onChange={(e) => setCoupon(e.target.value)} className="h-12 rounded-xl bg-white border-2 border-dashed border-gold/10 text-center font-bold" />
@@ -241,7 +365,7 @@ const BillingPOS = () => {
                       <div className="space-y-3">
                         <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest"><span>Gross Value</span><span className="text-slate-900 font-serif text-lg">₹{subtotal.toLocaleString()}</span></div>
                         <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest"><span>Tax (GST 18%)</span><span className="text-slate-900 font-serif text-lg">₹{gst.toLocaleString()}</span></div>
-                        
+
                         {/* DISCOUNT REVEALS */}
                         {isDiscountUnlocked && (
                           <div className="flex justify-between text-[10px] font-bold text-emerald-600 uppercase italic bg-emerald-50 p-3 rounded-xl border border-emerald-100 animate-in fade-in">
@@ -261,10 +385,10 @@ const BillingPOS = () => {
                     <div className="pt-6 mt-4 border-t border-gold/10 shrink-0">
                       <p className="text-[11px] uppercase font-bold text-gold tracking-[0.5em] leading-none mb-2">Total Payable</p>
                       <p className="text-4xl font-serif font-bold text-slate-900 leading-none tracking-tight">₹{total.toLocaleString()}</p>
-                      <Button 
-                        disabled={cart.length === 0} 
-                        onClick={() => setCheckoutStep(2)} 
-                        variant="gold" 
+                      <Button
+                        disabled={cart.length === 0}
+                        onClick={() => setCheckoutStep(2)}
+                        variant="gold"
                         className="w-full h-10 rounded-[1.5rem] text-[11px] uppercase tracking-[0.6em] font-bold shadow-xl mt-4 group active:scale-75 transition-all"
                       >
                         Check out <ChevronRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
@@ -276,7 +400,7 @@ const BillingPOS = () => {
                     <button onClick={() => setCheckoutStep(1)} className="flex items-center gap-2 text-gold text-[10px] font-bold uppercase tracking-widest mb-6 hover:opacity-70 transition-all">
                       <ArrowLeft size={16} /> Return to Billing
                     </button>
-                    
+
                     <div className="flex items-center gap-4 border-b border-gold/10 pb-4 mb-6">
                       <User className="text-gold" size={20} />
                       <h3 className="font-serif font-bold text-lg text-slate-800">Customer Enrollment</h3>
@@ -285,27 +409,27 @@ const BillingPOS = () => {
                     <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
                       <div className="space-y-1">
                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Full Name</label>
-                        <Input placeholder="John Doe" value={customer.name} onChange={(e) => setCustomer({...customer, name: e.target.value})} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
+                        <Input placeholder="John Doe" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
                       </div>
                       <div className="space-y-1">
                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Contact Phone</label>
-                        <Input placeholder="+91 00000 00000" value={customer.phone} onChange={(e) => setCustomer({...customer, phone: e.target.value})} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
+                        <Input placeholder="+91 00000 00000" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
                       </div>
                       <div className="space-y-1">
                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Email Address</label>
-                        <Input placeholder="customer@heritage.com" value={customer.email} onChange={(e) => setCustomer({...customer, email: e.target.value})} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
+                        <Input placeholder="customer@heritage.com" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
                       </div>
                       <div className="space-y-1">
                         <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Residential Address</label>
-                        <textarea placeholder="..." rows={2} value={customer.address} onChange={(e) => setCustomer({...customer, address: e.target.value})} className="w-full p-4 rounded-xl bg-white border border-gold/10 text-sm resize-none outline-none focus:border-gold transition-colors" />
+                        <textarea placeholder="..." rows={2} value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} className="w-full p-4 rounded-xl bg-white border border-gold/10 text-sm resize-none outline-none focus:border-gold transition-colors" />
                       </div>
                     </div>
-
-                    <Button 
-                      variant="gold" 
+                    <Button
+                      onClick={handleCheckout}
+                      variant="gold"
                       className="w-full h-16 rounded-[1.5rem] text-[11px] uppercase tracking-[0.4em] font-bold shadow-xl mt-6 shrink-0 active:scale-95 transition-all"
                     >
-                      Confirm & Generate Invoice
+                      Checkout
                     </Button>
                   </div>
                 )}
