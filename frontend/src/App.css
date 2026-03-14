@@ -40,3 +40,37 @@
 .read-the-docs {
   color: #888;
 }
+
+.barcode-label{
+
+  width:80mm;
+  height:12mm;
+
+  margin-top:1mm;
+  margin-left:-7mm;
+
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+
+  background:white;
+}
+
+.barcode-image{
+
+  width:23mm;
+  height:8mm;
+
+  object-fit:contain;
+}
+
+.sku-text{
+
+  font-size:10px;
+  font-weight:bold;
+
+  margin-top:2px;
+  letter-spacing:1px;
+
+}

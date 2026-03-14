@@ -47,29 +47,28 @@ export async function POST(req: Request) {
       purchaseData
     } = body;
 
-    const secret = process.env.RAZORPAY_KEY_SECRET!;
-
+    // VERIFY PAYMENT SIGNATURE
     const generatedSignature = crypto
-      .createHmac("sha256", secret)
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
       .update(razorpay_order_id + "|" + razorpay_payment_id)
       .digest("hex");
 
     if (generatedSignature !== razorpay_signature) {
-
       return new NextResponse(
         JSON.stringify({ error: "Invalid payment signature" }),
         { status: 400, headers: corsHeaders() }
       );
-
     }
 
     const purchasePayload: any = {
       customerName: purchaseData.customerName,
       phoneNumber: purchaseData.phoneNumber,
+
       totalAmount: purchaseData.totalAmount,
       gstAmount: purchaseData.gstAmount,
       discountAmount: purchaseData.discountAmount,
       finalAmount: purchaseData.finalAmount,
+
       paymentStatus: "SUCCESS",
       paymentId: razorpay_payment_id,
     };
@@ -84,31 +83,36 @@ export async function POST(req: Request) {
 
     const purchase = await prisma.$transaction(async (tx) => {
 
+      // CREATE ONE PURCHASE ONLY
       const createdPurchase = await tx.purchase.create({
         data: purchasePayload,
       });
 
-      for (const item of purchaseData.items) {
+      // CREATE ALL ITEMS UNDER SAME PURCHASE
+      const purchaseItems = purchaseData.items.map((item: any) => ({
+        purchaseId: createdPurchase.id,
+        productId: item.productId,
+        name: item.name,
+        grams: item.grams,
+        cost: item.cost,
+      }));
 
-        await tx.purchaseItem.create({
-          data: {
-            purchaseId: createdPurchase.id,
-            productId: item.productId,
-            name: item.name,
-            grams: item.grams,
-            cost: item.cost,
-          },
-        });
+      await tx.purchaseItem.createMany({
+        data: purchaseItems
+      });
 
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            isSold: true,
-            soldAt: new Date(),
-          },
-        });
+      // MARK PRODUCTS SOLD
+      const productIds = purchaseData.items.map((i: any) => i.productId);
 
-      }
+      await tx.product.updateMany({
+        where: {
+          id: { in: productIds }
+        },
+        data: {
+          isSold: true,
+          soldAt: new Date()
+        }
+      });
 
       return createdPurchase;
 
@@ -133,5 +137,4 @@ export async function POST(req: Request) {
     );
 
   }
-
 }
