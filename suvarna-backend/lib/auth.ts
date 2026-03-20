@@ -13,4 +13,4 @@ export const generateToken = (payload: any) =>
   jwt.sign(payload, JWT_SECRET, { expiresIn: "1d" });
 
 export const verifyToken = (token: string) =>
-  jwt.verify(token, JWT_SECRET);
+  jwt.verify(token, JWT_SECRET) as { id: string };
