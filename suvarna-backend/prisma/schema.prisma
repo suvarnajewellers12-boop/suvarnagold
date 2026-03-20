@@ -88,7 +88,7 @@ model Product {
 }
 
 model Purchase {
-  id             String   @id @default(uuid())
+  id             String         @id @default(uuid())
   customerName   String
   totalAmount    Float
   gstAmount      Float
@@ -96,16 +96,13 @@ model Purchase {
   finalAmount    Float
   phoneNumber    String
   paymentId      String?
-  paymentStatus  String   @default("PENDING")
-  purchasedAt    DateTime @default(now())
-
-  adminId String?
-  admin   Admin?  @relation(fields: [adminId], references: [id])
-
-  superAdminId String?
-  superAdmin   SuperAdmin? @relation(fields: [superAdminId], references: [id])
-
-  items PurchaseItem[]
+  paymentStatus  String         @default("PENDING")
+  purchasedAt    DateTime       @default(now())
+  adminId        String?
+  superAdminId   String?
+  admin          Admin?         @relation(fields: [adminId], references: [id])
+  superAdmin     SuperAdmin?    @relation(fields: [superAdminId], references: [id])
+  items          PurchaseItem[]
 }
 
 model PurchaseItem {
@@ -153,4 +150,21 @@ model CustomerScheme {
   startDate        DateTime @default(now())
   customer         Customer @relation(fields: [customerId], references: [id])
   scheme           Scheme   @relation(fields: [schemeId], references: [id])
+}
+
+model OtpVerification {
+  id            String    @id @default(cuid())
+  phoneNumber   String    @db.VarChar(15)
+  otpCode       String    @db.VarChar(6)
+  purpose       String    @db.VarChar(50)
+  requestedById String?
+  attempts      Int       @default(0)
+  isUsed        Boolean   @default(false)
+  expiresAt     DateTime
+  verifiedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([phoneNumber])
+  @@index([purpose])
+  @@index([phoneNumber, purpose])
 }
