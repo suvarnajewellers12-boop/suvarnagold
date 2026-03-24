@@ -36,7 +36,7 @@ const fetchLiveRates = async () => {
   try {
     setLoading(true);
 
-    const res = await fetch("http://localhost:3000/api/rates");
+    const res = await fetch("https://suvarnagold-16e5.vercel.app/api/rates");
     const data = await res.json();
 
     console.log("API DATA:", data); // debug
