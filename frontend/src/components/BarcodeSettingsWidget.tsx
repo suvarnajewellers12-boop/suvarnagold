@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import qz from "qz-tray";
 
 interface Props {
   barcodeImage: string;
@@ -10,15 +11,15 @@ interface Props {
 export default function BarcodeSettingsWidget({ barcodeImage, sku }: Props) {
 
   const [settings, setSettings] = useState({
-    boxWidth: 80,
+    boxWidth: 54,
     boxHeight: 12,
-    barcodeWidth: 23,
+    barcodeWidth: 48,
     barcodeHeight: 8,
-    marginTop: 1,
-    marginLeft: -7,
+    marginTop: 0,
+    marginLeft: 0,
+    showText: false,
   });
 
-  // Load saved settings
   useEffect(() => {
     const saved = localStorage.getItem("barcodeSettings");
     if (saved) {
@@ -26,83 +27,89 @@ export default function BarcodeSettingsWidget({ barcodeImage, sku }: Props) {
     }
   }, []);
 
-  // Save settings
   const saveSettings = () => {
     localStorage.setItem("barcodeSettings", JSON.stringify(settings));
     alert("Settings saved!");
   };
 
+  const handleChange = (key: string, value: number) => {
+    setSettings((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  // 🔥 QZ INIT
+  const initQZ = async () => {
+    if (!qz.websocket.isActive()) {
+      await qz.websocket.connect();
+      console.log("QZ Connected ✅");
+    }
+  };
+
+  // 🔥 PRINT FUNCTION
+  const printLabel = async () => {
+    try {
+      await initQZ();
+
+      // 👉 get available printers (optional debug)
+      // const printers = await qz.printers.find();
+      // console.log(printers);
+
+      const printer = await qz.printers.find("TSC TE244"); // ⚠️ exact name
+
+      const config = qz.configs.create(printer);
+
+      const tspl = `
+SIZE 54 mm,12 mm
+GAP 0.3 mm,0 mm
+DIRECTION 1
+CLS
+BARCODE ${settings.marginLeft},${settings.marginTop },"128",${settings.barcodeHeight * 8},1,0,1,1,"${sku}"
+PRINT 1
+`;
+
+      const data = [{
+        type: "raw",
+        format: "command",
+        data: tspl
+      }];
+
+      await qz.print(config, data);
+
+      console.log("Printed Successfully 🚀");
+
+    } catch (err) {
+      console.error("Print Error ❌", err);
+      alert("Printing failed. Check QZ Tray.");
+    }
+  };
+
   return (
     <div className="space-y-6">
 
-      {/* SETTINGS CONTROLS */}
+      {/* SETTINGS */}
       <div className="grid grid-cols-2 gap-4">
 
-        <div>
-          <label className="text-xs font-bold">Box Width (mm)</label>
-          <Input
-            type="number"
-            value={settings.boxWidth}
-            onChange={(e) =>
-              setSettings({ ...settings, boxWidth: Number(e.target.value) })
-            }
-          />
-        </div>
-
-        <div>
-          <label className="text-xs font-bold">Box Height (mm)</label>
-          <Input
-            type="number"
-            value={settings.boxHeight}
-            onChange={(e) =>
-              setSettings({ ...settings, boxHeight: Number(e.target.value) })
-            }
-          />
-        </div>
-
-        <div>
-          <label className="text-xs font-bold">Barcode Width (mm)</label>
-          <Input
-            type="number"
-            value={settings.barcodeWidth}
-            onChange={(e) =>
-              setSettings({ ...settings, barcodeWidth: Number(e.target.value) })
-            }
-          />
-        </div>
-
-        <div>
-          <label className="text-xs font-bold">Barcode Height (mm)</label>
-          <Input
-            type="number"
-            value={settings.barcodeHeight}
-            onChange={(e) =>
-              setSettings({ ...settings, barcodeHeight: Number(e.target.value) })
-            }
-          />
-        </div>
-
-        <div>
-          <label className="text-xs font-bold">Margin Top (mm)</label>
-          <Input
-            type="number"
-            value={settings.marginTop}
-            onChange={(e) =>
-              setSettings({ ...settings, marginTop: Number(e.target.value) })
-            }
-          />
-        </div>
-
-        <div>
-          <label className="text-xs font-bold">Margin Left (mm)</label>
-          <Input
-            type="number"
-            value={settings.marginLeft}
-            onChange={(e) =>
-              setSettings({ ...settings, marginLeft: Number(e.target.value) })
-            }
-          />
-        </div>
+        {[
+          "boxWidth",
+          "boxHeight",
+          "barcodeWidth",
+          "barcodeHeight",
+          "marginTop",
+          "marginLeft",
+        ].map((key) => (
+          <div key={key}>
+            <label className="text-xs font-semibold">
+              {key.replace(/([A-Z])/g, " $1")}
+            </label>
+            <Input
+              type="number"
+              value={(settings as any)[key]}
+              onChange={(e) => handleChange(key, Number(e.target.value))}
+            />
+          </div>
+        ))}
 
       </div>
 
@@ -110,29 +117,37 @@ export default function BarcodeSettingsWidget({ barcodeImage, sku }: Props) {
         Save Settings
       </Button>
 
-      {/* LIVE PREVIEW */}
-      <div className="border rounded-lg p-4 bg-gray-50 flex justify-center">
+      {/* 🔥 PRINT BUTTON */}
+      <Button onClick={printLabel} className="w-full bg-green-600">
+        Print Label (Direct)
+      </Button>
+
+      {/* PREVIEW */}
+      <div className="flex justify-center">
 
         <div
           style={{
             width: `${settings.boxWidth}mm`,
             height: `${settings.boxHeight}mm`,
-            marginTop: `${settings.marginTop}mm`,
-            marginLeft: `${settings.marginLeft}mm`,
+            position: "relative",
+            background: "white",
+            border: "1px solid #ccc",
+            overflow: "hidden",
           }}
-          className="flex flex-col items-center justify-center bg-white border"
         >
 
           <img
             src={barcodeImage}
+            alt="barcode"
             style={{
+              position: "absolute",
+              top: `${settings.marginTop}mm`,
+              left: `${settings.marginLeft}mm`,
               width: `${settings.barcodeWidth}mm`,
               height: `${settings.barcodeHeight}mm`,
               objectFit: "contain",
             }}
           />
-
-          <p className="text-[10px] font-mono mt-1">{sku}</p>
 
         </div>
 

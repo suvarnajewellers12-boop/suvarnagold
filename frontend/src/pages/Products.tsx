@@ -339,7 +339,7 @@ Barcode Label Calibration
 <BarcodeSettingsWidget
 barcodeImage={barcodeModal.image}
 sku={barcodeModal.sku}
-/>
+/>     
 
 <div className="flex flex-col gap-3">
 

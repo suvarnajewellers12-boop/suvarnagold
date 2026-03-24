@@ -20,48 +20,7 @@ import {
   Lock
 } from "lucide-react";
 
-const sampleProducts = [
-  {
-    id: "GC-001",
-    name: "Royal Necklace",
-    type: "gold" as const,
-    grams: 25,
-    carats: 22,
-    cost: 125000,
-    quantity: 5,
-    manufactureDate: "2024-01-15",
-  },
-  {
-    id: "GC-002",
-    name: "Elegant Bracelet",
-    type: "gold" as const,
-    grams: 12,
-    carats: 18,
-    cost: 58000,
-    quantity: 12,
-    manufactureDate: "2024-02-20",
-  },
-  {
-    id: "SC-001",
-    name: "Silver Anklet",
-    type: "silver" as const,
-    grams: 30,
-    carats: 0,
-    cost: 4500,
-    quantity: 25,
-    manufactureDate: "2024-03-10",
-  },
-  {
-    id: "GC-003",
-    name: "Diamond Ring",
-    type: "other" as const,
-    grams: 8,
-    carats: 18,
-    cost: 85000,
-    quantity: 8,
-    manufactureDate: "2024-01-28",
-  },
-];
+
 
 export default function Dashboard() {
   const [rates, setRates] = useState({ gold: 0, silver: 0 });
@@ -69,36 +28,36 @@ export default function Dashboard() {
   const [isManual, setIsManual] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const fetchLiveRates = async () => {
-    try {
-      setLoading(true);
-      const headers = { "x-access-token": "goldapi-1kvaiz19mm28p80g-io" };
+  const cleanPrice = (price: string) => {
+  return Number(price.replace(/[₹,]/g, ""));
+};
 
-      // Fetch Gold and Silver in parallel for efficiency
-      const [goldRes, silverRes] = await Promise.all([
-        fetch("https://www.goldapi.io/api/XAU/INR", { headers }),
-        fetch("https://www.goldapi.io/api/XAG/INR", { headers })
-      ]);
+const fetchLiveRates = async () => {
+  try {
+    setLoading(true);
 
-      const goldData = await goldRes.json();
-      const silverData = await silverRes.json();
+    const res = await fetch("http://localhost:3000/api/rates");
+    const data = await res.json();
 
-      setRates({ 
-        gold: goldData.price_gram_24k || 0, 
-        silver: silverData.price_gram_24k || 0 
-      }); 
-    } catch (error) {
-      console.error("Failed to fetch rates", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    console.log("API DATA:", data); // debug
 
+    setRates({
+      gold: cleanPrice(data.gold24),
+      silver: cleanPrice(data.silver),
+    });
+
+  } catch (error) {
+    console.error("Failed to fetch rates", error);
+  } finally {
+    setLoading(false);
+  }
+};
   useEffect(() => {
     if (!isManual) fetchLiveRates();
   }, [isManual]);
 
   const displayRates = isManual ? manualRates : rates;
+  console.log("rates:",rates)
 
   return (
     <SidebarProvider>
