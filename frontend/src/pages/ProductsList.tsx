@@ -79,7 +79,7 @@ function ProductCard({
     setDeleting(true);
     const token = localStorage.getItem("token");
     const res = await fetch(
-      `http://localhost:3000/api/productsimgs/delete/${product.id}`,
+      `https://suvarnagold-16e5.vercel.app/api/productsimgs/delete/${product.id}`,
       { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
     );
     setDeleting(false);
@@ -185,7 +185,7 @@ function EditModal({
     if (file) formData.append("image", file);
 
     const res = await fetch(
-      `http://localhost:3000/api/productsimgs/edit/${product.id}`,
+      `https://suvarnagold-16e5.vercel.app/api/productsimgs/edit/${product.id}`,
       {
         method: "PUT",
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
@@ -330,7 +330,7 @@ export default function ProductPage() {
     setLoading(true);
     const token = localStorage.getItem("token");
     try {
-      const res = await fetch("http://localhost:3000/api/productsimgs/list", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/productsimgs/list", {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -378,7 +378,7 @@ export default function ProductPage() {
     formData.append("carats", carats);
     formData.append("image", file);
 
-    const res = await fetch("http://localhost:3000/api/productsimgs/upload", {
+    const res = await fetch("https://suvarnagold-16e5.vercel.app/api/productsimgs/upload", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: formData,
