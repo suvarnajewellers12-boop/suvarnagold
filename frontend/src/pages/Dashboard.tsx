@@ -1,5 +1,7 @@
-import { useState,useEffect } from "react";
+import { useState, useEffect } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { useSpeech } from "@/hooks/useSpeech";
+import { useAccessibility } from "../components/context/AccessibilityContext";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { StatCard } from "@/components/StatCard";
 import { ProductCard } from "@/components/ProductCard";
@@ -19,52 +21,73 @@ import {
   Unlock,
   Lock
 } from "lucide-react";
+import { AccessibleInput } from "@/components/AccessibleInput";
 
 
 
 export default function Dashboard() {
+  const { speak } = useSpeech();
+  const { isEnabled } = useAccessibility();
   const [rates, setRates] = useState({ gold: 0, silver: 0 });
   const [manualRates, setManualRates] = useState({ gold: 6500, silver: 75 });
   const [isManual, setIsManual] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const cleanPrice = (price: string) => {
-  return Number(price.replace(/[₹,]/g, ""));
-};
+    return Number(price.replace(/[₹,]/g, ""));
+  };
 
-const fetchLiveRates = async () => {
-  try {
-    setLoading(true);
+  const fetchLiveRates = async () => {
+    try {
+      setLoading(true);
 
-    const res = await fetch("https://suvarnagold-16e5.vercel.app/api/rates");
-    const data = await res.json();
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/rates");
+      const data = await res.json();
 
-    console.log("API DATA:", data); // debug
+      console.log("API DATA:", data); // debug
 
-    setRates({
-      gold: cleanPrice(data.gold24),
-      silver: cleanPrice(data.silver),
-    });
+      setRates({
+        gold: cleanPrice(data.gold24),
+        silver: cleanPrice(data.silver),
+      });
 
-  } catch (error) {
-    console.error("Failed to fetch rates", error);
-  } finally {
-    setLoading(false);
-  }
-};
+    } catch (error) {
+      console.error("Failed to fetch rates", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
   useEffect(() => {
     if (!isManual) fetchLiveRates();
   }, [isManual]);
 
   const displayRates = isManual ? manualRates : rates;
-  console.log("rates:",rates)
+  console.log("rates:", rates)
+
+  useEffect(() => {
+    if (!isEnabled) return;
+
+    const timer = setTimeout(() => {
+      speak(
+        `Dashboard page. 
+       Gold rate is ${displayRates.gold} rupees per gram. 
+       Silver rate is ${displayRates.silver} rupees per gram. 
+       Manual mode is ${isManual ? "enabled" : "disabled"}.
+       Use tab key to navigate through controls.`
+      );
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [isEnabled, displayRates, isManual, speak]);
 
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
         <DashboardSidebar />
         <main className="flex-1 p-6 space-y-8">
-          
+
           {/* Live Rates Display */}
           <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <StatCard
@@ -96,12 +119,12 @@ const fetchLiveRates = async () => {
               </div>
               <div className="flex items-center gap-3 bg-muted p-2 rounded-lg">
                 <span className="text-sm font-medium">Manual Mode</span>
-                <Button 
-                  variant={isManual ? "destructive" : "secondary"} 
+                <Button
+                  variant={isManual ? "destructive" : "secondary"}
                   size="sm"
                   onClick={() => setIsManual(!isManual)}
                 >
-                  {isManual ? <Lock className="w-4 h-4 mr-2"/> : <Unlock className="w-4 h-4 mr-2"/>}
+                  {isManual ? <Lock className="w-4 h-4 mr-2" /> : <Unlock className="w-4 h-4 mr-2" />}
                   {isManual ? "Disable" : "Enable"}
                 </Button>
               </div>
@@ -111,12 +134,11 @@ const fetchLiveRates = async () => {
               <div className="space-y-4">
                 <label className="text-sm text-muted-foreground font-medium">Manual Gold Rate (₹/g)</label>
                 <div className="relative">
-                   <Input 
-                    type="number" 
-                    disabled={!isManual}
+                  <AccessibleInput
+                    label="manual gold rate"
                     value={manualRates.gold}
-                    onChange={(e) => setManualRates({...manualRates, gold: Number(e.target.value)})}
-                    className="text-lg font-bold pl-8"
+                    disabled={!isManual}
+                    onChange={(val) => setManualRates({ ...manualRates, gold: val })}
                   />
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₹</span>
                 </div>
@@ -124,11 +146,11 @@ const fetchLiveRates = async () => {
               <div className="space-y-4">
                 <label className="text-sm text-muted-foreground font-medium">Manual Silver Rate (₹/g)</label>
                 <div className="relative">
-                  <Input 
-                    type="number" 
+                  <Input
+                    type="number"
                     disabled={!isManual}
                     value={manualRates.silver}
-                    onChange={(e) => setManualRates({...manualRates, silver: Number(e.target.value)})}
+                    onChange={(e) => setManualRates({ ...manualRates, silver: Number(e.target.value) })}
                     className="text-lg font-bold pl-8"
                   />
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₹</span>
@@ -144,7 +166,7 @@ const fetchLiveRates = async () => {
           </section>
 
           {/* ... Rest of your Dashboard (Stats, Products, etc.) */}
-          
+
         </main>
       </div>
     </SidebarProvider>

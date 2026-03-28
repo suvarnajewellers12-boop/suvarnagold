@@ -28,19 +28,21 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { title } from "process";
+import { AccessibleFocus } from "./accessibility/AccessibleFocus";
 
 const menuItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Admin Management", url: "/dashboard/admins", icon: Users },
   { title: "Create Scheme", url: "/dashboard/create-scheme", icon: Plus },
   { title: "Customer Management", url: "/dashboard/customers", icon: Users },
-  {title:"Staff Management",url:"/dashboard/staff",icon:Users},
+  { title: "Staff Management", url: "/dashboard/staff", icon: Users },
   { title: "Products", url: "/dashboard/products", icon: Package },
-  {title:"Job Work",url:"/dashboard/jobwork",icon:Package},
-  {title:"Gold Purchase",url:"/dashboard/gold-purchase",icon:Package},
+  { title: "Job Work", url: "/dashboard/jobwork", icon: Package },
+  { title: "Gold Purchase", url: "/dashboard/gold-purchase", icon: Package },
   // { title: "Store", url: "/dashboard/store", icon: Store },
   { title: "Billing", url: "/dashboard/billing", icon: Receipt },
   { title: "Reports", url: "/dashboard/reports", icon: FileText },
+  { title: "Photos", url: "/dashboard/photos", icon: Package },
   // { title: "Settings", url: "/dashboard/settings", icon: Settings },
 ];
 
@@ -59,7 +61,7 @@ export function DashboardSidebar() {
               className="w-25 h-10 object-contain"
             />
           </div>
-            {!isCollapsed && (
+          {!isCollapsed && (
             <div className="fade-in-up">
               <h2 className="font-serif text-lg font-bold text-sidebar-foreground">
                 Suvarna Portal
@@ -82,15 +84,17 @@ export function DashboardSidebar() {
               {menuItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
-                    <NavLink
-                      to={item.url}
-                      end={item.url === "/dashboard"}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-300 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                      activeClassName="bg-sidebar-primary text-sidebar-primary-foreground shadow-gold"
-                    >
-                      <item.icon className="w-5 h-5 flex-shrink-0" />
-                      {!isCollapsed && <span>{item.title}</span>}
-                    </NavLink>
+                    <AccessibleFocus label={`${item.title} selected`}>
+                      <NavLink
+                        to={item.url}
+                        end={item.url === "/dashboard"}
+                        className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-300 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                        activeClassName="bg-sidebar-primary text-sidebar-primary-foreground shadow-gold"
+                      >
+                        <item.icon className="w-5 h-5 flex-shrink-0" />
+                        {!isCollapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </AccessibleFocus>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -101,26 +105,30 @@ export function DashboardSidebar() {
 
       <SidebarFooter className="p-4 border-t border-sidebar-border">
         <div className="flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleSidebar}
-            className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-          >
-            {isCollapsed ? (
-              <ChevronRight className="w-5 h-5" />
-            ) : (
-              <ChevronLeft className="w-5 h-5" />
-            )}
-          </Button>
-          {!isCollapsed && (
-            <NavLink
-              to="/"
-              className="flex items-center gap-2 text-sidebar-foreground/60 hover:text-destructive transition-colors"
+          <AccessibleFocus label="Toggle sidebar button">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleSidebar}
+              className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
             >
-              <LogOut className="w-5 h-5" />
-              <span className="text-sm">Logout</span>
-            </NavLink>
+              {isCollapsed ? (
+                <ChevronRight className="w-5 h-5" />
+              ) : (
+                <ChevronLeft className="w-5 h-5" />
+              )}
+            </Button>
+          </AccessibleFocus>
+          {!isCollapsed && (
+            <AccessibleFocus label="Logout button">
+              <NavLink
+                to="/"
+                className="flex items-center gap-2 text-sidebar-foreground/60 hover:text-destructive transition-colors"
+              >
+                <LogOut className="w-5 h-5" />
+                <span className="text-sm">Logout</span>
+              </NavLink>
+            </AccessibleFocus>
           )}
         </div>
       </SidebarFooter>

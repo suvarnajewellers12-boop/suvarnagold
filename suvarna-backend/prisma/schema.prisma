@@ -168,3 +168,15 @@ model OtpVerification {
   @@index([purpose])
   @@index([phoneNumber, purpose])
 }
+
+model ProductImgs {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  weight      Float
+  image       Bytes    // Binary image storage
+  mimeType    String   @default("image/jpeg")  // ✅ add this
+  metalType   String   @default("gold") 
+  carats      String   @default("24k")
+  createdAt   DateTime @default(now())
+}
