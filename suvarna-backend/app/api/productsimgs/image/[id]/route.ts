@@ -21,7 +21,7 @@ export async function OPTIONS() {
 
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // 🔐 Authorization
@@ -37,7 +37,7 @@ export async function GET(
     verifyToken(token);
 
     const product = await prisma.productImgs.findUnique({
-      where: { id: params.id },
+      where: { id: (await params).id },
     });
 
     if (!product) {
