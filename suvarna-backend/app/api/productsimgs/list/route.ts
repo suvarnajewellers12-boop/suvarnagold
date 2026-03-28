@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
 
 // 🔹 CORS helper
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Methods": "GET,OPTIONS",
   };
 }
@@ -19,20 +18,8 @@ export async function OPTIONS() {
   });
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    // 🔐 Authorization
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new NextResponse(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: corsHeaders() }
-      );
-    }
-
-    const token = authHeader.split(" ")[1];
-    verifyToken(token); // any logged-in user can view
-
     const products = await prisma.productImgs.findMany({
       orderBy: { createdAt: "desc" },
     });
