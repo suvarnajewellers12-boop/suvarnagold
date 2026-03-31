@@ -1,5 +1,5 @@
 "use client";
-
+import { Eye, EyeOff, Users, Plus, Edit, Trash2, Loader2, Search, X, AlertTriangle } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
@@ -8,10 +8,16 @@ import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Users, Plus, Edit, Trash2, Loader2, Search, X } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 // ================= CACHE CONFIGURATION =================
-// Lives outside the component to persist during the session
 let adminCache: any[] | null = null;
 
 const AdminSkeleton = () => (
@@ -36,25 +42,34 @@ const AdminManagement = () => {
   const [showForm, setShowForm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const [admins, setAdmins] = useState<any[]>([]);
-  const [searchQuery, setSearchQuery] = useState(""); // For better management
-  
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Form States for Creation
   const [username, setUsername] = useState("");
   const [branchName, setBranchName] = useState("");
   const [state, setState] = useState("");
   const [password, setPassword] = useState("");
 
+  // Dialog States
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedAdmin, setSelectedAdmin] = useState<any>(null);
+  
+  // Edit Form States
+  const [editBranch, setEditBranch] = useState("");
+  const [editState, setEditState] = useState("");
+
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-  // ================= FETCH WITH CACHE LOGIC =================
   const fetchAdmins = async (forceRefresh = false) => {
     if (!forceRefresh && adminCache !== null) {
       setAdmins(adminCache);
       setIsLoading(false);
       return;
     }
-
     setIsLoading(true);
     try {
       const response = await fetch("https://suvarnagold-16e5.vercel.app/api/admin/all", {
@@ -64,7 +79,7 @@ const AdminManagement = () => {
       if (response.ok) {
         const fetchedAdmins = data.admins || [];
         setAdmins(fetchedAdmins);
-        adminCache = fetchedAdmins; // Update memory cache
+        adminCache = fetchedAdmins;
       }
     } catch (error) {
       console.error("Fetch admins error:", error);
@@ -77,37 +92,60 @@ const AdminManagement = () => {
     fetchAdmins();
   }, []);
 
-  // ================= CRUD OPERATIONS (WITH CACHE UPDATES) =================
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this admin?")) return;
+  // ================= ACTIONS =================
+
+  const openEditDialog = (admin: any) => {
+    setSelectedAdmin(admin);
+    setEditBranch(admin.branchName);
+    setEditState(admin.state);
+    setEditDialogOpen(true);
+  };
+
+  const openDeleteDialog = (admin: any) => {
+    setSelectedAdmin(admin);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!selectedAdmin) return;
+    setIsSubmitting(true);
     try {
-      await fetch(`https://suvarnagold-16e5.vercel.app/api/admin/delete/${id}`, {
+      await fetch(`https://suvarnagold-16e5.vercel.app/api/admin/delete/${selectedAdmin.id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
-      fetchAdmins(true); // Force refresh cache
+      setToastMessage("Administrator removed successfully");
+      setShowToast(true);
+      setDeleteDialogOpen(false);
+      fetchAdmins(true);
     } catch (error) {
       console.error("Delete error:", error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleEdit = async (admin: any) => {
-    const newBranch = prompt("Enter new branch name", admin.branchName);
-    const newState = prompt("Enter new state", admin.state);
-    if (!newBranch || !newState) return;
-
+  const handleUpdateAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAdmin) return;
+    setIsSubmitting(true);
     try {
-      await fetch(`https://suvarnagold-16e5.vercel.app/api/admin/update/${admin.id}`, {
+      await fetch(`https://suvarnagold-16e5.vercel.app/api/admin/update/${selectedAdmin.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ branchName: newBranch, state: newState }),
+        body: JSON.stringify({ branchName: editBranch, state: editState }),
       });
-      fetchAdmins(true); // Force refresh cache
+      setToastMessage("Admin details updated");
+      setShowToast(true);
+      setEditDialogOpen(false);
+      fetchAdmins(true);
     } catch (error) {
       console.error("Update error:", error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -123,15 +161,13 @@ const AdminManagement = () => {
         },
         body: JSON.stringify({ username, branchName, state, password }),
       });
-
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to create admin");
-
       setToastMessage("Admin registered successfully!");
       setShowToast(true);
       setShowForm(false);
       setUsername(""); setBranchName(""); setState(""); setPassword("");
-      fetchAdmins(true); // Sync cache
+      fetchAdmins(true);
     } catch (error: any) {
       alert(error.message);
     } finally {
@@ -139,9 +175,8 @@ const AdminManagement = () => {
     }
   };
 
-  // Filtered list for search
   const filteredAdmins = useMemo(() => {
-    return admins.filter(admin => 
+    return admins.filter(admin =>
       admin.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
       admin.branchName.toLowerCase().includes(searchQuery.toLowerCase())
     );
@@ -158,7 +193,6 @@ const AdminManagement = () => {
               <h1 className="text-3xl font-serif font-bold text-foreground">Admin Management</h1>
               <p className="text-sm text-muted-foreground italic">Managing authorized branch administrators</p>
             </div>
-
             <div className="flex gap-3">
               <Button variant="outline" size="sm" onClick={() => fetchAdmins(true)} className="h-10 rounded-full border-gold/20 text-[10px] uppercase font-bold tracking-widest">
                 Sync Data
@@ -190,7 +224,19 @@ const AdminManagement = () => {
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Security Password</label>
-                      <Input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                      <div className="relative">
+                        <Input
+                          type={showPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          required
+                          className="pr-10"
+                        />
+                        <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-3 flex items-center text-muted-foreground hover:text-gold">
+                          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <div className="flex gap-3 pt-4 border-t border-gold/5">
@@ -203,11 +249,10 @@ const AdminManagement = () => {
               </LuxuryCard>
             )}
 
-            {/* Search Bar */}
             <div className="relative max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input 
-                placeholder="Search admins or branches..." 
+              <Input
+                placeholder="Search admins or branches..."
                 className="pl-10 h-11 bg-white border-gold/10"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -218,12 +263,12 @@ const AdminManagement = () => {
 
             <section>
               <div className="flex items-center justify-between mb-6">
-                 <h2 className="text-xl font-serif font-bold text-foreground">Active Administrators</h2>
-                 <span className="text-[10px] font-bold px-3 py-1 bg-amber-100 text-amber-700 rounded-full">{filteredAdmins.length} Total</span>
+                <h2 className="text-xl font-serif font-bold text-foreground">Active Administrators</h2>
+                <span className="text-[10px] font-bold px-3 py-1 bg-amber-100 text-amber-700 rounded-full">{filteredAdmins.length} Total</span>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {isLoading 
+                {isLoading
                   ? Array.from({ length: 6 }).map((_, i) => <AdminSkeleton key={i} />)
                   : filteredAdmins.map((admin) => (
                     <LuxuryCard key={admin.id} className="hover:shadow-xl transition-all duration-300 group border-gold/10">
@@ -232,8 +277,8 @@ const AdminManagement = () => {
                           <Users className="w-6 h-6 text-amber-700 group-hover:text-white" />
                         </div>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button size="icon" variant="ghost" onClick={() => handleEdit(admin)}><Edit className="w-4 h-4" /></Button>
-                          <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => handleDelete(admin.id)}><Trash2 className="w-4 h-4" /></Button>
+                          <Button size="icon" variant="ghost" onClick={() => openEditDialog(admin)}><Edit className="w-4 h-4" /></Button>
+                          <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => openDeleteDialog(admin)}><Trash2 className="w-4 h-4" /></Button>
                         </div>
                       </div>
                       <h3 className="font-serif font-bold text-lg text-foreground">{admin.username}</h3>
@@ -248,17 +293,60 @@ const AdminManagement = () => {
                   ))
                 }
               </div>
-
-              {!isLoading && filteredAdmins.length === 0 && (
-                <div className="text-center py-20 border-2 border-dashed border-gold/10 rounded-3xl opacity-50">
-                  <Users className="w-12 h-12 mx-auto mb-4 text-slate-300" />
-                  <p className="text-muted-foreground italic">No administrators found matching your criteria.</p>
-                </div>
-              )}
             </section>
           </div>
         </main>
       </div>
+
+      {/* ================= MODALS ================= */}
+
+      {/* Edit Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-[425px] border-gold/20">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-2xl">Edit Administrator</DialogTitle>
+            <DialogDescription>Update branch and location for {selectedAdmin?.username}</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdateAdmin} className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest">Branch Name</label>
+              <Input value={editBranch} onChange={(e) => setEditBranch(e.target.value)} required />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest">State / Region</label>
+              <Input value={editState} onChange={(e) => setEditState(e.target.value)} required />
+            </div>
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+              <Button type="submit" variant="gold" disabled={isSubmitting}>
+                {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-[400px] border-red-200">
+          <DialogHeader className="flex flex-col items-center text-center">
+            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-2">
+              <AlertTriangle className="text-red-600 w-6 h-6" />
+            </div>
+            <DialogTitle className="text-xl">Confirm Deletion</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove <strong>{selectedAdmin?.username}</strong>? 
+              This action cannot be undone and they will lose all access.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="grid grid-cols-2 gap-2 sm:justify-center mt-4">
+            <Button type="button" variant="outline" onClick={() => setDeleteDialogOpen(false)}>Keep Admin</Button>
+            <Button type="button" variant="destructive" onClick={handleConfirmDelete} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : "Yes, Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <SuccessToast message={toastMessage} isVisible={showToast} onClose={() => setShowToast(false)} />
     </SidebarProvider>

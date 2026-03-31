@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { v4 as uuidv4 } from "uuid";
-import { generateBarcode } from "@/lib/barcode";
 import { verifyToken } from "@/lib/auth";
 
 // 🔹 CORS helper
 function corsHeaders() {
   return {
-    "Access-Control-Allow-Origin": "*", // change if needed
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Allow-Methods": "POST,OPTIONS",
   };
@@ -42,16 +41,21 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔹 Body
+    // 🔹 Body Extraction
     const body = await req.json();
     const {
       name,
       metalType,
       grams,
       carats,
-      cost,
       manufactureDate,
       quantity,
+      // NEW FIELDS
+      huid,
+      stoneWeight,
+      netWeight,
+      category,
+      bodyPart,
     } = body;
 
     if (!quantity || quantity <= 0) {
@@ -62,9 +66,11 @@ export async function POST(req: Request) {
     }
 
     const createdItems = [];
-    for (let i = 0; i < quantity; i++) {
 
-      // 🔥 Get last product to increment SKU
+    // 🔥 Loop for creating multiple items based on quantity
+    for (let i = 0; i < quantity; i++) {
+      
+      // Get last product to increment SKU
       const lastProduct = await prisma.product.findFirst({
         orderBy: { createdAt: "desc" },
       });
@@ -72,12 +78,14 @@ export async function POST(req: Request) {
       let nextNumber = 1;
 
       if (lastProduct?.sku) {
-        const lastNumber = parseInt(lastProduct.sku.slice(-4));
+        // Extract the last 4 digits of the SKU and increment
+        const lastNumberMatch = lastProduct.sku.match(/\d+$/);
+        const lastNumber = lastNumberMatch ? parseInt(lastNumberMatch[0]) : 0;
         nextNumber = lastNumber + 1;
       }
 
       const year = new Date().getFullYear().toString().slice(-2);
-      const sku = `SV${year}${String(nextNumber).padStart(4, "0")}`;
+      const sku = `SV${year}${String(nextNumber + i).padStart(4, "0")}`; // Added +i to ensure unique SKUs within the loop
 
       const uniqueCode = uuidv4();
 
@@ -86,12 +94,17 @@ export async function POST(req: Request) {
           sku,
           name,
           metalType,
-          grams,
+          grams: parseFloat(grams),
           carats,
-          cost,
           manufactureDate: new Date(manufactureDate),
           uniqueCode,
           isSold: false,
+          // MAPPING NEW FIELDS TO PRISMA
+          huid: huid || null,
+          stoneWeight: parseFloat(stoneWeight) || 0,
+          netWeight: parseFloat(netWeight) || 0,
+          category: category || "Other",
+          bodyPart: bodyPart || "Other",
         },
       });
 

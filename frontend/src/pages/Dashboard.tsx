@@ -13,8 +13,8 @@ import { AccessibleInput } from "@/components/AccessibleInput";
 export default function Dashboard() {
   const { speak } = useSpeech();
   const { isEnabled } = useAccessibility();
-  const [rates, setRates] = useState({ gold24: 0, gold22: 0, silver: 0 });
-  const [manualRates, setManualRates] = useState({ gold24: 6500, gold22: 5980, silver: 75 });
+  const [rates, setRates] = useState({ gold24: 0, gold22: 0, gold18: 0, silver: 0 });
+  const [manualRates, setManualRates] = useState({ gold24: 6500, gold22: 5980, gold18: 4880, silver: 75 });
   const [isManual, setIsManual] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -31,6 +31,7 @@ export default function Dashboard() {
       setRates({
         gold24: cleanPrice(data.gold24),
         gold22: cleanPrice(data.gold22),
+        gold18: cleanPrice(data.gold18),
         silver: cleanPrice(data.silver),
       });
     } catch (error) {
@@ -53,6 +54,7 @@ export default function Dashboard() {
         `Dashboard page. 
        Gold 24K rate is ${displayRates.gold24} rupees per gram. 
        Gold 22K rate is ${displayRates.gold22} rupees per gram. 
+       Gold 18K rate is ${displayRates.gold18} rupees per gram. 
        Silver rate is ${displayRates.silver} rupees per gram. 
        Manual mode is ${isManual ? "enabled" : "disabled"}.
        Use tab key to navigate through controls.`
@@ -67,8 +69,8 @@ export default function Dashboard() {
         <DashboardSidebar />
         <main className="flex-1 p-6 space-y-8">
 
-          {/* Live Rates Display — now 3 columns */}
-          <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Live Rates Display — 4 cards: 24K, 22K, 18K, Silver */}
+          <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
             <StatCard
               title="Gold 24K (1g)"
               value={displayRates.gold24}
@@ -86,6 +88,14 @@ export default function Dashboard() {
               className={isManual ? "border-orange-500/50" : "border-primary/20"}
             />
             <StatCard
+              title="Gold 18K (1g)"
+              value={displayRates.gold18}
+              prefix="₹"
+              icon={TrendingUp}
+              loading={loading && !isManual}
+              className={isManual ? "border-orange-500/50" : "border-primary/20"}
+            />
+            <StatCard
               title="Silver Rate (1g)"
               value={displayRates.silver}
               prefix="₹"
@@ -97,7 +107,7 @@ export default function Dashboard() {
 
           <GoldDivider />
 
-          {/* Rate Controller — now 3 columns */}
+          {/* Rate Controller — 2x2 grid */}
           <section className="bg-card p-6 rounded-xl border border-border shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
@@ -117,9 +127,9 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 items-end">
               {/* Gold 24K */}
-              <div className="space-y-4">
+              <div className="space-y-2">
                 <label className="text-sm text-muted-foreground font-medium">
                   Manual Gold 24K Rate (₹/g)
                 </label>
@@ -135,7 +145,7 @@ export default function Dashboard() {
               </div>
 
               {/* Gold 22K */}
-              <div className="space-y-4">
+              <div className="space-y-2">
                 <label className="text-sm text-muted-foreground font-medium">
                   Manual Gold 22K Rate (₹/g)
                 </label>
@@ -151,8 +161,25 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* Gold 18K */}
+              <div className="space-y-2">
+                <label className="text-sm text-muted-foreground font-medium">
+                  Manual Gold 18K Rate (₹/g)
+                </label>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    disabled={!isManual}
+                    value={manualRates.gold18}
+                    onChange={(e) => setManualRates({ ...manualRates, gold18: Number(e.target.value) })}
+                    className="text-lg font-bold pl-8"
+                  />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₹</span>
+                </div>
+              </div>
+
               {/* Silver */}
-              <div className="space-y-4">
+              <div className="space-y-2">
                 <label className="text-sm text-muted-foreground font-medium">
                   Manual Silver Rate (₹/g)
                 </label>
@@ -170,7 +197,7 @@ export default function Dashboard() {
             </div>
 
             {!isManual && (
-              <p className="mt-4 text-xs text-muted-foreground flex items-center gap-1">
+              <p className="mt-6 text-xs text-muted-foreground flex items-center gap-1">
                 <TrendingUp className="w-3 h-3 text-green-500" />
                 Rates are currently syncing with live market data.
               </p>

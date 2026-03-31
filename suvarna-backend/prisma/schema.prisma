@@ -75,15 +75,20 @@ model Product {
   id              String         @id @default(uuid())
   name            String
   metalType       String
-  grams           Float
-  carats          String
-  cost            Float
-  manufactureDate DateTime
+  carats          String         // Stores Gold Carats or Silver Purity
+  category        String         @default("others")// e.g., "Bangle", "Ring", "Necklace", "Earring"
+  bodyPart        String         @default("others")// e.g., "Wrist", "Fingers", "Neck", "Ear"
+  grams           Float          // Metal weight
+  stoneWeight     Float          @default(0)
+  netWeight       Float          @default(0) // Sum of grams + stoneWeight
+  quantity        Int            @default(1)
+  huid            String?        // Optional HUID string
   uniqueCode      String         @unique
+  sku             String         @unique
   isSold          Boolean        @default(false)
+  manufactureDate DateTime
   createdAt       DateTime       @default(now())
   soldAt          DateTime?
-  sku             String         @unique
   purchaseItems   PurchaseItem[]
 }
 

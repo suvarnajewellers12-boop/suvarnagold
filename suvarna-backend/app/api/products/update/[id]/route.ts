@@ -37,14 +37,35 @@ export async function PUT(
     verifyToken(token);
 
     const body = await req.json();
-    const { name, grams, cost } = body;
+    
+    // 🔹 Destructure all new fields, removing 'cost'
+    const { 
+      name, 
+      metalType, 
+      carats, 
+      category, 
+      bodyPart, 
+      grams, 
+      stoneWeight, 
+      netWeight, 
+      quantity, 
+      huid 
+    } = body;
 
     const updated = await prisma.product.update({
       where: { id },
       data: {
         name,
-        grams: Number(grams),
-        cost: Number(cost),
+        metalType,
+        carats,
+        category,
+        bodyPart,
+        huid,
+        // 🔹 Ensure numbers are parsed correctly
+        grams: grams !== undefined ? parseFloat(grams) : undefined,
+        stoneWeight: stoneWeight !== undefined ? parseFloat(stoneWeight) : undefined,
+        netWeight: netWeight !== undefined ? parseFloat(netWeight) : undefined,
+        quantity: quantity !== undefined ? parseInt(quantity) : undefined,
       },
     });
 

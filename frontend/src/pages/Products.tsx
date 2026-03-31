@@ -8,25 +8,56 @@ import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, RefreshCw, Loader2 } from "lucide-react";
+import { Plus, RefreshCw, Loader2, Filter } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import BarcodeSettingsWidget from "@/components/BarcodeSettingsWidget";
+
+// 🔹 SKELETON COMPONENT FOR LOADING STATE
+const ProductSkeleton = () => (
+  <div className="h-[400px] w-full rounded-3xl bg-gray-100 animate-pulse flex flex-col p-6 space-y-4">
+    <div className="flex justify-between">
+      <div className="h-6 w-24 bg-gray-200 rounded-full" />
+      <div className="h-8 w-8 bg-gray-200 rounded-full" />
+    </div>
+    <div className="h-8 w-3/4 bg-gray-200 rounded-lg" />
+    <div className="space-y-2 pt-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="h-10 bg-gray-200 rounded-xl" />
+        <div className="h-10 bg-gray-200 rounded-xl" />
+      </div>
+      <div className="h-16 bg-gray-200 rounded-2xl w-full" />
+    </div>
+    <div className="mt-auto flex justify-between items-end pt-4">
+      <div className="h-12 w-28 bg-gray-200 rounded-xl" />
+      <div className="h-12 w-12 bg-gray-200 rounded-xl" />
+    </div>
+  </div>
+);
 
 let productsCache: any[] | null = null;
 
 const Products = () => {
-
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
   const [products, setProducts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [filter, setFilter] = useState<"all" | "gold" | "silver" | "other">("all");
+  // 🔹 MULTI-FILTER STATE
+  const [filters, setFilters] = useState({
+    metal: "all",
+    bodyPart: "all",
+    category: "all",
+  });
 
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
-
   const [showForm, setShowForm] = useState(false);
 
   const [barcodeModal, setBarcodeModal] = useState<{
@@ -40,43 +71,42 @@ const Products = () => {
     type: "gold",
     grams: "",
     carats: "",
-    cost: "",
     quantity: "1",
+    huid: "",
+    stoneWeight: "0",
+    netWeight: "0",
+    bodyPart: "",
+    category: "",
   });
 
+  /* ---------------- AUTO CALCULATION ---------------- */
+  useEffect(() => {
+    const g = parseFloat(formData.grams) || 0;
+    const s = parseFloat(formData.stoneWeight) || 0;
+    const total = (g + s).toFixed(3);
+    setFormData((prev) => ({ ...prev, netWeight: total }));
+  }, [formData.grams, formData.stoneWeight]);
+
   /* ---------------- FETCH PRODUCTS ---------------- */
-
   const fetchProducts = async (forceRefresh = false) => {
-
     if (!forceRefresh && productsCache !== null) {
       setProducts(productsCache);
       setIsLoading(false);
       return;
     }
-
     setIsLoading(true);
-
     try {
-
-      const res = await fetch(
-        "https://suvarnagold-16e5.vercel.app/api/products/all",
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/products/all", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       const fetchedProducts = data.products || [];
-
       setProducts(fetchedProducts);
       productsCache = fetchedProducts;
-
     } catch (error) {
-
       console.error("Fetch Error:", error);
-
     } finally {
-
       setIsLoading(false);
-
     }
   };
 
@@ -84,377 +114,279 @@ const Products = () => {
     fetchProducts();
   }, []);
 
-  /* ---------------- BARCODE ---------------- */
-
+  /* ---------------- BARCODE & PRINT ---------------- */
   const handleShowBarcode = async (sku: string, productId: string) => {
-
     try {
-
-      const res = await fetch(
-        `https://suvarnagold-16e5.vercel.app/api/products/barcode/${sku}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
+      const res = await fetch(`https://suvarnagold-16e5.vercel.app/products/barcode/${sku}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
-
       if (res.ok) {
-        setBarcodeModal({
-          image: data.barcodeImage,
-          productId,
-          sku,
-        });
+        setBarcodeModal({ image: data.barcodeImage, productId, sku });
       }
-
     } catch (err) {
-
       console.error("Barcode Fetch Failed", err);
-
     }
   };
 
-  /* ---------------- PRINT LABEL ---------------- */
-
   const printBarcode = (image: string, sku: string) => {
-
     const printWindow = window.open("", "", "width=400,height=300");
-
     if (!printWindow) return;
-
     printWindow.document.write(`
-      <html>
-      <head>
-      <title>Print Barcode</title>
-
-      <style>
-
-      @page{
-        size: 80mm 12mm;
-        margin:0;
-      }
-
-      body{
-        margin:0;
-        padding:0;
-      }
-
-      .label{
-        width:80mm;
-        height:12mm;
-        display:flex;
-        flex-direction:column;
-        align-items:center;
-        justify-content:center;
-      }
-
-      img{
-        width:30mm;
-        height:8mm;
-        object-fit:contain;
-      }
-
-      .sku{
-        font-size:2.5mm;
-        font-weight:bold;
-        margin-top:1mm;
-        font-family:monospace;
-      }
-
-      </style>
-
-      </head>
-
-      <body>
-
-      <div class="label">
-
-        <img src="${image}" />
-
-        <div class="sku">${sku}</div>
-
-      </div>
-
-      </body>
-
-      </html>
+      <html><head><title>Print Barcode</title><style>
+      @page{ size: 80mm 12mm; margin:0; }
+      body{ margin:0; padding:0; }
+      .label{ width:80mm; height:12mm; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+      img{ width:30mm; height:8mm; object-fit:contain; }
+      .sku{ font-size:2.5mm; font-weight:bold; margin-top:1mm; font-family:monospace; }
+      </style></head><body><div class="label"><img src="${image}" /><div class="sku">${sku}</div></div></body></html>
     `);
-
     printWindow.document.close();
-
     printWindow.focus();
-
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 500);
+    setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
   };
 
   /* ---------------- CREATE PRODUCT ---------------- */
-
   const handleCreateProduct = async () => {
-
     setIsSubmitting(true);
-
+    setIsLoading(true);
     try {
-
       const currentDate = new Date().toISOString().split("T")[0];
-
-      const res = await fetch(
-        "https://suvarnagold-16e5.vercel.app/api/products/create",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            ...formData,
-            grams: parseFloat(formData.grams),
-            carats: String(formData.carats),
-            cost: Number(formData.cost),
-            quantity: Number(formData.quantity),
-            metalType: String(formData.type),
-            manufactureDate: currentDate,
-          }),
-        }
-      );
-
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/products/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ...formData,
+          grams: parseFloat(formData.grams),
+          quantity: Number(formData.quantity),
+          stoneWeight: parseFloat(formData.stoneWeight),
+          netWeight: parseFloat(formData.netWeight),
+          manufactureDate: currentDate,
+          metalType: formData.type,
+        }),
+      });
       if (res.ok) {
-
         setToastMessage("Product added successfully");
         setShowToast(true);
-
         setShowForm(false);
-
         await fetchProducts(true);
-
         setFormData({
-          name: "",
-          type: "gold",
-          grams: "",
-          carats: "",
-          cost: "",
-          quantity: "1",
+          name: "", type: "gold", grams: "", carats: "", bodyPart: "",
+          category: "", quantity: "1", huid: "", stoneWeight: "0", netWeight: "0",
         });
-
       }
-
     } catch (error) {
-
       console.error("Creation Error:", error);
-
     } finally {
-
       setIsSubmitting(false);
-
+      setIsLoading(false);
     }
   };
 
-  const filteredProducts =
-    filter === "all"
-      ? products
-      : products.filter((p) =>
-          p.metalType?.toLowerCase().includes(filter.toLowerCase())
-        );
+  // 🔹 UPDATED FILTER LOGIC
+  const filteredProducts = products.filter((p) => {
+    const matchMetal = filters.metal === "all" || p.metalType?.toLowerCase() === filters.metal;
+    const matchBody = filters.bodyPart === "all" || p.bodyPart?.toLowerCase() === filters.bodyPart;
+    const matchCategory = filters.category === "all" || p.category?.toLowerCase() === filters.category;
+    return matchMetal && matchBody && matchCategory;
+  });
+
+  const resetFilters = () => setFilters({ metal: "all", bodyPart: "all", category: "all" });
 
   return (
+    <SidebarProvider>
+      <div className="min-h-screen flex w-full bg-background">
+        <DashboardSidebar />
 
-<SidebarProvider>
+        {/* ADD PRODUCT MODAL */}
+        {showForm && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[120] overflow-y-auto p-4">
+            <div className="bg-white rounded-2xl p-8 w-full max-w-md space-y-4 my-8">
+              <h2 className="text-xl font-bold font-serif text-amber-900 border-b pb-2">Add New Masterpiece</h2>
+              <div className="space-y-4">
+                <Input
+                  placeholder="Product Name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">Placement</label>
+                    <Select value={formData.bodyPart} onValueChange={(val) => setFormData({ ...formData, bodyPart: val })}>
+                      <SelectTrigger><SelectValue placeholder="Placement" /></SelectTrigger>
+                      <SelectContent className="z-[130]">
+                        <SelectItem value="head">Head</SelectItem>
+                        <SelectItem value="ears">Ears</SelectItem>
+                        <SelectItem value="nose">Nose</SelectItem>
+                        <SelectItem value="neck">Neck</SelectItem>
+                        <SelectItem value="wrist">Wrist</SelectItem>
+                        <SelectItem value="fingers">Fingers</SelectItem>
+                        <SelectItem value="foot">Foot / Ankle</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">Category</label>
+                    <Select value={formData.category} onValueChange={(val) => setFormData({ ...formData, category: val })}>
+                      <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
+                      <SelectContent className="z-[130]">
+                        <SelectItem value="rings">Rings</SelectItem>
+                        <SelectItem value="earrings">Earrings</SelectItem>
+                        <SelectItem value="necklaces">Necklaces</SelectItem>
+                        <SelectItem value="bangles">Bangles</SelectItem>
+                        <SelectItem value="nosepins">Nose Pins</SelectItem>
+                        <SelectItem value="anklets">Anklets</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">Metal</label>
+                    <Select value={formData.type} onValueChange={(val) => setFormData({ ...formData, type: val, carats: "" })}>
+                      <SelectTrigger><SelectValue placeholder="Metal" /></SelectTrigger>
+                      <SelectContent className="z-[130]">
+                        <SelectItem value="gold">Gold</SelectItem>
+                        <SelectItem value="silver">Silver</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">{formData.type === "gold" ? "Carats" : "Purity"}</label>
+                    <Select value={formData.carats} onValueChange={(val) => setFormData({ ...formData, carats: val })}>
+                      <SelectTrigger><SelectValue placeholder="Quality" /></SelectTrigger>
+                      <SelectContent className="z-[130]">
+                        {formData.type === "gold" ? (
+                          ["24K", "22K", "18K", "16K", "9K"].map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)
+                        ) : (
+                          ["99.9%", "95.0%", "92.5%"].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input type="number" placeholder="Grams" value={formData.grams} onChange={(e) => setFormData({ ...formData, grams: e.target.value })} />
+                  <Input type="number" placeholder="Stone Wt" value={formData.stoneWeight} onChange={(e) => setFormData({ ...formData, stoneWeight: e.target.value })} />
+                </div>
+                <div className="bg-amber-50 p-3 rounded-xl border border-amber-200">
+                  <p className="text-[10px] uppercase font-bold text-amber-600">Calculated Net Weight</p>
+                  <p className="text-lg font-mono font-bold text-amber-900">{formData.netWeight} g</p>
+                </div>
+                <Input placeholder="HUID Number" value={formData.huid} onChange={(e) => setFormData({ ...formData, huid: e.target.value })} />
+                <Input type="number" placeholder="Quantity" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button onClick={handleCreateProduct} className="flex-1 bg-black text-white hover:bg-gray-800" disabled={isSubmitting}>
+                  {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Product"}
+                </Button>
+                <Button variant="outline" onClick={() => setShowForm(false)} className="flex-1">Cancel</Button>
+              </div>
+            </div>
+          </div>
+        )}
 
-<div className="min-h-screen flex w-full bg-background">
+        {/* BARCODE MODAL (KEEP AS IS) */}
+        {barcodeModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+            <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg space-y-6">
+              <h2 className="text-2xl font-serif font-bold text-center">Barcode Label Calibration</h2>
+              <BarcodeSettingsWidget barcodeImage={barcodeModal.image} sku={barcodeModal.sku} />
+              <div className="flex flex-col gap-3">
+                <button onClick={() => printBarcode(barcodeModal.image, barcodeModal.sku)} className="w-full bg-black text-white py-3 rounded-xl font-bold">Print Label</button>
+                <button onClick={() => setBarcodeModal(null)} className="text-sm text-gray-500">Close</button>
+              </div>
+            </div>
+          </div>
+        )}
 
-<DashboardSidebar />
+        <main className="flex-1 overflow-auto h-screen">
+          <header className="sticky top-0 z-40 bg-background border-b px-8 py-6 flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-serif font-bold">Treasury Products</h1>
+              <p className="text-sm text-muted-foreground">Manage your jewelry collection</p>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" size="icon" onClick={() => fetchProducts(true)}>
+                <RefreshCw className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`} />
+              </Button>
+              <Button variant="gold" onClick={() => setShowForm(true)}><Plus className="w-5 h-5 mr-2" />Add Product</Button>
+            </div>
+          </header>
 
-{/* ADD PRODUCT MODAL */}
+          <div className="p-8 space-y-8 max-w-[1600px] mx-auto">
+            {/* 🔹 ADVANCED FILTER SECTION */}
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-amber-100 flex flex-wrap gap-4 items-end">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Filter className="w-3 h-3" /> Metal</label>
+                <div className="flex gap-2">
+                  {["all", "gold", "silver"].map((t) => (
+                    <button key={t} onClick={() => setFilters({ ...filters, metal: t })} className={`px-4 py-1.5 rounded-lg text-xs font-bold capitalize transition-all ${filters.metal === t ? "bg-amber-500 text-white shadow-md shadow-amber-200" : "bg-gray-50 text-muted-foreground hover:bg-gray-100"}`}>{t}</button>
+                  ))}
+                </div>
+              </div>
 
-{showForm && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase">Placement</label>
+                <Select value={filters.bodyPart} onValueChange={(val) => setFilters({ ...filters, bodyPart: val })}>
+                  <SelectTrigger className="w-36 text-xs h-9 bg-gray-50 border-none"><SelectValue placeholder="All Body Parts" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Parts</SelectItem>
+                    <SelectItem value="head">Head</SelectItem>
+                    <SelectItem value="ears">Ears</SelectItem>
+                    <SelectItem value="nose">Nose</SelectItem>
+                    <SelectItem value="neck">Neck</SelectItem>
+                    <SelectItem value="wrist">Wrist</SelectItem>
+                    <SelectItem value="fingers">Fingers</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-<div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[120]">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase">Category</label>
+                <Select value={filters.category} onValueChange={(val) => setFilters({ ...filters, category: val })}>
+                  <SelectTrigger className="w-36 text-xs h-9 bg-gray-50 border-none"><SelectValue placeholder="All Categories" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    <SelectItem value="rings">Rings</SelectItem>
+                    <SelectItem value="earrings">Earrings</SelectItem>
+                    <SelectItem value="necklaces">Necklaces</SelectItem>
+                    <SelectItem value="bangles">Bangles</SelectItem>
+                    <SelectItem value="nosepins">Nose Pins</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-<div className="bg-white rounded-2xl p-8 w-[420px] space-y-4">
+              <Button variant="ghost" className="text-xs h-9 text-amber-600 hover:text-amber-700 hover:bg-amber-50" onClick={resetFilters}>Reset All</Button>
+            </div>
 
-<h2 className="text-xl font-bold">Add Product</h2>
+            <GoldDivider />
 
-<Input
-placeholder="Product Name"
-value={formData.name}
-onChange={(e)=>setFormData({...formData,name:e.target.value})}
-/>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+              {isLoading ? (
+                Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)
+              ) : filteredProducts.length > 0 ? (
+                filteredProducts.map((product) => (
+                  <ProductCard key={product.id} product={product} onUpdated={() => fetchProducts(true)} showToast={setToastMessage} onShowQR={(code: string) => handleShowBarcode(code, product.id)} />
+                ))
+              ) : (
+                <div className="col-span-full py-20 text-center space-y-4">
+                  <div className="text-amber-200 flex justify-center"><Filter className="w-12 h-12" /></div>
+                  <p className="text-muted-foreground font-serif text-lg">No pieces found matching these filters.</p>
+                  <Button variant="outline" onClick={resetFilters}>Clear Filters</Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </main>
+      </div>
 
-<Input
-placeholder="Weight (grams)"
-value={formData.grams}
-onChange={(e)=>setFormData({...formData,grams:e.target.value})}
-/>
-
-<Input
-placeholder="Carats"
-value={formData.carats}
-onChange={(e)=>setFormData({...formData,carats:e.target.value})}
-/>
-
-<Input
-placeholder="Cost"
-value={formData.cost}
-onChange={(e)=>setFormData({...formData,cost:e.target.value})}
-/>
-
-<div className="flex gap-3">
-
-<Button
-onClick={handleCreateProduct}
-className="flex-1"
-disabled={isSubmitting}
->
-{isSubmitting ? <Loader2 className="animate-spin"/> : "Create"}
-</Button>
-
-<Button
-variant="outline"
-onClick={()=>setShowForm(false)}
-className="flex-1"
->
-Cancel
-</Button>
-
-</div>
-
-</div>
-
-</div>
-
-)}
-
-{/* BARCODE MODAL */}
-
-{barcodeModal && (
-
-<div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
-
-<div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg space-y-6">
-
-<h2 className="text-2xl font-serif font-bold text-center">
-Barcode Label Calibration
-</h2>
-
-<BarcodeSettingsWidget
-barcodeImage={barcodeModal.image}
-sku={barcodeModal.sku}
-/>     
-
-<div className="flex flex-col gap-3">
-
-<button
-onClick={()=>printBarcode(barcodeModal.image,barcodeModal.sku)}
-className="w-full bg-black text-white py-3 rounded-xl font-bold"
->
-Print Label
-</button>
-
-<button
-onClick={()=>setBarcodeModal(null)}
-className="text-sm text-gray-500"
->
-Close
-</button>
-
-</div>
-
-</div>
-
-</div>
-
-)}
-
-{/* MAIN */}
-
-<main className="flex-1 overflow-auto h-screen">
-
-<header className="sticky top-0 z-40 bg-background border-b px-8 py-6 flex justify-between">
-
-<div>
-
-<h1 className="text-3xl font-serif font-bold">
-Treasury Products
-</h1>
-
-<p className="text-sm text-muted-foreground">
-Manage your jewelry collection
-</p>
-
-</div>
-
-<div className="flex gap-3">
-
-<Button
-variant="outline"
-size="icon"
-onClick={()=>fetchProducts(true)}
->
-<RefreshCw className={`w-5 h-5 ${isLoading ? "animate-spin":""}`} />
-</Button>
-
-<Button
-variant="gold"
-onClick={()=>setShowForm(true)}
->
-<Plus className="w-5 h-5 mr-2"/>
-Add Product
-</Button>
-
-</div>
-
-</header>
-
-<div className="p-8 space-y-8 max-w-[1600px] mx-auto">
-
-<div className="flex gap-2">
-
-{(["all","gold","silver","other"] as const).map((t)=>(
-<button
-key={t}
-onClick={()=>setFilter(t)}
-className={`px-6 py-2 rounded-xl text-xs font-bold uppercase ${
-filter===t ? "bg-amber-500 text-white":"text-muted-foreground"
-}`}
->
-{t}
-</button>
-))}
-
-</div>
-
-<GoldDivider/>
-
-<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-
-{filteredProducts.map((product)=>(
-<ProductCard
-key={product.id}
-product={product}
-onUpdated={()=>fetchProducts(true)}
-showToast={setToastMessage}
-onShowQR={(code:string)=>handleShowBarcode(code,product.id)}
-/>
-))}
-
-</div>
-
-</div>
-
-</main>
-
-</div>
-
-<SuccessToast
-message={toastMessage}
-isVisible={showToast}
-onClose={()=>setShowToast(false)}
-/>
-
-</SidebarProvider>
-
-);
-
+      <SuccessToast message={toastMessage} isVisible={showToast} onClose={() => setShowToast(false)} />
+    </SidebarProvider>
+  );
 };
 
 export default Products;
