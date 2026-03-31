@@ -4,32 +4,17 @@ import { useSpeech } from "@/hooks/useSpeech";
 import { useAccessibility } from "../components/context/AccessibilityContext";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { StatCard } from "@/components/StatCard";
-import { ProductCard } from "@/components/ProductCard";
-import { LuxuryCard } from "@/components/LuxuryCard";
 import { GoldDivider } from "@/components/GoldDivider";
-import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Package,
-  Users,
-  TrendingUp,
-  Wallet,
-  Plus,
-  Search,
-  Settings2,
-  Unlock,
-  Lock
-} from "lucide-react";
+import { TrendingUp, Settings2, Unlock, Lock } from "lucide-react";
 import { AccessibleInput } from "@/components/AccessibleInput";
-
-
 
 export default function Dashboard() {
   const { speak } = useSpeech();
   const { isEnabled } = useAccessibility();
-  const [rates, setRates] = useState({ gold: 0, silver: 0 });
-  const [manualRates, setManualRates] = useState({ gold: 6500, silver: 75 });
+  const [rates, setRates] = useState({ gold24: 0, gold22: 0, silver: 0 });
+  const [manualRates, setManualRates] = useState({ gold24: 6500, gold22: 5980, silver: 75 });
   const [isManual, setIsManual] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -40,17 +25,14 @@ export default function Dashboard() {
   const fetchLiveRates = async () => {
     try {
       setLoading(true);
-
       const res = await fetch("https://suvarnagold-16e5.vercel.app/api/rates");
       const data = await res.json();
-
-      console.log("API DATA:", data); // debug
-
+      console.log("API DATA:", data);
       setRates({
-        gold: cleanPrice(data.gold24),
+        gold24: cleanPrice(data.gold24),
+        gold22: cleanPrice(data.gold22),
         silver: cleanPrice(data.silver),
       });
-
     } catch (error) {
       console.error("Failed to fetch rates", error);
     } finally {
@@ -58,27 +40,24 @@ export default function Dashboard() {
     }
   };
 
-
   useEffect(() => {
     if (!isManual) fetchLiveRates();
   }, [isManual]);
 
   const displayRates = isManual ? manualRates : rates;
-  console.log("rates:", rates)
 
   useEffect(() => {
     if (!isEnabled) return;
-
     const timer = setTimeout(() => {
       speak(
         `Dashboard page. 
-       Gold rate is ${displayRates.gold} rupees per gram. 
+       Gold 24K rate is ${displayRates.gold24} rupees per gram. 
+       Gold 22K rate is ${displayRates.gold22} rupees per gram. 
        Silver rate is ${displayRates.silver} rupees per gram. 
        Manual mode is ${isManual ? "enabled" : "disabled"}.
        Use tab key to navigate through controls.`
       );
     }, 800);
-
     return () => clearTimeout(timer);
   }, [isEnabled, displayRates, isManual, speak]);
 
@@ -88,11 +67,19 @@ export default function Dashboard() {
         <DashboardSidebar />
         <main className="flex-1 p-6 space-y-8">
 
-          {/* Live Rates Display */}
-          <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Live Rates Display — now 3 columns */}
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <StatCard
-              title="Gold Rate (1g)"
-              value={displayRates.gold}
+              title="Gold 24K (1g)"
+              value={displayRates.gold24}
+              prefix="₹"
+              icon={TrendingUp}
+              loading={loading && !isManual}
+              className={isManual ? "border-orange-500/50" : "border-primary/20"}
+            />
+            <StatCard
+              title="Gold 22K (1g)"
+              value={displayRates.gold22}
               prefix="₹"
               icon={TrendingUp}
               loading={loading && !isManual}
@@ -110,7 +97,7 @@ export default function Dashboard() {
 
           <GoldDivider />
 
-          {/* Rate Controller */}
+          {/* Rate Controller — now 3 columns */}
           <section className="bg-card p-6 rounded-xl border border-border shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
@@ -130,21 +117,45 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-end">
+              {/* Gold 24K */}
               <div className="space-y-4">
-                <label className="text-sm text-muted-foreground font-medium">Manual Gold Rate (₹/g)</label>
+                <label className="text-sm text-muted-foreground font-medium">
+                  Manual Gold 24K Rate (₹/g)
+                </label>
                 <div className="relative">
                   <AccessibleInput
-                    label="manual gold rate"
-                    value={manualRates.gold}
+                    label="manual gold 24K rate"
+                    value={manualRates.gold24}
                     disabled={!isManual}
-                    onChange={(val) => setManualRates({ ...manualRates, gold: val })}
+                    onChange={(val) => setManualRates({ ...manualRates, gold24: val })}
                   />
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₹</span>
                 </div>
               </div>
+
+              {/* Gold 22K */}
               <div className="space-y-4">
-                <label className="text-sm text-muted-foreground font-medium">Manual Silver Rate (₹/g)</label>
+                <label className="text-sm text-muted-foreground font-medium">
+                  Manual Gold 22K Rate (₹/g)
+                </label>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    disabled={!isManual}
+                    value={manualRates.gold22}
+                    onChange={(e) => setManualRates({ ...manualRates, gold22: Number(e.target.value) })}
+                    className="text-lg font-bold pl-8"
+                  />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₹</span>
+                </div>
+              </div>
+
+              {/* Silver */}
+              <div className="space-y-4">
+                <label className="text-sm text-muted-foreground font-medium">
+                  Manual Silver Rate (₹/g)
+                </label>
                 <div className="relative">
                   <Input
                     type="number"
@@ -157,6 +168,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+
             {!isManual && (
               <p className="mt-4 text-xs text-muted-foreground flex items-center gap-1">
                 <TrendingUp className="w-3 h-3 text-green-500" />
@@ -164,8 +176,6 @@ export default function Dashboard() {
               </p>
             )}
           </section>
-
-          {/* ... Rest of your Dashboard (Stats, Products, etc.) */}
 
         </main>
       </div>

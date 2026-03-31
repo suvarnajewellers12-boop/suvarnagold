@@ -37,6 +37,7 @@ export async function GET() {
     const response = {
       gold22: gold.gold22,
       gold24: gold.gold24,
+      gold18: gold.gold18,
       silver: silver.silver,
       source: "goodreturns",
       updatedAt: new Date().toISOString(),
