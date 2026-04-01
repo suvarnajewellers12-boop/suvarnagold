@@ -11,7 +11,7 @@ import {
   ShoppingCart, Lock, Trash2, Search, Plus,
   ChevronRight, ScanLine, User, Phone,
   Mail, MapPin, Landmark, ReceiptText, ArrowLeft,
-  RefreshCcw
+  RefreshCcw, CheckCircle2
 } from "lucide-react";
 
 const BillingPOS = () => {
@@ -24,19 +24,87 @@ const BillingPOS = () => {
   const [showDropdown, setShowDropdown] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState(1);
 
-  // 1️⃣ STATE FOR LIVE RATES
-  const [liveRates, setLiveRates] = useState<any>(null);
-
-  const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "" });
+  // OTP & DISCOUNT STATES
+  const [isOtpSent, setIsOtpSent] = useState(false);
+  const [otpLoading, setOtpLoading] = useState(false);
   const [isDiscountUnlocked, setIsDiscountUnlocked] = useState(false);
   const [otp, setOtp] = useState("");
+  
+  // OTHER STATES
+  const [liveRates, setLiveRates] = useState<any>(null);
+  const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "" });
   const [coupon, setCoupon] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
-
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
-  // 2️⃣ FETCH LIVE RATES ON COMPONENT MOUNT
+  const handleRequestOTP = async () => {
+    if (cart.length === 0) {
+      setToastMessage("Add items to vault first");
+      setShowToast(true);
+      return;
+    }
+
+    setOtpLoading(true);
+    try {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/otp/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({}),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setIsOtpSent(true);
+        setToastMessage("OTP sent to Super Admin");
+      } else {
+        setToastMessage(data.error || "Failed to send OTP");
+      }
+    } catch (error) {
+      setToastMessage("Connection error");
+    } finally {
+      setOtpLoading(false);
+      setShowToast(true);
+    }
+  };
+
+  const handleVerifyOTP = async () => {
+    if (!otp) {
+      setToastMessage("Please enter OTP");
+      setShowToast(true);
+      return;
+    }
+
+    setOtpLoading(true);
+    try {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/otp/verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ otp }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setIsDiscountUnlocked(true);
+        setToastMessage("Manager Waiver Applied");
+      } else {
+        setToastMessage(data.error || "Invalid OTP");
+      }
+    } catch (error) {
+      setToastMessage("Verification failed");
+    } finally {
+      setOtpLoading(false);
+      setShowToast(true);
+    }
+  };
+
   useEffect(() => {
     const fetchRates = async () => {
       try {
@@ -50,31 +118,19 @@ const BillingPOS = () => {
     fetchRates();
   }, []);
 
-  // 3️⃣ HELPER FUNCTION TO CALCULATE DYNAMIC PRICE
   const getDynamicPrice = (item: any) => {
-    // If rates haven't loaded or item has no grams, fallback to standard cost
     if (!liveRates || !item.grams) return item.cost || 0;
-
-    // Safely extract metal and carat (default to Gold 22K)
     const metal = (item.metal || "gold").toLowerCase();
-    const carat = String(item.carat || "22").replace(/\D/g, ""); // Extracts just the number, e.g., "22" from "22K"
+    const carat = String(item.carat || "22").replace(/\D/g, "");
 
     let rateKey = "gold22";
-    if (metal === "silver") {
-      rateKey = "silver";
-    } else if (carat === "18") {
-      rateKey = "gold18";
-    } else if (carat === "24") {
-      rateKey = "gold24";
-    }
+    if (metal === "silver") rateKey = "silver";
+    else if (carat === "18") rateKey = "gold18";
+    else if (carat === "24") rateKey = "gold24";
 
     const rateString = liveRates[rateKey];
-    if (!rateString) return item.cost || 0; // Fallback if API missing this key
-
-    // Parse string like "₹13,705" -> 13705
+    if (!rateString) return item.cost || 0;
     const rateValue = parseFloat(String(rateString).replace(/[^\d.-]/g, ''));
-    
-    // Return Rate * Grams (rounded to nearest whole number)
     return Math.round(rateValue * item.grams);
   };
 
@@ -90,13 +146,10 @@ const BillingPOS = () => {
     } catch (error) { console.error("Fetch error", error); }
   };
 
-  // HARDWARE SCANNER LOGIC (HONEYWELL / HID)
   const processScannedBarcode = async (scannedValue: string) => {
     if (isProcessingScan || !scannedValue) return;
     setIsProcessingScan(true);
-
     const productId = scannedValue.includes('/') ? scannedValue.split('/').pop() : scannedValue;
-
     const alreadyPresent = cart.some(item => String(item.id) === productId);
     if (alreadyPresent) {
       setToastMessage("Security Alert: Item already in vault.");
@@ -104,12 +157,10 @@ const BillingPOS = () => {
       setIsProcessingScan(false);
       return;
     }
-
     try {
       const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/products/scan/${productId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
       if (res.ok) {
         const product = await res.json();
         setCart(prev => [...prev, { ...product, quantity: 1 }]);
@@ -120,7 +171,6 @@ const BillingPOS = () => {
         setShowToast(true);
       }
     } catch (error) {
-      console.error("Scan error", error);
       setToastMessage("Network error during scan");
       setShowToast(true);
     } finally {
@@ -131,42 +181,28 @@ const BillingPOS = () => {
   useEffect(() => {
     let barcodeBuffer = "";
     let lastKeyTime = Date.now();
-
     const handleKeyDown = (e: KeyboardEvent) => {
       const currentTime = Date.now();
-
       const activeElement = document.activeElement as HTMLElement;
-      if (
-        activeElement.tagName === "INPUT" || 
-        activeElement.tagName === "TEXTAREA"
-      ) {
-         if (activeElement.id !== "search-input") return; 
+      if (activeElement.tagName === "INPUT" || activeElement.tagName === "TEXTAREA") {
+        if (activeElement.id !== "search-input") return;
       }
-
-      if (currentTime - lastKeyTime > 50) {
-        barcodeBuffer = "";
-      }
-
+      if (currentTime - lastKeyTime > 50) barcodeBuffer = "";
       if (e.key === "Enter" && barcodeBuffer.length > 3) {
-        e.preventDefault(); 
+        e.preventDefault();
         processScannedBarcode(barcodeBuffer);
         barcodeBuffer = "";
-        
         if (activeElement.id === "search-input") {
           setSearch("");
           setShowDropdown(false);
           activeElement.blur();
         }
-      } else if (e.key.length === 1) { 
-        barcodeBuffer += e.key;
-      }
-
+      } else if (e.key.length === 1) barcodeBuffer += e.key;
       lastKeyTime = currentTime;
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cart, isProcessingScan]); 
+  }, [cart, isProcessingScan]);
 
   const applyCoupon = () => {
     if (coupon.toUpperCase() === "HERITAGE2026") {
@@ -181,43 +217,31 @@ const BillingPOS = () => {
 
   const removeItem = (id: string) => setCart(prev => prev.filter(item => item.id !== id));
 
-  // 4️⃣ CALCULATIONS USING DYNAMIC PRICING
   const subtotal = cart.reduce((acc, item) => acc + (getDynamicPrice(item) * item.quantity), 0);
   const gst = subtotal * 0.18;
   const managerWaiver = isDiscountUnlocked ? subtotal * 0.05 : 0;
   const total = Math.max(0, subtotal + gst - managerWaiver - couponDiscount);
 
   const handleCheckout = async () => {
-    if (cart.length === 0) {
-      setToastMessage("Cart is empty");
+    if (cart.length === 0 || !customer.name || !customer.phone) {
+      setToastMessage("Check cart and customer details");
       setShowToast(true);
       return;
     }
-
-    if (!customer.name || !customer.phone) {
-      setToastMessage("Customer details required");
-      setShowToast(true);
-      return;
-    }
-
     try {
       const orderRes = await fetch("https://suvarnagold-16e5.vercel.app/api/payment/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ amount: total, customerName: customer.name, phoneNumber: customer.phone }),
       });
-
       const orderData = await orderRes.json();
       const order = orderData.order;
-
       const options = {
         key: "rzp_test_SQBmMDbmpm3m0D",
         amount: order.amount,
         currency: "INR",
         name: "Suvarna Jewellery",
-        description: "Jewellery Purchase",
         order_id: order.id,
-
         handler: async function (response: any) {
           const verifyRes = await fetch("https://suvarnagold-16e5.vercel.app/api/payment/verify", {
             method: "POST",
@@ -233,39 +257,30 @@ const BillingPOS = () => {
                 gstAmount: gst,
                 discountAmount: managerWaiver + couponDiscount,
                 finalAmount: total,
-                // Make sure to save the DYNAMIC price in the final payload
                 items: cart.map((item) => ({
                   productId: item.id,
                   name: item.name,
                   grams: item.grams,
-                  cost: getDynamicPrice(item), 
+                  cost: getDynamicPrice(item),
                 })),
               },
             }),
           });
-
           const verifyData = await verifyRes.json();
-
           if (verifyData.success) {
-            setToastMessage("Payment Successful & Purchase Completed");
+            setToastMessage("Payment Successful");
             setShowToast(true);
             setCart([]);
             setCustomer({ name: "", phone: "", email: "", address: "" });
             setCheckoutStep(1);
-          } else {
-            setToastMessage("Payment verification failed");
-            setShowToast(true);
           }
         },
         prefill: { name: customer.name, contact: customer.phone, email: customer.email },
         theme: { color: "#C6A25D" },
       };
-
       const rzp = new (window as any).Razorpay(options);
       rzp.open();
-
     } catch (error) {
-      console.error(error);
       setToastMessage("Payment initialization failed");
       setShowToast(true);
     }
@@ -293,7 +308,6 @@ const BillingPOS = () => {
                   placeholder="Search Design..."
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); fetchProducts(e.target.value); }}
-                  onFocus={() => search && setShowDropdown(true)}
                   className="pl-10 h-10 rounded-lg bg-slate-50 border-gold/10 font-serif italic text-sm"
                 />
                 {showDropdown && products.length > 0 && (
@@ -305,19 +319,16 @@ const BillingPOS = () => {
                           <span className="text-[9px] text-gold font-bold uppercase tracking-widest">{p.grams}Grams | {p.carat || "22K"}</span>
                         </div>
                         <div className="flex items-center gap-4">
-                          {/* DYNAMIC PRICE IN SEARCH */}
                           <span className="text-xs font-serif font-bold text-slate-900 leading-none">₹{getDynamicPrice(p).toLocaleString()}</span>
                           <Button
                             onClick={() => {
                               if (!cart.some(item => String(item.id) === String(p.id))) {
                                 setCart(prev => [...prev, { ...p, quantity: 1 }]);
                                 setShowToast(true); setToastMessage(`${p.name} Added`);
-                              } else {
-                                setToastMessage("Item already in vault"); setShowToast(true);
                               }
                               setSearch(""); setShowDropdown(false);
                             }}
-                            variant="gold" size="icon" className="h-7 w-7 rounded-lg active:scale-90 transition-transform"
+                            variant="gold" size="icon" className="h-7 w-7 rounded-lg"
                           >
                             <Plus size={14} />
                           </Button>
@@ -338,7 +349,6 @@ const BillingPOS = () => {
               ) : (
                 <RefreshCcw size={14} className="animate-spin text-gold/50" />
               )}
-              
               <div className="flex items-center gap-2 px-6 h-10 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-lg text-[10px] font-bold uppercase tracking-[0.2em]">
                 <ScanLine size={14} className="animate-pulse" /> Scanner Ready
               </div>
@@ -375,10 +385,9 @@ const BillingPOS = () => {
                         <div className="flex items-center gap-8">
                           <div className="text-right">
                             <p className="text-[9px] uppercase font-bold text-slate-300 tracking-[0.2em] mb-1">Total</p>
-                            {/* DYNAMIC PRICE IN CART */}
                             <p className="text-xl font-serif font-bold text-slate-900 leading-none">₹{getDynamicPrice(item).toLocaleString()}</p>
                           </div>
-                          <Button onClick={() => removeItem(item.id)} variant="ghost" size="icon" className="h-10 w-10 text-slate-200 hover:text-red-500 hover:bg-red-50 transition-all"><Trash2 size={20} /></Button>
+                          <Button onClick={() => removeItem(item.id)} variant="ghost" size="icon" className="h-10 w-10 text-slate-200 hover:text-red-500"><Trash2 size={20} /></Button>
                         </div>
                       </div>
                     ))
@@ -398,10 +407,40 @@ const BillingPOS = () => {
                     </div>
 
                     <div className="space-y-5 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                      <div className="flex gap-2">
-                        <Input placeholder="ADMIN OTP" value={otp} onChange={(e) => setOtp(e.target.value)} className="h-12 rounded-xl bg-white border-2 border-gold/10 text-center tracking-[0.4em] font-bold text-md" />
-                        <Button onClick={() => otp === "1234" ? setIsDiscountUnlocked(true) : null} variant="outline" className="rounded-xl border-2 border-gold/10 text-gold h-12 w-16"><Lock size={18} /></Button>
+                      
+                      {/* OTP DYNAMIC SECTION */}
+                      <div className="space-y-2">
+                         <div className="flex gap-2">
+                          <Input 
+                            placeholder="ADMIN OTP" 
+                            value={otp} 
+                            onChange={(e) => setOtp(e.target.value)} 
+                            disabled={!isOtpSent || isDiscountUnlocked}
+                            className="h-12 rounded-xl bg-white border-2 border-gold/10 text-center tracking-[0.4em] font-bold text-md" 
+                          />
+                          
+                          <Button 
+                            onClick={isOtpSent ? handleVerifyOTP : handleRequestOTP} 
+                            disabled={otpLoading || isDiscountUnlocked}
+                            variant={isDiscountUnlocked ? "outline" : "gold"}
+                            className={`rounded-xl h-12 px-4 min-w-[100px] font-bold text-[10px] uppercase tracking-widest transition-all ${isDiscountUnlocked ? 'border-emerald-500 text-emerald-600' : ''}`}
+                          >
+                            {otpLoading ? (
+                              <RefreshCcw size={16} className="animate-spin" />
+                            ) : isDiscountUnlocked ? (
+                              <CheckCircle2 size={18} />
+                            ) : isOtpSent ? (
+                              "Verify"
+                            ) : (
+                              "Get OTP"
+                            )}
+                          </Button>
+                        </div>
+                        {isOtpSent && !isDiscountUnlocked && (
+                          <p className="text-[9px] text-gold font-bold uppercase tracking-tight text-center animate-pulse">OTP Delivered to Super Admin</p>
+                        )}
                       </div>
+
                       <div className="flex gap-2">
                         <Input placeholder="REWARD CODE" value={coupon} onChange={(e) => setCoupon(e.target.value)} className="h-12 rounded-xl bg-white border-2 border-dashed border-gold/10 text-center font-bold" />
                         <Button onClick={applyCoupon} variant="gold" className="h-12 px-6 rounded-xl text-[9px] font-bold uppercase tracking-widest">Apply</Button>
@@ -409,12 +448,10 @@ const BillingPOS = () => {
 
                       <GoldDivider opacity={30} />
 
-                      {/* DYNAMIC PRICE DETAILS */}
                       <div className="space-y-3">
                         <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest"><span>Gross Value</span><span className="text-slate-900 font-serif text-lg">₹{subtotal.toLocaleString()}</span></div>
                         <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest"><span>Tax (GST 18%)</span><span className="text-slate-900 font-serif text-lg">₹{gst.toLocaleString()}</span></div>
 
-                        {/* DISCOUNT REVEALS */}
                         {isDiscountUnlocked && (
                           <div className="flex justify-between text-[10px] font-bold text-emerald-600 uppercase italic bg-emerald-50 p-3 rounded-xl border border-emerald-100 animate-in fade-in">
                             <span>Manager Waiver (5%)</span>
@@ -439,13 +476,13 @@ const BillingPOS = () => {
                         variant="gold"
                         className="w-full h-10 rounded-[1.5rem] text-[11px] uppercase tracking-[0.6em] font-bold shadow-xl mt-4 group active:scale-75 transition-all"
                       >
-                        Check out <ChevronRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                        Check out <ChevronRight className="ml-2 w-4 h-4 group-hover:translate-x-1" />
                       </Button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col animate-in slide-in-from-right duration-300">
-                    <button onClick={() => setCheckoutStep(1)} className="flex items-center gap-2 text-gold text-[10px] font-bold uppercase tracking-widest mb-6 hover:opacity-70 transition-all">
+                    <button onClick={() => setCheckoutStep(1)} className="flex items-center gap-2 text-gold text-[10px] font-bold uppercase tracking-widest mb-6">
                       <ArrowLeft size={16} /> Return to Billing
                     </button>
 
@@ -456,26 +493,26 @@ const BillingPOS = () => {
 
                     <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Full Name</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Full Name</label>
                         <Input placeholder="John Doe" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Contact Phone</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Contact Phone</label>
                         <Input placeholder="+91 00000 00000" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Email Address</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Email Address</label>
                         <Input placeholder="customer@heritage.com" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Residential Address</label>
-                        <textarea placeholder="..." rows={2} value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} className="w-full p-4 rounded-xl bg-white border border-gold/10 text-sm resize-none outline-none focus:border-gold transition-colors" />
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Residential Address</label>
+                        <textarea placeholder="..." rows={2} value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} className="w-full p-4 rounded-xl bg-white border border-gold/10 text-sm resize-none outline-none focus:border-gold" />
                       </div>
                     </div>
                     <Button
                       onClick={handleCheckout}
                       variant="gold"
-                      className="w-full h-16 rounded-[1.5rem] text-[11px] uppercase tracking-[0.4em] font-bold shadow-xl mt-6 shrink-0 active:scale-95 transition-all"
+                      className="w-full h-16 rounded-[1.5rem] text-[11px] uppercase tracking-[0.4em] font-bold shadow-xl mt-6 active:scale-95 transition-all"
                     >
                       Checkout
                     </Button>

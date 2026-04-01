@@ -2,20 +2,20 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
 import twilio from "twilio";
+import nodemailer from "nodemailer";
 
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID!,
-  process.env.TWILIO_AUTH_TOKEN!
-);
+const client = twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!);
 
+// Helper for CORS headers
 function corsHeaders() {
   return {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": "*", // Change this to your frontend URL in production
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Methods": "POST,OPTIONS",
   };
 }
 
+// 1. Handle OPTIONS request (CORS Preflight)
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
@@ -23,46 +23,30 @@ export async function OPTIONS() {
   });
 }
 
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.GMAIL_ID,
+    pass: process.env.GMAIL_PASSWORD,
+  },
+});
+
 export async function POST(req: Request) {
   try {
-
     const authHeader = req.headers.get("authorization");
-
     if (!authHeader) {
-      return new NextResponse(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: corsHeaders() }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders() });
     }
 
     const token = authHeader.split(" ")[1];
     const user = verifyToken(token);
 
-    const body = await req.json();
-
-    const {
-      discountPercent,
-      customerName,
-      adminName
-    } = body;
-
-    if (!discountPercent || !customerName || !adminName) {
-      return new NextResponse(
-        JSON.stringify({
-          error: "discountPercent, customerName, adminName required"
-        }),
-        { status: 400, headers: corsHeaders() }
-      );
-    }
-
     const superAdminPhone = process.env.SUPERADMIN_PHONE!;
-
-    // Generate OTP
+    const superAdminEmail = process.env.GMAIL_ID!;
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    // Store OTP
+    // 1. Database operation (Keep this AWAITED so we know the OTP is valid)
     await prisma.otpVerification.create({
       data: {
         phoneNumber: superAdminPhone,
@@ -73,41 +57,35 @@ export async function POST(req: Request) {
       },
     });
 
-    // SMS Body
-    const message = `Your Suvarna verification OTP is ${otpCode} for ${discountPercent}% on the purchase by ${customerName}. 
-If you agree with the discount say the OTP to ${adminName}. 
-It is valid for 5 minutes. Do not share this OTP with anyone.
-- Suvarna Jewellers`;
+    const message = `Your Suvarna verification OTP is ${otpCode} for discount approval.`;
 
-console.log("FROM:", process.env.TWILIO_WHATSAPP_FROM);
-console.log("TO:", `whatsapp:${superAdminPhone}`);
-
-    // Send SMS via Twilio
-    // Send WhatsApp via Twilio
-    await client.messages.create({
+    // 2. BACKGROUND TASKS (DO NOT USE 'AWAIT')
+    // We trigger these but don't wait for them to finish before responding
+    client.messages.create({
       body: message,
-      from: process.env.TWILIO_WHATSAPP_FROM!,        // whatsapp:+14155238886
-      to: `whatsapp:${superAdminPhone}`,             // whatsapp:+918555025407
-    });
+      from: process.env.TWILIO_WHATSAPP_FROM!,
+      to: `whatsapp:${superAdminPhone}`,
+    }).catch(err => console.error("Twilio Background Error:", err));
 
-    
+    transporter.sendMail({
+      from: '"Suvarna Jewellers" <suvarnajewellers12@gmail.com>',
+      to: superAdminEmail,
+      subject: "Discount Approval Request - OTP",
+      html: `<b>${message}</b>`,
+    }).catch(err => console.error("Nodemailer Background Error:", err));
 
-    return new NextResponse(
-      JSON.stringify({
-        success: true,
-        message: "OTP sent successfully"
-      }),
-      { status: 200, headers: corsHeaders() }
+    // 3. IMMEDIATE RESPONSE
+    // This sends the response to the frontend instantly (~200ms)
+    return NextResponse.json(
+      { success: true, message: "Request initiated" },
+      { headers: corsHeaders() }
     );
 
   } catch (error) {
-
-    console.error("OTP GENERATE ERROR:", error);
-
-    return new NextResponse(
-      JSON.stringify({ error: "Failed to send OTP" }),
+    console.error("OTP ERROR:", error);
+    return NextResponse.json(
+      { error: "Failed to process request" }, 
       { status: 500, headers: corsHeaders() }
     );
-
   }
 }
