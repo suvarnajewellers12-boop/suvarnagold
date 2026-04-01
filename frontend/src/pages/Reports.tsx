@@ -41,7 +41,7 @@ const Reports = () => {
 
       const token = localStorage.getItem("token");
 
-      const res = await fetch("http://localhost:3000/api/reports/purchases", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/reports/purchases", {
         headers: { Authorization: `Bearer ${token}` }
       });
 

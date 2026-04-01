@@ -26,6 +26,7 @@ import GoldJobWorkPage from "./pages/GoldJobWorkPage";
 import GoldPurchasePage from "./pages/GoldPurchasePage";
 import SuperadminCustomerMangement from "./pages/Customers";
 
+
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminProducts from "./pages/admin/AdminProducts";
@@ -35,6 +36,7 @@ import AdminSettings from "./pages/admin/AdminSettings";
 import CustomerManagement from "./pages/admin/AdminCustomer";
 import StaffManagement from "./pages/staff";
 import ProductsList from "./pages/ProductsList";
+import AdminCreateScheme from "./pages/admin/AdminCreateSchemes";
 
 const queryClient = new QueryClient();
 
@@ -172,7 +174,7 @@ const App = () => (
             <Route path="/admin/billing" element={<AdminBilling />} />
             <Route path="/admin/reports" element={<AdminReports />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
-            <Route path="/admin/create-scheme" element={<SuperAdminCreateScheme />} />
+            <Route path="/admin/create-scheme" element={<AdminCreateScheme />} />
             <Route path="/admin/customers" element={<CustomerManagement />} />
 
             {/* Catch-all */}

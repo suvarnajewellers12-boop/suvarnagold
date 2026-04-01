@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from "react";
-import { Scanner } from "@yudiel/react-qr-scanner";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
@@ -10,8 +9,8 @@ import { SuccessToast } from "@/components/SuccessToast";
 import { Badge } from "@/components/ui/badge";
 import { 
   ShoppingCart, Lock, Trash2, Search, Plus, 
-  ChevronRight, X, Camera, User, Phone, 
-  Landmark, ReceiptText, ArrowLeft, CreditCard
+  ChevronRight, ScanLine, User, Phone, 
+  Landmark, ReceiptText, ArrowLeft, RefreshCcw, CreditCard
 } from "lucide-react";
 
 const BillingPOS = () => {
@@ -22,10 +21,12 @@ const BillingPOS = () => {
   const [products, setProducts] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<any[]>([]);
-  const [scanning, setScanning] = useState(false);
   const [isProcessingScan, setIsProcessingScan] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState(1);
+
+  // Live Rates State
+  const [liveRates, setLiveRates] = useState<any>(null);
 
   // Customer & Discount State
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "" });
@@ -59,7 +60,44 @@ const BillingPOS = () => {
     };
   }, []);
 
-  // 2. Search Logic
+  // 2. Fetch Live Rates
+  useEffect(() => {
+    const fetchRates = async () => {
+      try {
+        const res = await fetch("https://suvarnagold-16e5.vercel.app/api/rates");
+        const data = await res.json();
+        setLiveRates(data);
+      } catch (error) {
+        console.error("Failed to fetch live rates", error);
+      }
+    };
+    fetchRates();
+  }, []);
+
+  // 3. Dynamic Price Calculator
+  const getDynamicPrice = (item: any) => {
+    if (!liveRates || !item.grams) return item.cost || 0;
+
+    const metal = (item.metal || "gold").toLowerCase();
+    const carat = String(item.carat || "22").replace(/\D/g, "");
+
+    let rateKey = "gold22";
+    if (metal === "silver") {
+      rateKey = "silver";
+    } else if (carat === "18") {
+      rateKey = "gold18";
+    } else if (carat === "24") {
+      rateKey = "gold24";
+    }
+
+    const rateString = liveRates[rateKey];
+    if (!rateString) return item.cost || 0;
+
+    const rateValue = parseFloat(String(rateString).replace(/[^\d.-]/g, ''));
+    return Math.round(rateValue * item.grams);
+  };
+
+  // 4. Search Logic
   const fetchProducts = async (query = "") => {
     if (!query || query.length < 1) { 
       setProducts([]); 
@@ -77,28 +115,16 @@ const BillingPOS = () => {
     } catch (error) { console.error("Search Error:", error); }
   };
 
-  // 3. Cart Logic
-  const addToCart = (p: any) => {
-    if (cart.some(item => String(item.id) === String(p.id))) {
-      setToastMessage("Item already in vault");
-    } else {
-      setCart(prev => [...prev, { ...p, quantity: 1 }]);
-      setToastMessage(`${p.name} Added`);
-      setSearch("");
-      setShowDropdown(false);
-    }
-    setShowToast(true);
-  };
-
-  const handleScan = async (result: any) => {
-    if (isProcessingScan || !result?.[0]?.rawValue) return;
+  // 5. Hardware Scanner Logic
+  const processScannedBarcode = async (scannedValue: string) => {
+    if (isProcessingScan || !scannedValue) return;
     setIsProcessingScan(true);
-    const productId = String(result[0].rawValue).split('/').pop();
+
+    const productId = scannedValue.includes('/') ? scannedValue.split('/').pop() : scannedValue;
 
     if (cart.some(item => String(item.id) === productId)) {
-      setToastMessage("Security Alert: Item already present.");
+      setToastMessage("Security Alert: Item already in vault.");
       setShowToast(true);
-      setScanning(false);
       setIsProcessingScan(false);
       return;
     }
@@ -107,24 +133,89 @@ const BillingPOS = () => {
       const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/products/scan/${productId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      
       if (res.ok) {
         const product = await res.json();
         setCart(prev => [...prev, { ...product, quantity: 1 }]);
-        setScanning(false);
-        setToastMessage(`${product.name} Verified`);
+        setToastMessage(`${product.name} Verified & Added`);
+        setShowToast(true);
+      } else {
+        setToastMessage("Invalid Barcode or Product Not Found");
         setShowToast(true);
       }
-    } finally { setIsProcessingScan(false); }
+    } catch (error) {
+      console.error("Scan error", error);
+      setToastMessage("Network error during scan");
+      setShowToast(true);
+    } finally {
+      setIsProcessingScan(false);
+    }
   };
 
-  // 4. Financial Calculations
-  const subtotal = cart.reduce((acc, item) => acc + (item.cost * (item.quantity || 1)), 0);
-  const gst = subtotal * 0.3;
+  useEffect(() => {
+    let barcodeBuffer = "";
+    let lastKeyTime = Date.now();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const currentTime = Date.now();
+      const activeElement = document.activeElement as HTMLElement;
+
+      if (activeElement.tagName === "INPUT" || activeElement.tagName === "TEXTAREA") {
+         if (activeElement.id !== "search-input") return; 
+      }
+
+      if (currentTime - lastKeyTime > 50) {
+        barcodeBuffer = "";
+      }
+
+      if (e.key === "Enter" && barcodeBuffer.length > 3) {
+        e.preventDefault(); 
+        processScannedBarcode(barcodeBuffer);
+        barcodeBuffer = "";
+        
+        if (activeElement.id === "search-input") {
+          setSearch("");
+          setShowDropdown(false);
+          activeElement.blur();
+        }
+      } else if (e.key.length === 1) { 
+        barcodeBuffer += e.key;
+      }
+
+      lastKeyTime = currentTime;
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [cart, isProcessingScan]);
+
+  const applyCoupon = () => {
+    if (coupon.toUpperCase() === "HERITAGE2026") {
+      setCouponDiscount(1000);
+      setToastMessage("Coupon Applied: ₹1,000 Reward");
+    } else {
+      setCouponDiscount(0);
+      setToastMessage("Invalid or Expired Code");
+    }
+    setShowToast(true);
+  };
+
+  const removeItem = (id: string) => setCart(prev => prev.filter(item => item.id !== id));
+
+  // 6. Financial Calculations (Using Dynamic Price)
+  const subtotal = cart.reduce((acc, item) => acc + (getDynamicPrice(item) * (item.quantity || 1)), 0);
+  const gst = subtotal * 0.03; // GST is usually 3% for Gold
   const managerWaiver = isDiscountUnlocked ? subtotal * 0.05 : 0;
   const total = Math.max(0, subtotal + gst - managerWaiver - couponDiscount);
 
-  // 5. Razorpay Checkout & Verification
+  // 7. Razorpay Checkout & Verification
   const handlePayment = async () => {
+    if (cart.length === 0) {
+      setToastMessage("Cart is empty");
+      setShowToast(true);
+      return;
+    }
+
     if (!customer.name || !customer.phone) {
       setToastMessage("Customer name and phone required");
       setShowToast(true);
@@ -132,7 +223,6 @@ const BillingPOS = () => {
     }
 
     try {
-      // Step A: Create Order
       const orderRes = await fetch("https://suvarnagold-16e5.vercel.app/api/payment/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -140,7 +230,6 @@ const BillingPOS = () => {
       });
       const { order } = await orderRes.json();
 
-      // Step B: Razorpay Options
       const options = {
         key: "rzp_test_SQBmMDbmpm3m0D",
         amount: order.amount,
@@ -149,7 +238,6 @@ const BillingPOS = () => {
         description: "POS Terminal Purchase",
         order_id: order.id,
         handler: async (response: any) => {
-          // Step C: Verify with Prisma-mapped data
           const verifyRes = await fetch("https://suvarnagold-16e5.vercel.app/api/payment/verify", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -164,12 +252,11 @@ const BillingPOS = () => {
                 gstAmount: gst,
                 discountAmount: managerWaiver + couponDiscount,
                 finalAmount: total,
-                // CRITICAL: Map 'id' to 'productId' for Prisma
                 items: cart.map(item => ({
                   productId: item.id,
                   name: item.name,
                   grams: item.grams,
-                  cost: item.cost
+                  cost: getDynamicPrice(item)
                 }))
               }
             }),
@@ -182,6 +269,9 @@ const BillingPOS = () => {
             setCart([]);
             setCustomer({ name: "", phone: "", email: "", address: "" });
             setCheckoutStep(1);
+          } else {
+            setToastMessage("Payment verification failed");
+            setShowToast(true);
           }
         },
         prefill: { name: customer.name, contact: customer.phone, email: customer.email },
@@ -206,33 +296,47 @@ const BillingPOS = () => {
           <header className="px-10 py-3 flex items-center justify-between bg-white border-b-2 border-gold/10 shrink-0 z-[100] shadow-sm">
             <div className="flex items-center gap-8 flex-1">
               <div className="border-r border-gold/20 pr-8">
-                <h1 className="text-lg font-serif font-bold text-slate-900 flex items-center gap-2">
+                <h1 className="text-lg font-serif font-bold text-slate-900 tracking-tight flex items-center gap-2 leading-none">
                   <Landmark className="text-gold" size={18} /> Terminal
                 </h1>
               </div>
 
               {/* SEARCH BOX */}
-              <div className="relative w-full max-w-md" ref={searchContainerRef}>
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gold/40" />
+              <div className="relative w-full max-w-sm" ref={searchContainerRef}>
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gold/40" />
                 <Input 
-                  placeholder="Find Design..." 
+                  id="search-input"
+                  placeholder="Search Design..." 
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); fetchProducts(e.target.value); }}
-                  onFocus={() => products.length > 0 && setShowDropdown(true)}
-                  className="pl-10 h-11 rounded-xl bg-slate-50 border-gold/10 focus:bg-white transition-all"
+                  onFocus={() => search && setShowDropdown(true)}
+                  className="pl-10 h-10 rounded-lg bg-slate-50 border-gold/10 font-serif italic text-sm transition-all focus:bg-white"
                 />
-                {showDropdown && (
+                {showDropdown && products.length > 0 && (
                   <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-white border-2 border-gold/20 shadow-2xl rounded-2xl overflow-hidden z-[999] animate-in fade-in slide-in-from-top-2 duration-200">
                     <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
                       {products.map((p) => (
                         <div key={p.id} className="flex justify-between items-center p-4 hover:bg-gold/5 border-b border-gold/5 transition-colors">
                           <div className="flex flex-col">
-                            <span className="text-xs font-bold text-slate-800 uppercase">{p.name}</span>
-                            <span className="text-[9px] text-gold font-bold">{p.grams}G | {p.carat || "22K"}</span>
+                            <span className="text-xs font-bold text-slate-800 uppercase tracking-tight">{p.name}</span>
+                            <span className="text-[9px] text-gold font-bold uppercase tracking-widest">{p.grams}Grams | {p.carat || "22K"}</span>
                           </div>
                           <div className="flex items-center gap-4">
-                            <span className="text-sm font-serif font-bold text-slate-900">₹{p.cost.toLocaleString()}</span>
-                            <Button onClick={() => addToCart(p)} variant="gold" size="icon" className="h-8 w-8 rounded-lg"><Plus size={16} /></Button>
+                            <span className="text-sm font-serif font-bold text-slate-900 leading-none">₹{getDynamicPrice(p).toLocaleString()}</span>
+                            <Button 
+                              onClick={() => {
+                                if (!cart.some(item => String(item.id) === String(p.id))) {
+                                  setCart(prev => [...prev, { ...p, quantity: 1 }]);
+                                  setShowToast(true); setToastMessage(`${p.name} Added`);
+                                } else {
+                                  setToastMessage("Item already in vault"); setShowToast(true);
+                                }
+                                setSearch(""); setShowDropdown(false);
+                              }} 
+                              variant="gold" size="icon" className="h-7 w-7 rounded-lg active:scale-90 transition-transform"
+                            >
+                              <Plus size={14} />
+                            </Button>
                           </div>
                         </div>
                       ))}
@@ -242,24 +346,26 @@ const BillingPOS = () => {
               </div>
             </div>
 
-            <Button onClick={() => setScanning(!scanning)} variant={scanning ? "gold" : "outline"} className="h-10 rounded-lg border-gold/20 gap-2 px-6 text-[9px] font-bold uppercase tracking-[0.2em]">
-              {scanning ? <X size={14}/> : <Camera size={14}/>} Scan QR
-            </Button>
+            <div className="flex items-center gap-4">
+              {liveRates ? (
+                <div className="flex flex-col text-right">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Live 22K Rate</span>
+                  <span className="text-xs font-serif font-bold text-slate-900 leading-none">{liveRates.gold22}/g</span>
+                </div>
+              ) : (
+                <RefreshCcw size={14} className="animate-spin text-gold/50" />
+              )}
+              
+              <div className="flex items-center gap-2 px-6 h-10 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-lg text-[10px] font-bold uppercase tracking-[0.2em]">
+                <ScanLine size={14} className="animate-pulse" /> Scanner Ready
+              </div>
+            </div>
           </header>
 
           <div className="flex-1 flex overflow-hidden w-full px-6 py-6 gap-6">
             
             {/* TRANSACTION VAULT */}
             <div className="w-[62%] flex flex-col overflow-hidden relative">
-              {scanning && (
-                <div className="absolute inset-0 z-[60] bg-white/95 backdrop-blur-sm rounded-[2rem] flex flex-col items-center justify-center p-8 border-2 border-gold/10 animate-in fade-in">
-                  <div className="relative w-full max-w-lg aspect-video rounded-2xl overflow-hidden border-4 border-gold shadow-2xl bg-black">
-                    <Scanner onScan={handleScan} constraints={{ facingMode: "environment" }} allowMultiple={false} scanDelay={500} />
-                  </div>
-                  <Button onClick={() => setScanning(false)} variant="ghost" className="mt-6 text-slate-400 uppercase tracking-widest text-[10px] font-bold">Close Scanner</Button>
-                </div>
-              )}
-
               <LuxuryCard className="flex-1 flex flex-col p-0 rounded-[2rem] border-gold/10 shadow-xl overflow-hidden bg-white">
                 <div className="px-8 py-5 border-b-2 border-gold/5 flex justify-between items-center bg-[#FDFCF9]">
                   <h2 className="text-lg font-serif font-bold italic text-slate-800 flex items-center gap-2">
@@ -271,24 +377,24 @@ const BillingPOS = () => {
                 <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                   {cart.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center opacity-10">
-                      <ShoppingCart size={100} className="mb-4 text-gold" strokeWidth={0.5} />
+                      <Landmark size={100} className="mb-4 text-gold" strokeWidth={0.5} />
                       <p className="text-sm uppercase font-bold tracking-[0.8em] italic">Vault Empty</p>
                     </div>
                   ) : cart.map((item) => (
-                    <div key={item.id} className="flex justify-between items-center p-5 rounded-[1.5rem] bg-white border border-gold/5 hover:border-gold/30 hover:shadow-lg transition-all">
+                    <div key={item.id} className="flex justify-between items-center p-6 rounded-[1.5rem] bg-white border border-gold/5 hover:border-gold/30 hover:shadow-lg transition-all">
                       <div className="flex items-center gap-6">
                         <div className="h-12 w-12 rounded-xl bg-slate-50 flex items-center justify-center text-gold font-serif text-xl border-2 border-gold/5">{item.name.charAt(0)}</div>
-                        <div className="space-y-0.5">
-                          <p className="text-md font-serif font-bold text-slate-800 uppercase tracking-tight leading-none">{item.name}</p>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.grams}G | {item.carat || "22K"}</p>
+                        <div className="space-y-1">
+                          <p className="text-lg font-serif font-bold text-slate-800 uppercase tracking-tight leading-none">{item.name}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.grams}Grams | {item.carat || "22K"} PURE GOLD</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-6">
+                      <div className="flex items-center gap-8">
                         <div className="text-right">
-                          <p className="text-[8px] uppercase font-bold text-slate-300 tracking-[0.2em] mb-0.5">Price</p>
-                          <p className="text-lg font-serif font-bold text-slate-900 leading-none">₹{item.cost.toLocaleString()}</p>
+                          <p className="text-[9px] uppercase font-bold text-slate-300 tracking-[0.2em] mb-1">Total</p>
+                          <p className="text-xl font-serif font-bold text-slate-900 leading-none">₹{getDynamicPrice(item).toLocaleString()}</p>
                         </div>
-                        <Button onClick={() => setCart(prev => prev.filter(i => i.id !== item.id))} variant="ghost" size="icon" className="h-9 w-9 text-slate-200 hover:text-red-500 hover:bg-red-50"><Trash2 size={18} /></Button>
+                        <Button onClick={() => removeItem(item.id)} variant="ghost" size="icon" className="h-10 w-10 text-slate-200 hover:text-red-500 hover:bg-red-50 transition-all"><Trash2 size={20} /></Button>
                       </div>
                     </div>
                   ))}
@@ -302,75 +408,82 @@ const BillingPOS = () => {
                 
                 {checkoutStep === 1 ? (
                   <div className="flex flex-col h-full animate-in slide-in-from-right duration-300">
-                    <div className="flex items-center gap-3 border-b border-gold/10 pb-3 mb-5 shrink-0">
+                    <div className="flex items-center gap-3 border-b border-gold/10 pb-3 mb-6 shrink-0">
                       <ReceiptText className="text-gold" size={20} />
                       <h3 className="font-serif font-bold text-lg text-slate-800">Financial Summary</h3>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto pr-1 space-y-5 custom-scrollbar">
+                    <div className="flex-1 overflow-y-auto pr-2 space-y-5 custom-scrollbar">
                       <div className="flex gap-2">
-                        <Input placeholder="ADMIN OTP" value={otp} onChange={(e) => setOtp(e.target.value)} className="h-11 rounded-xl bg-white border-2 border-gold/10 text-center tracking-[0.4em] font-bold text-md shadow-inner" />
-                        <Button onClick={() => otp === "1234" ? setIsDiscountUnlocked(true) : null} variant="outline" className="rounded-xl border-2 border-gold/10 text-gold h-11 w-14 shrink-0"><Lock size={18}/></Button>
+                        <Input placeholder="ADMIN OTP" value={otp} onChange={(e) => setOtp(e.target.value)} className="h-12 rounded-xl bg-white border-2 border-gold/10 text-center tracking-[0.4em] font-bold text-md shadow-inner" />
+                        <Button onClick={() => otp === "1234" ? setIsDiscountUnlocked(true) : null} variant="outline" className="rounded-xl border-2 border-gold/10 text-gold h-12 w-16 shrink-0"><Lock size={18}/></Button>
                       </div>
 
                       <div className="flex gap-2">
-                        <Input placeholder="REWARD CODE" value={coupon} onChange={(e) => setCoupon(e.target.value)} className="h-11 rounded-xl bg-white border-2 border-dashed border-gold/10 text-center font-bold shadow-inner" />
-                        <Button onClick={() => {
-                          if(coupon.toUpperCase() === "HERITAGE2026") { setCouponDiscount(1000); setToastMessage("Reward Applied"); }
-                          else { setCouponDiscount(0); setToastMessage("Invalid Code"); }
-                          setShowToast(true);
-                        }} variant="gold" className="h-11 px-5 rounded-xl text-[9px] font-bold uppercase tracking-widest shrink-0">Apply</Button>
+                        <Input placeholder="REWARD CODE" value={coupon} onChange={(e) => setCoupon(e.target.value)} className="h-12 rounded-xl bg-white border-2 border-dashed border-gold/10 text-center font-bold shadow-inner" />
+                        <Button onClick={applyCoupon} variant="gold" className="h-12 px-6 rounded-xl text-[9px] font-bold uppercase tracking-widest shrink-0">Apply</Button>
                       </div>
 
                       <GoldDivider opacity={30} />
 
                       <div className="space-y-3 pt-1">
-                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest"><span>Gross Value</span><span className="text-slate-900 font-serif text-md">₹{subtotal.toLocaleString()}</span></div>
-                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest"><span>Tax (GST 3%)</span><span className="text-slate-900 font-serif text-md">₹{gst.toLocaleString()}</span></div>
-                        {isDiscountUnlocked && <div className="flex justify-between text-[10px] font-bold text-emerald-600 uppercase italic"><span>Manager Waiver (5%)</span><span>-₹{managerWaiver.toLocaleString()}</span></div>}
-                        {couponDiscount > 0 && <div className="flex justify-between text-[10px] font-bold text-emerald-600 uppercase italic"><span>Coupon Reward</span><span>-₹{couponDiscount.toLocaleString()}</span></div>}
+                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest"><span>Gross Value</span><span className="text-slate-900 font-serif text-lg">₹{subtotal.toLocaleString()}</span></div>
+                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest"><span>Tax (GST 3%)</span><span className="text-slate-900 font-serif text-lg">₹{gst.toLocaleString()}</span></div>
+                        
+                        {isDiscountUnlocked && (
+                          <div className="flex justify-between text-[10px] font-bold text-emerald-600 uppercase italic bg-emerald-50 p-3 rounded-xl border border-emerald-100 animate-in fade-in">
+                            <span>Manager Waiver (5%)</span>
+                            <span>-₹{managerWaiver.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {couponDiscount > 0 && (
+                          <div className="flex justify-between text-[10px] font-bold text-emerald-600 uppercase italic bg-emerald-50 p-3 rounded-xl border border-emerald-100 animate-in fade-in">
+                            <span>Coupon Applied</span>
+                            <span>-₹{couponDiscount.toLocaleString()}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    <div className="pt-5 mt-4 border-t border-gold/10 shrink-0">
-                      <p className="text-[11px] uppercase font-bold text-gold tracking-[0.4em] mb-2">Total Payable</p>
-                      <p className="text-4xl font-serif font-bold text-slate-900 leading-none">₹{total.toLocaleString()}</p>
-                      <Button disabled={cart.length === 0} onClick={() => setCheckoutStep(2)} variant="gold" className="w-full h-16 rounded-[1.5rem] text-[11px] uppercase tracking-[0.5em] font-bold shadow-xl mt-5 group">
+                    <div className="pt-6 mt-4 border-t border-gold/10 shrink-0">
+                      <p className="text-[11px] uppercase font-bold text-gold tracking-[0.5em] leading-none mb-2">Total Payable</p>
+                      <p className="text-4xl font-serif font-bold text-slate-900 leading-none tracking-tight">₹{total.toLocaleString()}</p>
+                      <Button disabled={cart.length === 0} onClick={() => setCheckoutStep(2)} variant="gold" className="w-full h-16 rounded-[1.5rem] text-[11px] uppercase tracking-[0.6em] font-bold shadow-xl mt-6 group active:scale-95 transition-all">
                         Enroll Profile <ChevronRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
                       </Button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex flex-col h-full animate-in slide-in-from-right duration-300">
-                    <button onClick={() => setCheckoutStep(1)} className="flex items-center gap-2 text-gold text-[10px] font-bold uppercase tracking-widest mb-5 hover:opacity-70 transition-all shrink-0">
-                      <ArrowLeft size={14} /> Back
+                    <button onClick={() => setCheckoutStep(1)} className="flex items-center gap-2 text-gold text-[10px] font-bold uppercase tracking-widest mb-6 hover:opacity-70 transition-all shrink-0">
+                      <ArrowLeft size={16} /> Return to Billing
                     </button>
                     
-                    <div className="flex items-center gap-3 border-b border-gold/10 pb-3 mb-5 shrink-0">
+                    <div className="flex items-center gap-4 border-b border-gold/10 pb-4 mb-6 shrink-0">
                       <User className="text-gold" size={20} />
                       <h3 className="font-serif font-bold text-lg text-slate-800">Customer Details</h3>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto pr-1 space-y-4 custom-scrollbar">
+                    <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
                       <div className="space-y-1">
-                        <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
-                        <Input placeholder="John Doe" value={customer.name} onChange={(e) => setCustomer({...customer, name: e.target.value})} className="h-10 rounded-xl bg-white border-gold/10 text-sm shadow-inner" />
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Full Name</label>
+                        <Input placeholder="John Doe" value={customer.name} onChange={(e) => setCustomer({...customer, name: e.target.value})} className="h-11 rounded-xl bg-white border-gold/10 text-sm shadow-inner" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Contact Phone</label>
-                        <Input placeholder="+91 00000 00000" value={customer.phone} onChange={(e) => setCustomer({...customer, phone: e.target.value})} className="h-10 rounded-xl bg-white border-gold/10 text-sm shadow-inner" />
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Contact Phone</label>
+                        <Input placeholder="+91 00000 00000" value={customer.phone} onChange={(e) => setCustomer({...customer, phone: e.target.value})} className="h-11 rounded-xl bg-white border-gold/10 text-sm shadow-inner" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Email</label>
-                        <Input placeholder="customer@heritage.com" value={customer.email} onChange={(e) => setCustomer({...customer, email: e.target.value})} className="h-10 rounded-xl bg-white border-gold/10 text-sm shadow-inner" />
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Email</label>
+                        <Input placeholder="customer@heritage.com" value={customer.email} onChange={(e) => setCustomer({...customer, email: e.target.value})} className="h-11 rounded-xl bg-white border-gold/10 text-sm shadow-inner" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Address</label>
-                        <textarea placeholder="..." rows={2} value={customer.address} onChange={(e) => setCustomer({...customer, address: e.target.value})} className="w-full p-3 rounded-xl bg-white border border-gold/10 text-sm resize-none outline-none focus:border-gold transition-colors shadow-inner" />
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">Address</label>
+                        <textarea placeholder="..." rows={2} value={customer.address} onChange={(e) => setCustomer({...customer, address: e.target.value})} className="w-full p-4 rounded-xl bg-white border border-gold/10 text-sm resize-none outline-none focus:border-gold transition-colors shadow-inner" />
                       </div>
                     </div>
 
-                    <Button onClick={handlePayment} variant="gold" className="w-full h-16 rounded-[1.5rem] text-[11px] uppercase tracking-[0.4em] font-bold shadow-xl mt-5 shrink-0 active:scale-95 transition-all gap-2">
+                    <Button onClick={handlePayment} variant="gold" className="w-full h-16 rounded-[1.5rem] text-[11px] uppercase tracking-[0.4em] font-bold shadow-xl mt-6 shrink-0 active:scale-95 transition-all gap-2">
                       <CreditCard size={16} /> Pay ₹{total.toLocaleString()}
                     </Button>
                   </div>
