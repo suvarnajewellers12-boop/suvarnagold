@@ -218,7 +218,7 @@ const BillingPOS = () => {
   const removeItem = (id: string) => setCart(prev => prev.filter(item => item.id !== id));
 
   const subtotal = cart.reduce((acc, item) => acc + (getDynamicPrice(item) * item.quantity), 0);
-  const gst = subtotal * 0.18;
+  const gst = subtotal * 0.3;
   const managerWaiver = isDiscountUnlocked ? subtotal * 0.05 : 0;
   const total = Math.max(0, subtotal + gst - managerWaiver - couponDiscount);
 

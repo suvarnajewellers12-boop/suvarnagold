@@ -117,9 +117,9 @@ const Products = () => {
   /* ---------------- BARCODE & PRINT ---------------- */
   const handleShowBarcode = async (sku: string, productId: string) => {
     try {
-      const res = await fetch(`https://suvarnagold-16e5.vercel.app/products/barcode/${sku}`, {
+      const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/products/barcode/${sku}`, {
         headers: { Authorization: `Bearer ${token}` },
-      });
+      });  
       const data = await res.json();
       if (res.ok) {
         setBarcodeModal({ image: data.barcodeImage, productId, sku });
