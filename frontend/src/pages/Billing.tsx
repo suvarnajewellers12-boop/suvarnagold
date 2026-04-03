@@ -21,7 +21,7 @@ const BillingPOS = () => {
   const [inventory, setInventory] = useState<any[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<any[]>([]);
   const [search, setSearch] = useState("");
-  
+
   // Initialize cart from localStorage to prevent data loss on refresh
   const [cart, setCart] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
@@ -154,7 +154,11 @@ const BillingPOS = () => {
       const orderRes = await fetch("https://suvarnagold-16e5.vercel.app/api/payment/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ amount: total, customerName: customer.name, phoneNumber: customer.phone }),
+        body: JSON.stringify({
+          amount: Math.ceil(total),
+          customerName: customer.name,
+          phoneNumber: customer.phone
+        }),
       });
       const orderData = await orderRes.json();
       const order = orderData.order;
