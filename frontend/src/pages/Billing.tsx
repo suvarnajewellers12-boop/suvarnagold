@@ -11,26 +11,39 @@ import {
   ShoppingCart, Lock, Trash2, Search, Plus,
   ChevronRight, ScanLine, User, Phone,
   Mail, MapPin, Landmark, ReceiptText, ArrowLeft,
-  RefreshCcw, CheckCircle2
+  RefreshCcw, CheckCircle2, Percent
 } from "lucide-react";
 
 const BillingPOS = () => {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-  const [products, setProducts] = useState<any[]>([]);
+  // INVENTORY & CART STATES
+  const [inventory, setInventory] = useState<any[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<any[]>([]);
   const [search, setSearch] = useState("");
-  const [cart, setCart] = useState<any[]>([]);
+  
+  // Initialize cart from localStorage to prevent data loss on refresh
+  const [cart, setCart] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      const savedCart = localStorage.getItem("suvarna_pos_cart");
+      return savedCart ? JSON.parse(savedCart) : [];
+    }
+    return [];
+  });
+
+  // UI & SCAN STATES
   const [isProcessingScan, setIsProcessingScan] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState(1);
 
-  // OTP & DISCOUNT STATES
+  // OTP & DYNAMIC DISCOUNT STATES
   const [isOtpSent, setIsOtpSent] = useState(false);
   const [otpLoading, setOtpLoading] = useState(false);
   const [isDiscountUnlocked, setIsDiscountUnlocked] = useState(false);
   const [otp, setOtp] = useState("");
-  
-  // OTHER STATES
+  const [managerDiscountPercent, setManagerDiscountPercent] = useState<number>(0);
+
+  // LIVE DATA & CUSTOMER
   const [liveRates, setLiveRates] = useState<any>(null);
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "" });
   const [coupon, setCoupon] = useState("");
@@ -38,85 +51,33 @@ const BillingPOS = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
-  const handleRequestOTP = async () => {
-    if (cart.length === 0) {
-      setToastMessage("Add items to vault first");
-      setShowToast(true);
-      return;
-    }
-
-    setOtpLoading(true);
-    try {
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/otp/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({}),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        setIsOtpSent(true);
-        setToastMessage("OTP sent to Super Admin");
-      } else {
-        setToastMessage(data.error || "Failed to send OTP");
-      }
-    } catch (error) {
-      setToastMessage("Connection error");
-    } finally {
-      setOtpLoading(false);
-      setShowToast(true);
-    }
-  };
-
-  const handleVerifyOTP = async () => {
-    if (!otp) {
-      setToastMessage("Please enter OTP");
-      setShowToast(true);
-      return;
-    }
-
-    setOtpLoading(true);
-    try {
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/otp/verify", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ otp }),
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        setIsDiscountUnlocked(true);
-        setToastMessage("Manager Waiver Applied");
-      } else {
-        setToastMessage(data.error || "Invalid OTP");
-      }
-    } catch (error) {
-      setToastMessage("Verification failed");
-    } finally {
-      setOtpLoading(false);
-      setShowToast(true);
-    }
-  };
-
+  // Persist cart to localStorage whenever it changes
   useEffect(() => {
-    const fetchRates = async () => {
+    localStorage.setItem("suvarna_pos_cart", JSON.stringify(cart));
+  }, [cart]);
+
+  // INITIAL LOAD: Rates & Inventory
+  useEffect(() => {
+    const initializeTerminal = async () => {
       try {
-        const res = await fetch("https://suvarnagold-16e5.vercel.app/api/rates");
-        const data = await res.json();
-        setLiveRates(data);
+        const [ratesRes, productsRes] = await Promise.all([
+          fetch("https://suvarnagold-16e5.vercel.app/api/rates"),
+          fetch("https://suvarnagold-16e5.vercel.app/api/products/all", {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+        ]);
+
+        const ratesData = await ratesRes.json();
+        const productsData = await productsRes.json();
+
+        setLiveRates(ratesData);
+        setInventory(productsData.products || []);
       } catch (error) {
-        console.error("Failed to fetch live rates", error);
+        console.error("Initialization failed", error);
       }
     };
-    fetchRates();
-  }, []);
+    initializeTerminal();
+  }, [token]);
 
   const getDynamicPrice = (item: any) => {
     if (!liveRates || !item.grams) return item.cost || 0;
@@ -130,98 +91,59 @@ const BillingPOS = () => {
 
     const rateString = liveRates[rateKey];
     if (!rateString) return item.cost || 0;
+
     const rateValue = parseFloat(String(rateString).replace(/[^\d.-]/g, ''));
-    return Math.round(rateValue * item.grams);
+    const baseMetalPrice = rateValue * item.grams;
+    const vaPercent = parseFloat(item.va || 0);
+    const makingCharges = baseMetalPrice * (vaPercent / 100);
+
+    return Math.round(baseMetalPrice + makingCharges);
   };
 
-  const fetchProducts = async (query = "") => {
-    if (!query) { setProducts([]); return; }
-    try {
-      const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/products/search?query=${query}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      setProducts(data.products || []);
-      setShowDropdown(true);
-    } catch (error) { console.error("Fetch error", error); }
-  };
-
-  const processScannedBarcode = async (scannedValue: string) => {
+  const processScannedBarcode = (scannedValue: string) => {
     if (isProcessingScan || !scannedValue) return;
     setIsProcessingScan(true);
-    const productId = scannedValue.includes('/') ? scannedValue.split('/').pop() : scannedValue;
-    const alreadyPresent = cart.some(item => String(item.id) === productId);
-    if (alreadyPresent) {
-      setToastMessage("Security Alert: Item already in vault.");
-      setShowToast(true);
-      setIsProcessingScan(false);
-      return;
-    }
-    try {
-      const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/products/scan/${productId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const product = await res.json();
-        setCart(prev => [...prev, { ...product, quantity: 1 }]);
-        setToastMessage(`${product.name} Verified & Added`);
-        setShowToast(true);
+
+    const skuCode = scannedValue.includes('/') ? scannedValue.split('/').pop() : scannedValue;
+    const product = inventory.find(p => p.sku === skuCode || p.barcode === skuCode);
+
+    if (product) {
+      if (product.isSold) {
+        setToastMessage("Access Denied: Item already SOLD.");
+      } else if (cart.some(item => item.sku === product.sku)) {
+        setToastMessage("Security Alert: Item already in vault.");
       } else {
-        setToastMessage("Invalid Barcode or Product Not Found");
-        setShowToast(true);
+        setCart(prev => [...prev, { ...product, quantity: 1 }]);
+        setToastMessage(`${product.name} Added`);
       }
-    } catch (error) {
-      setToastMessage("Network error during scan");
-      setShowToast(true);
-    } finally {
-      setIsProcessingScan(false);
-    }
-  };
-
-  useEffect(() => {
-    let barcodeBuffer = "";
-    let lastKeyTime = Date.now();
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const currentTime = Date.now();
-      const activeElement = document.activeElement as HTMLElement;
-      if (activeElement.tagName === "INPUT" || activeElement.tagName === "TEXTAREA") {
-        if (activeElement.id !== "search-input") return;
-      }
-      if (currentTime - lastKeyTime > 50) barcodeBuffer = "";
-      if (e.key === "Enter" && barcodeBuffer.length > 3) {
-        e.preventDefault();
-        processScannedBarcode(barcodeBuffer);
-        barcodeBuffer = "";
-        if (activeElement.id === "search-input") {
-          setSearch("");
-          setShowDropdown(false);
-          activeElement.blur();
-        }
-      } else if (e.key.length === 1) barcodeBuffer += e.key;
-      lastKeyTime = currentTime;
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cart, isProcessingScan]);
-
-  const applyCoupon = () => {
-    if (coupon.toUpperCase() === "HERITAGE2026") {
-      setCouponDiscount(1000);
-      setToastMessage("Coupon Applied: ₹1,000 Reward");
     } else {
-      setCouponDiscount(0);
-      setToastMessage("Invalid or Expired Code");
+      setToastMessage("Product not found in local cache.");
     }
     setShowToast(true);
+    setIsProcessingScan(false);
   };
 
-  const removeItem = (id: string) => setCart(prev => prev.filter(item => item.id !== id));
+  const handleSearch = (query: string) => {
+    setSearch(query);
+    if (!query) {
+      setFilteredProducts([]);
+      setShowDropdown(false);
+      return;
+    }
+    const filtered = inventory.filter(p =>
+      p.name.toLowerCase().includes(query.toLowerCase()) ||
+      p.sku?.toLowerCase().includes(query.toLowerCase())
+    );
+    setFilteredProducts(filtered.slice(0, 5));
+    setShowDropdown(true);
+  };
 
   const subtotal = cart.reduce((acc, item) => acc + (getDynamicPrice(item) * item.quantity), 0);
-  const gst = subtotal * 0.3;
-  const managerWaiver = isDiscountUnlocked ? subtotal * 0.05 : 0;
+  const gst = subtotal * 0.03;
+  const managerWaiver = isDiscountUnlocked ? (subtotal * (managerDiscountPercent / 100)) : 0;
   const total = Math.max(0, subtotal + gst - managerWaiver - couponDiscount);
 
+  // PAYMENT GATEWAY LOGIC
   const handleCheckout = async () => {
     if (cart.length === 0 || !customer.name || !customer.phone) {
       setToastMessage("Check cart and customer details");
@@ -236,8 +158,9 @@ const BillingPOS = () => {
       });
       const orderData = await orderRes.json();
       const order = orderData.order;
+
       const options = {
-        key: "rzp_test_SQBmMDbmpm3m0D",
+        key: "rzp_test_SQBmMDbmpm3m0D", // Replace with your live key when ready
         amount: order.amount,
         currency: "INR",
         name: "Suvarna Jewellery",
@@ -260,6 +183,7 @@ const BillingPOS = () => {
                 items: cart.map((item) => ({
                   productId: item.id,
                   name: item.name,
+                  sku: item.sku,
                   grams: item.grams,
                   cost: getDynamicPrice(item),
                 })),
@@ -271,6 +195,7 @@ const BillingPOS = () => {
             setToastMessage("Payment Successful");
             setShowToast(true);
             setCart([]);
+            localStorage.removeItem("suvarna_pos_cart");
             setCustomer({ name: "", phone: "", email: "", address: "" });
             setCheckoutStep(1);
           }
@@ -286,77 +211,124 @@ const BillingPOS = () => {
     }
   };
 
+  const handleRequestOTP = async () => {
+    if (cart.length === 0) return;
+    setOtpLoading(true);
+    try {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/otp/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) setIsOtpSent(true);
+    } catch (e) { setToastMessage("Connection error"); }
+    finally { setOtpLoading(false); setShowToast(true); }
+  };
+
+  const handleVerifyOTP = async () => {
+    if (!otp) return;
+    setOtpLoading(true);
+    try {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/otp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ otp }),
+      });
+      const data = await res.json();
+      if (data.success) setIsDiscountUnlocked(true);
+    } catch (e) { setToastMessage("Verification failed"); }
+    finally { setOtpLoading(false); setShowToast(true); }
+  };
+
+  useEffect(() => {
+    let barcodeBuffer = "";
+    let lastKeyTime = Date.now();
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const currentTime = Date.now();
+      const activeElement = document.activeElement as HTMLElement;
+      if (activeElement.tagName === "INPUT" && activeElement.id !== "search-input") return;
+      if (currentTime - lastKeyTime > 50) barcodeBuffer = "";
+      if (e.key === "Enter" && barcodeBuffer.length > 3) {
+        e.preventDefault();
+        processScannedBarcode(barcodeBuffer);
+        barcodeBuffer = "";
+        setSearch("");
+      } else if (e.key.length === 1) barcodeBuffer += e.key;
+      lastKeyTime = currentTime;
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [cart, inventory, isProcessingScan]);
+
+  const removeItem = (id: string) => setCart(prev => prev.filter(item => item.id !== id));
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex bg-[#FCFBF7] w-full overflow-hidden">
         <DashboardSidebar />
-
         <main className="flex-1 flex flex-col h-screen w-full overflow-hidden">
-          {/* HEADER */}
-          <header className="px-10 py-3 flex items-center justify-between bg-white border-b-2 border-gold/10 shrink-0 z-50 shadow-sm">
+          <header className="px-10 py-3 flex items-center justify-between bg-white border-b-2 border-gold/10 shrink-0 z-50">
             <div className="flex items-center gap-8 flex-1">
               <div className="border-r border-gold/20 pr-8">
-                <h1 className="text-lg font-serif font-bold text-slate-900 tracking-tight flex items-center gap-2 leading-none">
+                <h1 className="text-lg font-serif font-bold text-slate-900 flex items-center gap-2">
                   <Landmark className="text-gold" size={18} /> Billing Terminal
                 </h1>
               </div>
-
               <div className="relative w-full max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gold/40" />
                 <Input
                   id="search-input"
-                  placeholder="Search Design..."
+                  placeholder="Search SKU or Name..."
                   value={search}
-                  onChange={(e) => { setSearch(e.target.value); fetchProducts(e.target.value); }}
-                  className="pl-10 h-10 rounded-lg bg-slate-50 border-gold/10 font-serif italic text-sm"
+                  onChange={(e) => handleSearch(e.target.value)}
+                  className="pl-10 h-10 rounded-lg bg-slate-50 border-gold/10 font-serif italic"
                 />
-                {showDropdown && products.length > 0 && (
+                {showDropdown && filteredProducts.length > 0 && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 border-gold/10 shadow-2xl rounded-xl overflow-hidden z-[100]">
-                    {products.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between p-3 hover:bg-gold/5 border-b border-gold/5 last:border-0">
+                    {filteredProducts.map((p) => (
+                      <div key={p.id} className={`flex items-center justify-between p-3 border-b border-gold/5 ${p.isSold ? 'bg-gray-50' : 'hover:bg-gold/5'}`}>
                         <div className="flex flex-col">
-                          <span className="text-xs font-bold text-slate-800 uppercase tracking-tight">{p.name}</span>
-                          <span className="text-[9px] text-gold font-bold uppercase tracking-widest">{p.grams}Grams | {p.carat || "22K"}</span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-bold uppercase ${p.isSold ? 'text-gray-400 line-through' : 'text-slate-800'}`}>{p.name}</span>
+                            {p.isSold && <Badge className="bg-red-100 text-red-600 text-[8px] border-none">SOLD</Badge>}
+                          </div>
+                          <span className="text-[9px] text-gold font-bold uppercase tracking-widest">{p.sku} | VA: {p.va}%</span>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-xs font-serif font-bold text-slate-900 leading-none">₹{getDynamicPrice(p).toLocaleString()}</span>
-                          <Button
-                            onClick={() => {
-                              if (!cart.some(item => String(item.id) === String(p.id))) {
-                                setCart(prev => [...prev, { ...p, quantity: 1 }]);
-                                setShowToast(true); setToastMessage(`${p.name} Added`);
-                              }
-                              setSearch(""); setShowDropdown(false);
-                            }}
-                            variant="gold" size="icon" className="h-7 w-7 rounded-lg"
-                          >
-                            <Plus size={14} />
-                          </Button>
-                        </div>
+                        <Button
+                          disabled={p.isSold}
+                          onClick={() => {
+                            if (cart.some(item => item.sku === p.sku)) {
+                              setToastMessage("Security Alert: Item already in vault.");
+                              setShowToast(true);
+                            } else {
+                              setCart(prev => [...prev, { ...p, quantity: 1 }]);
+                            }
+                            setSearch(""); setShowDropdown(false);
+                          }}
+                          variant="gold" size="icon" className="h-7 w-7"
+                        >
+                          {p.isSold ? <Lock size={12} className="text-gray-400" /> : <Plus size={14} />}
+                        </Button>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
             </div>
-
-            <div className="flex items-center gap-4">
-              {liveRates ? (
-                <div className="flex flex-col text-right">
+            <div className="flex items-center gap-6">
+              {liveRates && (
+                <div className="text-right">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Live 22K Rate</span>
-                  <span className="text-xs font-serif font-bold text-slate-900 leading-none">{liveRates.gold22}/g</span>
+                  <p className="text-xs font-serif font-bold text-slate-900">₹{liveRates.gold22}/g</p>
                 </div>
-              ) : (
-                <RefreshCcw size={14} className="animate-spin text-gold/50" />
               )}
-              <div className="flex items-center gap-2 px-6 h-10 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-lg text-[10px] font-bold uppercase tracking-[0.2em]">
+              <div className="flex items-center gap-2 px-6 h-10 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-lg text-[10px] font-bold uppercase tracking-widest">
                 <ScanLine size={14} className="animate-pulse" /> Scanner Ready
               </div>
             </div>
           </header>
 
           <div className="flex-1 flex overflow-hidden w-full px-6 py-6 gap-6">
-            {/* LEFT: VAULT */}
             <div className="w-[62%] flex flex-col overflow-hidden relative">
               <LuxuryCard className="flex-1 flex flex-col p-0 rounded-[2rem] border-gold/10 shadow-xl overflow-hidden bg-white">
                 <div className="px-8 py-5 border-b-2 border-gold/5 flex justify-between items-center bg-[#FDFCF9]">
@@ -365,7 +337,6 @@ const BillingPOS = () => {
                   </h2>
                   <Badge className="bg-slate-900 text-gold border border-gold/20 rounded-md px-3 py-1 text-[10px] font-bold tracking-[0.1em]">{cart.length} ITEMS</Badge>
                 </div>
-
                 <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                   {cart.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center opacity-10">
@@ -379,12 +350,11 @@ const BillingPOS = () => {
                           <div className="h-12 w-12 rounded-xl bg-slate-50 flex items-center justify-center text-gold font-serif text-xl border-2 border-gold/5">{item.name.charAt(0)}</div>
                           <div className="space-y-1">
                             <p className="text-lg font-serif font-bold text-slate-800 uppercase tracking-tight leading-none">{item.name}</p>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.grams}Grams | {item.carat || "22K"} PURE GOLD</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.grams}g | {item.carat || "22K"} | VA: {item.va}%</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-8">
                           <div className="text-right">
-                            <p className="text-[9px] uppercase font-bold text-slate-300 tracking-[0.2em] mb-1">Total</p>
                             <p className="text-xl font-serif font-bold text-slate-900 leading-none">₹{getDynamicPrice(item).toLocaleString()}</p>
                           </div>
                           <Button onClick={() => removeItem(item.id)} variant="ghost" size="icon" className="h-10 w-10 text-slate-200 hover:text-red-500"><Trash2 size={20} /></Button>
@@ -396,7 +366,6 @@ const BillingPOS = () => {
               </LuxuryCard>
             </div>
 
-            {/* RIGHT: BILLING & CHECKOUT */}
             <div className="w-[38%] flex flex-col overflow-hidden h-full">
               <LuxuryCard className="flex-1 flex flex-col p-6 bg-[#FDFCF9] border-gold/20 rounded-[2rem] shadow-xl border-t-8 border-t-gold overflow-hidden">
                 {checkoutStep === 1 ? (
@@ -405,117 +374,58 @@ const BillingPOS = () => {
                       <ReceiptText className="text-gold" size={20} />
                       <h3 className="font-serif font-bold text-lg text-slate-800">Financial Summary</h3>
                     </div>
-
                     <div className="space-y-5 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                      
-                      {/* OTP DYNAMIC SECTION */}
-                      <div className="space-y-2">
-                         <div className="flex gap-2">
-                          <Input 
-                            placeholder="ADMIN OTP" 
-                            value={otp} 
-                            onChange={(e) => setOtp(e.target.value)} 
+                      <div className="space-y-3">
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="ADMIN OTP"
+                            value={otp}
+                            onChange={(e) => setOtp(e.target.value)}
                             disabled={!isOtpSent || isDiscountUnlocked}
-                            className="h-12 rounded-xl bg-white border-2 border-gold/10 text-center tracking-[0.4em] font-bold text-md" 
+                            className="h-12 rounded-xl bg-white border-2 border-gold/10 text-center tracking-[0.4em] font-bold"
                           />
-                          
-                          <Button 
-                            onClick={isOtpSent ? handleVerifyOTP : handleRequestOTP} 
-                            disabled={otpLoading || isDiscountUnlocked}
-                            variant={isDiscountUnlocked ? "outline" : "gold"}
-                            className={`rounded-xl h-12 px-4 min-w-[100px] font-bold text-[10px] uppercase tracking-widest transition-all ${isDiscountUnlocked ? 'border-emerald-500 text-emerald-600' : ''}`}
-                          >
-                            {otpLoading ? (
-                              <RefreshCcw size={16} className="animate-spin" />
-                            ) : isDiscountUnlocked ? (
-                              <CheckCircle2 size={18} />
-                            ) : isOtpSent ? (
-                              "Verify"
-                            ) : (
-                              "Get OTP"
-                            )}
+                          <Button onClick={isOtpSent ? handleVerifyOTP : handleRequestOTP} disabled={otpLoading || isDiscountUnlocked} variant="gold" className="rounded-xl h-12">
+                            {otpLoading ? <RefreshCcw className="animate-spin" /> : (isDiscountUnlocked ? <CheckCircle2 /> : (isOtpSent ? "Verify" : "Get OTP"))}
                           </Button>
                         </div>
-                        {isOtpSent && !isDiscountUnlocked && (
-                          <p className="text-[9px] text-gold font-bold uppercase tracking-tight text-center animate-pulse">OTP Delivered to Super Admin</p>
-                        )}
-                      </div>
-
-                      <div className="flex gap-2">
-                        <Input placeholder="REWARD CODE" value={coupon} onChange={(e) => setCoupon(e.target.value)} className="h-12 rounded-xl bg-white border-2 border-dashed border-gold/10 text-center font-bold" />
-                        <Button onClick={applyCoupon} variant="gold" className="h-12 px-6 rounded-xl text-[9px] font-bold uppercase tracking-widest">Apply</Button>
-                      </div>
-
-                      <GoldDivider opacity={30} />
-
-                      <div className="space-y-3">
-                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest"><span>Gross Value</span><span className="text-slate-900 font-serif text-lg">₹{subtotal.toLocaleString()}</span></div>
-                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest"><span>Tax (GST 18%)</span><span className="text-slate-900 font-serif text-lg">₹{gst.toLocaleString()}</span></div>
-
                         {isDiscountUnlocked && (
-                          <div className="flex justify-between text-[10px] font-bold text-emerald-600 uppercase italic bg-emerald-50 p-3 rounded-xl border border-emerald-100 animate-in fade-in">
-                            <span>Manager Waiver (5%)</span>
-                            <span>-₹{managerWaiver.toLocaleString()}</span>
+                          <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                            <label className="text-[10px] font-bold text-emerald-700 uppercase mb-2 block">Manager Discount %</label>
+                            <Input type="number" value={managerDiscountPercent} onChange={(e) => setManagerDiscountPercent(Number(e.target.value))} className="h-11 bg-white text-center text-lg font-serif font-bold" />
                           </div>
                         )}
-                        {couponDiscount > 0 && (
-                          <div className="flex justify-between text-[10px] font-bold text-emerald-600 uppercase italic bg-emerald-50 p-3 rounded-xl border border-emerald-100 animate-in fade-in">
-                            <span>Coupon Applied</span>
-                            <span>-₹{couponDiscount.toLocaleString()}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <Input placeholder="REWARD CODE" value={coupon} onChange={(e) => setCoupon(e.target.value)} className="h-12 rounded-xl border-2 border-dashed border-gold/10 text-center font-bold" />
+                        <Button onClick={() => { if (coupon === "HERITAGE2026") setCouponDiscount(1000); }} variant="gold" className="h-12">Apply</Button>
+                      </div>
+                      <GoldDivider opacity={30} />
+                      <div className="space-y-3">
+                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase"><span>Gross Value</span><span className="text-slate-900 font-serif text-lg">₹{subtotal.toLocaleString()}</span></div>
+                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase"><span>GST (3%)</span><span className="text-slate-900 font-serif text-lg">₹{gst.toLocaleString()}</span></div>
+                        {managerWaiver > 0 && (
+                          <div className="flex justify-between text-[10px] font-bold text-emerald-600 italic bg-emerald-50 p-3 rounded-xl border border-emerald-100">
+                            <span>Manager Waiver ({managerDiscountPercent}%)</span>
+                            <span>-₹{managerWaiver.toLocaleString()}</span>
                           </div>
                         )}
                       </div>
                     </div>
-
-                    <div className="pt-6 mt-4 border-t border-gold/10 shrink-0">
-                      <p className="text-[11px] uppercase font-bold text-gold tracking-[0.5em] leading-none mb-2">Total Payable</p>
-                      <p className="text-4xl font-serif font-bold text-slate-900 leading-none tracking-tight">₹{total.toLocaleString()}</p>
-                      <Button
-                        disabled={cart.length === 0}
-                        onClick={() => setCheckoutStep(2)}
-                        variant="gold"
-                        className="w-full h-10 rounded-[1.5rem] text-[11px] uppercase tracking-[0.6em] font-bold shadow-xl mt-4 group active:scale-75 transition-all"
-                      >
-                        Check out <ChevronRight className="ml-2 w-4 h-4 group-hover:translate-x-1" />
-                      </Button>
+                    <div className="pt-6 mt-4 border-t border-gold/10">
+                      <p className="text-4xl font-serif font-bold text-slate-900">₹{total.toLocaleString()}</p>
+                      <Button disabled={cart.length === 0} onClick={() => setCheckoutStep(2)} variant="gold" className="w-full h-14 mt-4">Check out <ChevronRight className="ml-2" /></Button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col animate-in slide-in-from-right duration-300">
-                    <button onClick={() => setCheckoutStep(1)} className="flex items-center gap-2 text-gold text-[10px] font-bold uppercase tracking-widest mb-6">
-                      <ArrowLeft size={16} /> Return to Billing
-                    </button>
-
-                    <div className="flex items-center gap-4 border-b border-gold/10 pb-4 mb-6">
-                      <User className="text-gold" size={20} />
-                      <h3 className="font-serif font-bold text-lg text-slate-800">Customer Enrollment</h3>
-                    </div>
-
+                    <button onClick={() => setCheckoutStep(1)} className="flex items-center gap-2 text-gold text-[10px] font-bold uppercase mb-6"><ArrowLeft size={16} /> Return</button>
                     <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Full Name</label>
-                        <Input placeholder="John Doe" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Contact Phone</label>
-                        <Input placeholder="+91 00000 00000" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Email Address</label>
-                        <Input placeholder="customer@heritage.com" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} className="h-11 rounded-xl bg-white border-gold/10 text-sm" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Residential Address</label>
-                        <textarea placeholder="..." rows={2} value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} className="w-full p-4 rounded-xl bg-white border border-gold/10 text-sm resize-none outline-none focus:border-gold" />
-                      </div>
+                      <Input placeholder="Full Name" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="h-11 rounded-xl" />
+                      <Input placeholder="Contact Phone" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className="h-11 rounded-xl" />
+                      <Input placeholder="Email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} className="h-11 rounded-xl" />
+                      <textarea placeholder="Address" rows={2} value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} className="w-full p-4 rounded-xl border border-gold/10 text-sm outline-none" />
                     </div>
-                    <Button
-                      onClick={handleCheckout}
-                      variant="gold"
-                      className="w-full h-16 rounded-[1.5rem] text-[11px] uppercase tracking-[0.4em] font-bold shadow-xl mt-6 active:scale-95 transition-all"
-                    >
-                      Checkout
-                    </Button>
+                    <Button onClick={handleCheckout} variant="gold" className="w-full h-16 rounded-[1.5rem] mt-6">Pay Now</Button>
                   </div>
                 )}
               </LuxuryCard>
@@ -523,7 +433,6 @@ const BillingPOS = () => {
           </div>
         </main>
       </div>
-
       <SuccessToast message={toastMessage} isVisible={showToast} onClose={() => setShowToast(false)} />
     </SidebarProvider>
   );

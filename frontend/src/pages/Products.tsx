@@ -318,7 +318,7 @@ const Products = () => {
                         {formData.type === "gold" ? (
                           ["24K", "22K", "18K", "16K", "9K"].map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)
                         ) : (
-                          ["99.9%", "95.0%", "92.5%"].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)
+                          ["99.9%", "95.0%", "92.5%", "70%"].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)
                         )}
                       </SelectContent>
                     </Select>
