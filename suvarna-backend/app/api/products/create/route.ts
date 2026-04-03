@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { v4 as uuidv4 } from "uuid";
 import { verifyToken } from "@/lib/auth";
 
-// 🔹 CORS helper
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
@@ -12,7 +11,6 @@ function corsHeaders() {
   };
 }
 
-// 🔹 Handle Preflight
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
@@ -22,26 +20,18 @@ export async function OPTIONS() {
 
 export async function POST(req: Request) {
   try {
-    // 🔐 Authorization
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
-      return new NextResponse(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: corsHeaders() }
-      );
+      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders() });
     }
 
     const token = authHeader.split(" ")[1];
     const decoded: any = verifyToken(token);
 
     if (decoded.role !== "SUPER_ADMIN") {
-      return new NextResponse(
-        JSON.stringify({ error: "Forbidden" }),
-        { status: 403, headers: corsHeaders() }
-      );
+      return new NextResponse(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: corsHeaders() });
     }
 
-    // 🔹 Body Extraction
     const body = await req.json();
     const {
       name,
@@ -50,83 +40,88 @@ export async function POST(req: Request) {
       carats,
       manufactureDate,
       quantity,
-      // NEW FIELDS
       huid,
       stoneWeight,
       netWeight,
       category,
       bodyPart,
+      branchName,
+      va // 👈 NEW FIELD FROM FRONTEND
     } = body;
 
-    if (!quantity || quantity <= 0) {
-      return new NextResponse(
-        JSON.stringify({ error: "Invalid quantity" }),
-        { status: 400, headers: corsHeaders() }
-      );
+    const qty = parseInt(quantity) || 0;
+    if (qty <= 0) {
+      return new NextResponse(JSON.stringify({ error: "Invalid quantity" }), { status: 400, headers: corsHeaders() });
+    }
+
+    // --- ROBUST SKU GENERATION ---
+    const year = new Date().getFullYear().toString().slice(-2); // "26"
+    
+    const lastProduct = await prisma.product.findFirst({
+      where: {
+        sku: { startsWith: `SV${year}` },
+      },
+      orderBy: { sku: "desc" },
+    });
+
+    let startNumber = 1;
+
+    if (lastProduct?.sku) {
+      const lastSequenceStr = lastProduct.sku.substring(4);
+      const lastSequenceNum = parseInt(lastSequenceStr);
+      
+      if (!isNaN(lastSequenceNum)) {
+        startNumber = lastSequenceNum + 1;
+      }
     }
 
     const createdItems = [];
 
-    // 🔥 Loop for creating multiple items based on quantity
-    for (let i = 0; i < quantity; i++) {
-      
-      // Get last product to increment SKU
-      const lastProduct = await prisma.product.findFirst({
-        orderBy: { createdAt: "desc" },
-      });
-
-      let nextNumber = 1;
-
-      if (lastProduct?.sku) {
-        // Extract the last 4 digits of the SKU and increment
-        const lastNumberMatch = lastProduct.sku.match(/\d+$/);
-        const lastNumber = lastNumberMatch ? parseInt(lastNumberMatch[0]) : 0;
-        nextNumber = lastNumber + 1;
-      }
-
-      const year = new Date().getFullYear().toString().slice(-2);
-      const sku = `SV${year}${String(nextNumber + i).padStart(4, "0")}`; // Added +i to ensure unique SKUs within the loop
-
-      const uniqueCode = uuidv4();
+    // 🔥 Loop for creating multiple items
+    for (let i = 0; i < qty; i++) {
+      const sequence = String(startNumber + i).padStart(5, "0");
+      const sku = `SV${year}${sequence}`;
 
       const product = await prisma.product.create({
         data: {
           sku,
           name,
           metalType,
-          grams: parseFloat(grams),
-          carats,
+          grams: parseFloat(grams) || 0,
+          carats: carats || null,
           manufactureDate: new Date(manufactureDate),
-          uniqueCode,
+          uniqueCode: uuidv4(),
           isSold: false,
-          // MAPPING NEW FIELDS TO PRISMA
           huid: huid || null,
           stoneWeight: parseFloat(stoneWeight) || 0,
           netWeight: parseFloat(netWeight) || 0,
           category: category || "Other",
           bodyPart: bodyPart || "Other",
+          branchName: branchName || "Main",
+          va: parseFloat(va) || 0, // 👈 SAVING VA TO DB
         },
       });
 
-      createdItems.push({
-        id: product.id,
-        sku,
-      });
+      createdItems.push({ id: product.id, sku: product.sku });
     }
 
     return new NextResponse(
-      JSON.stringify({
-        message: `${quantity} products created`,
-        items: createdItems,
-      }),
+      JSON.stringify({ message: `${qty} products created`, items: createdItems }),
       { status: 201, headers: corsHeaders() }
     );
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Product create error:", error);
+    
+    if (error.code === 'P2002') {
+      return new NextResponse(
+        JSON.stringify({ error: "SKU Collision: Please clean old corrupted SKUs from your database." }),
+        { status: 409, headers: corsHeaders() }
+      );
+    }
 
     return new NextResponse(
-      JSON.stringify({ error: "Internal error" }),
+      JSON.stringify({ error: "Internal server error" }),
       { status: 500, headers: corsHeaders() }
     );
   }

@@ -47,6 +47,16 @@ export async function GET(req: Request) {
 
     const admins = await prisma.admin.findMany({
       orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        username: true,
+        branchName: true,
+        state: true,
+        role: true,
+        createdAt: true,
+        createdBy: true,
+        // Note: We EXCLUDE 'password' here
+      },
     });
 
     return new NextResponse(

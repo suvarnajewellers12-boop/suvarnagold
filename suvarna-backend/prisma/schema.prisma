@@ -89,6 +89,8 @@ model Product {
   manufactureDate DateTime
   createdAt       DateTime       @default(now())
   soldAt          DateTime?
+  branchName      String         @default("Gajuwaka")
+  va              Float          @default(2.5)
   purchaseItems   PurchaseItem[]
 }
 

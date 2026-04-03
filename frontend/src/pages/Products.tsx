@@ -8,7 +8,7 @@ import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, RefreshCw, Loader2, Filter } from "lucide-react";
+import { Plus, RefreshCw, Loader2, Filter, Store } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/select";
 import BarcodeSettingsWidget from "@/components/BarcodeSettingsWidget";
 
-// 🔹 SKELETON COMPONENT FOR LOADING STATE
 const ProductSkeleton = () => (
   <div className="h-[400px] w-full rounded-3xl bg-gray-100 animate-pulse flex flex-col p-6 space-y-4">
     <div className="flex justify-between">
@@ -46,14 +45,15 @@ const Products = () => {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
   const [products, setProducts] = useState<any[]>([]);
+  const [branches, setBranches] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 🔹 MULTI-FILTER STATE
   const [filters, setFilters] = useState({
     metal: "all",
     bodyPart: "all",
     category: "all",
+    branch: "all",
   });
 
   const [showToast, setShowToast] = useState(false);
@@ -75,8 +75,10 @@ const Products = () => {
     huid: "",
     stoneWeight: "0",
     netWeight: "0",
+    va: "0",
     bodyPart: "",
     category: "",
+    branchName: "",
   });
 
   /* ---------------- AUTO CALCULATION ---------------- */
@@ -86,6 +88,26 @@ const Products = () => {
     const total = (g + s).toFixed(3);
     setFormData((prev) => ({ ...prev, netWeight: total }));
   }, [formData.grams, formData.stoneWeight]);
+
+  /* ---------------- FETCH BRANCHES ---------------- */
+  const fetchBranches = async () => {
+    try {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/admin/all", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.admins) {
+        const uniqueBranches = Array.from(new Set(data.admins.map((a: any) => a.branchName?.trim()))) as string[];
+        const validBranches = uniqueBranches.filter(b => b && b !== "");
+        setBranches(validBranches);
+        if (validBranches.length > 0 && !formData.branchName) {
+          setFormData(prev => ({ ...prev, branchName: validBranches[0] }));
+        }
+      }
+    } catch (error) {
+      console.error("Fetch Branches Error:", error);
+    }
+  };
 
   /* ---------------- FETCH PRODUCTS ---------------- */
   const fetchProducts = async (forceRefresh = false) => {
@@ -112,9 +134,10 @@ const Products = () => {
 
   useEffect(() => {
     fetchProducts();
+    fetchBranches();
   }, []);
 
-  /* ---------------- BARCODE & PRINT ---------------- */
+  /* ---------------- BARCODE & PRINT LOGIC (RESTORED) ---------------- */
   const handleShowBarcode = async (sku: string, productId: string) => {
     try {
       const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/products/barcode/${sku}`, {
@@ -164,7 +187,9 @@ const Products = () => {
           quantity: Number(formData.quantity),
           stoneWeight: parseFloat(formData.stoneWeight),
           netWeight: parseFloat(formData.netWeight),
+          va: parseFloat(formData.va),
           manufactureDate: currentDate,
+          branchName: formData.branchName, 
           metalType: formData.type,
         }),
       });
@@ -176,6 +201,7 @@ const Products = () => {
         setFormData({
           name: "", type: "gold", grams: "", carats: "", bodyPart: "",
           category: "", quantity: "1", huid: "", stoneWeight: "0", netWeight: "0",
+          va: "0", branchName: branches[0] || "",
         });
       }
     } catch (error) {
@@ -186,32 +212,61 @@ const Products = () => {
     }
   };
 
-  // 🔹 UPDATED FILTER LOGIC
+  /* ---------------- FILTER LOGIC ---------------- */
   const filteredProducts = products.filter((p) => {
-    const matchMetal = filters.metal === "all" || p.metalType?.toLowerCase() === filters.metal;
-    const matchBody = filters.bodyPart === "all" || p.bodyPart?.toLowerCase() === filters.bodyPart;
-    const matchCategory = filters.category === "all" || p.category?.toLowerCase() === filters.category;
-    return matchMetal && matchBody && matchCategory;
+    const cleanMatch = (val: any, filterVal: string) => {
+      if (filterVal === "all") return true;
+      const normalizedVal = val?.toString().trim().toLowerCase() || "";
+      const normalizedFilter = filterVal.trim().toLowerCase();
+      return normalizedVal === normalizedFilter;
+    };
+
+    return (
+      cleanMatch(p.metalType, filters.metal) &&
+      cleanMatch(p.bodyPart, filters.bodyPart) &&
+      cleanMatch(p.category, filters.category) &&
+      cleanMatch(p.branchName, filters.branch)
+    );
   });
 
-  const resetFilters = () => setFilters({ metal: "all", bodyPart: "all", category: "all" });
+  const resetFilters = () => setFilters({ metal: "all", bodyPart: "all", category: "all", branch: "all" });
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
+      <div className="min-h-screen flex w-full bg-background font-sans">
         <DashboardSidebar />
 
-        {/* ADD PRODUCT MODAL */}
+        {/* --- ADD PRODUCT MODAL --- */}
         {showForm && (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[120] overflow-y-auto p-4">
-            <div className="bg-white rounded-2xl p-8 w-full max-w-md space-y-4 my-8">
-              <h2 className="text-xl font-bold font-serif text-amber-900 border-b pb-2">Add New Masterpiece</h2>
+            <div className="bg-white rounded-2xl p-8 w-full max-w-md space-y-4 my-8 shadow-2xl border border-amber-100">
+              <h2 className="text-xl font-bold font-serif text-amber-900 border-b pb-2 flex items-center gap-2">
+                <Plus className="w-5 h-5" /> Add New Masterpiece
+              </h2>
+              
               <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                    <Store className="w-3 h-3" /> Assign to Branch
+                  </label>
+                  <Select value={formData.branchName} onValueChange={(val) => setFormData({ ...formData, branchName: val })}>
+                    <SelectTrigger className="bg-amber-50/50 border-amber-200">
+                      <SelectValue placeholder="Select Branch" />
+                    </SelectTrigger>
+                    <SelectContent className="z-[130]">
+                      {branches.map(b => (
+                        <SelectItem key={b} value={b} className="capitalize">{b}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <Input
                   placeholder="Product Name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 />
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-400 uppercase">Placement</label>
@@ -243,6 +298,7 @@ const Products = () => {
                     </Select>
                   </div>
                 </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-400 uppercase">Metal</label>
@@ -268,17 +324,37 @@ const Products = () => {
                     </Select>
                   </div>
                 </div>
+
                 <div className="grid grid-cols-2 gap-3">
-                  <Input type="number" placeholder="Grams" value={formData.grams} onChange={(e) => setFormData({ ...formData, grams: e.target.value })} />
-                  <Input type="number" placeholder="Stone Wt" value={formData.stoneWeight} onChange={(e) => setFormData({ ...formData, stoneWeight: e.target.value })} />
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">Metal Grams</label>
+                    <Input type="number" placeholder="Grams" value={formData.grams} onChange={(e) => setFormData({ ...formData, grams: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">Stone Weight</label>
+                    <Input type="number" placeholder="Stone Wt" value={formData.stoneWeight} onChange={(e) => setFormData({ ...formData, stoneWeight: e.target.value })} />
+                  </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">VA (Making Charges)</label>
+                    <Input type="number" placeholder="VA" value={formData.va} onChange={(e) => setFormData({ ...formData, va: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">Quantity</label>
+                    <Input type="number" placeholder="Qty" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} />
+                  </div>
+                </div>
+
                 <div className="bg-amber-50 p-3 rounded-xl border border-amber-200">
-                  <p className="text-[10px] uppercase font-bold text-amber-600">Calculated Net Weight</p>
-                  <p className="text-lg font-mono font-bold text-amber-900">{formData.netWeight} g</p>
+                  <p className="text-[10px] uppercase font-bold text-amber-600 text-center">Calculated Total Weight</p>
+                  <p className="text-xl font-mono font-bold text-amber-900 text-center">{formData.netWeight} g</p>
                 </div>
+
                 <Input placeholder="HUID Number" value={formData.huid} onChange={(e) => setFormData({ ...formData, huid: e.target.value })} />
-                <Input type="number" placeholder="Quantity" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} />
               </div>
+
               <div className="flex gap-3 pt-2">
                 <Button onClick={handleCreateProduct} className="flex-1 bg-black text-white hover:bg-gray-800" disabled={isSubmitting}>
                   {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Product"}
@@ -289,9 +365,9 @@ const Products = () => {
           </div>
         )}
 
-        {/* BARCODE MODAL (KEEP AS IS) */}
+        {/* --- BARCODE MODAL (RESTORED) --- */}
         {barcodeModal && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
             <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg space-y-6">
               <h2 className="text-2xl font-serif font-bold text-center">Barcode Label Calibration</h2>
               <BarcodeSettingsWidget barcodeImage={barcodeModal.image} sku={barcodeModal.sku} />
@@ -304,10 +380,10 @@ const Products = () => {
         )}
 
         <main className="flex-1 overflow-auto h-screen">
-          <header className="sticky top-0 z-40 bg-background border-b px-8 py-6 flex justify-between items-center">
+          <header className="sticky top-0 z-40 bg-background border-b px-8 py-6 flex justify-between items-center shadow-sm">
             <div>
               <h1 className="text-3xl font-serif font-bold">Treasury Products</h1>
-              <p className="text-sm text-muted-foreground">Manage your jewelry collection</p>
+              <p className="text-sm text-muted-foreground">Manage your jewelry collection across branches</p>
             </div>
             <div className="flex gap-3">
               <Button variant="outline" size="icon" onClick={() => fetchProducts(true)}>
@@ -318,8 +394,8 @@ const Products = () => {
           </header>
 
           <div className="p-8 space-y-8 max-w-[1600px] mx-auto">
-            {/* 🔹 ADVANCED FILTER SECTION */}
-            <div className="bg-white p-4 rounded-2xl shadow-sm border border-amber-100 flex flex-wrap gap-4 items-end">
+            {/* 🔹 FILTER BAR */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-amber-100 flex flex-wrap gap-6 items-end">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Filter className="w-3 h-3" /> Metal</label>
                 <div className="flex gap-2">
@@ -327,6 +403,19 @@ const Products = () => {
                     <button key={t} onClick={() => setFilters({ ...filters, metal: t })} className={`px-4 py-1.5 rounded-lg text-xs font-bold capitalize transition-all ${filters.metal === t ? "bg-amber-500 text-white shadow-md shadow-amber-200" : "bg-gray-50 text-muted-foreground hover:bg-gray-100"}`}>{t}</button>
                   ))}
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Store className="w-3 h-3" /> Branch</label>
+                <Select value={filters.branch} onValueChange={(val) => setFilters({ ...filters, branch: val })}>
+                  <SelectTrigger className="w-40 text-xs h-9 bg-gray-50 border-none ring-offset-background focus:ring-1 focus:ring-amber-200"><SelectValue placeholder="All Branches" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Branches</SelectItem>
+                    {branches.map(b => (
+                      <SelectItem key={b} value={b} className="capitalize">{b}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-1">
@@ -360,7 +449,7 @@ const Products = () => {
                 </Select>
               </div>
 
-              <Button variant="ghost" className="text-xs h-9 text-amber-600 hover:text-amber-700 hover:bg-amber-50" onClick={resetFilters}>Reset All</Button>
+              <Button variant="ghost" className="text-xs h-9 text-amber-600 hover:text-amber-700 hover:bg-amber-50 font-bold" onClick={resetFilters}>Reset All</Button>
             </div>
 
             <GoldDivider />
@@ -370,7 +459,13 @@ const Products = () => {
                 Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)
               ) : filteredProducts.length > 0 ? (
                 filteredProducts.map((product) => (
-                  <ProductCard key={product.id} product={product} onUpdated={() => fetchProducts(true)} showToast={setToastMessage} onShowQR={(code: string) => handleShowBarcode(code, product.id)} />
+                  <ProductCard 
+                    key={product.id} 
+                    product={product} 
+                    onUpdated={() => fetchProducts(true)} 
+                    showToast={setToastMessage} 
+                    onShowQR={(code: string) => handleShowBarcode(code, product.id)} 
+                  />
                 ))
               ) : (
                 <div className="col-span-full py-20 text-center space-y-4">

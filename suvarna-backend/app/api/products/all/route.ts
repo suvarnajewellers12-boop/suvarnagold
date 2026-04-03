@@ -32,15 +32,36 @@ export async function GET(req: Request) {
     const token = authHeader.split(" ")[1];
     verifyToken(token);
 
-    const products = await prisma.product.findMany({
-      where: {
-        isSold: false,   // ✅ ONLY UNSOLD PRODUCTS
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-
+    // ✅ Explicitly fetch the new fields
+const products = await prisma.product.findMany({
+  where: {
+    isSold: false,
+  },
+  select: {
+    id: true,
+    sku: true,
+    name: true,
+    metalType: true,
+    grams: true,
+    carats: true,
+    category: true,
+    bodyPart: true,
+    huid: true,
+    stoneWeight: true,
+    netWeight: true,
+    quantity: true,
+    isSold: true,
+    manufactureDate: true,
+    createdAt: true,
+    uniqueCode: true,
+    // 🔹 ADD THESE TWO LINES
+    branchName: true,
+    va: true,
+  },
+  orderBy: {
+    createdAt: "desc",
+  },
+});
     return new NextResponse(
       JSON.stringify({ products }),
       { status: 200, headers: corsHeaders() }
