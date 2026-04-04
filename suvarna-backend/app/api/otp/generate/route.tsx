@@ -1,28 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
-import twilio from "twilio";
 import nodemailer from "nodemailer";
 
-const client = twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!);
-
-// Helper for CORS headers
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*", // Change this to your frontend URL in production
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  };
-}
-
-// 1. Handle OPTIONS request (CORS Preflight)
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 200,
-    headers: corsHeaders(),
-  });
-}
-
+// 1. Move transporter outside to keep the connection warm
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -30,6 +11,21 @@ const transporter = nodemailer.createTransport({
     pass: process.env.GMAIL_PASSWORD,
   },
 });
+
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*", 
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: corsHeaders(),
+  });
+}
 
 export async function POST(req: Request) {
   try {
@@ -41,15 +37,14 @@ export async function POST(req: Request) {
     const token = authHeader.split(" ")[1];
     const user = verifyToken(token);
 
-    const superAdminPhone = process.env.SUPERADMIN_PHONE!;
-    const superAdminEmail = process.env.GMAIL_ID!;
+    const superAdminEmail = process.env.GMAIL_ID!; // Or the specific recipient email
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    // 1. Database operation (Keep this AWAITED so we know the OTP is valid)
+    // Save to Database
     await prisma.otpVerification.create({
       data: {
-        phoneNumber: superAdminPhone,
+        phoneNumber: process.env.SUPERADMIN_PHONE || "N/A", // Kept for schema compatibility
         otpCode,
         purpose: "discount_approval",
         requestedById: user.id,
@@ -59,25 +54,27 @@ export async function POST(req: Request) {
 
     const message = `Your Suvarna verification OTP is ${otpCode} for discount approval.`;
 
-    // 2. BACKGROUND TASKS (DO NOT USE 'AWAIT')
-    // We trigger these but don't wait for them to finish before responding
-    client.messages.create({
-      body: message,
-      from: process.env.TWILIO_WHATSAPP_FROM!,
-      to: `whatsapp:${superAdminPhone}`,
-    }).catch(err => console.error("Twilio Background Error:", err));
-
-    transporter.sendMail({
-      from: '"Suvarna Jewellers" <suvarnajewellers12@gmail.com>',
+    // 2. CRITICAL FIX: Use AWAIT here. 
+    // This ensures the email is handed off to the Gmail SMTP server before the function ends.
+    await transporter.sendMail({
+      from: `"Suvarna Jewellers" <${process.env.GMAIL_ID}>`,
       to: superAdminEmail,
       subject: "Discount Approval Request - OTP",
-      html: `<b>${message}</b>`,
-    }).catch(err => console.error("Nodemailer Background Error:", err));
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
+          <h2 style="color: #333;">Discount Approval OTP</h2>
+          <p style="font-size: 16px;">A discount request has been initiated.</p>
+          <div style="background: #f4f4f4; padding: 10px; font-size: 24px; font-weight: bold; text-align: center; letter-spacing: 5px;">
+            ${otpCode}
+          </div>
+          <p style="color: #666; font-size: 12px; margin-top: 20px;">Requested by: User ID ${user.id}</p>
+          <p style="color: #999; font-size: 12px;">This code expires in 5 minutes.</p>
+        </div>
+      `,
+    });
 
-    // 3. IMMEDIATE RESPONSE
-    // This sends the response to the frontend instantly (~200ms)
     return NextResponse.json(
-      { success: true, message: "Request initiated" },
+      { success: true, message: "OTP sent to Email" },
       { headers: corsHeaders() }
     );
 
