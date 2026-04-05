@@ -15,68 +15,66 @@ export async function OPTIONS() {
 }
 
 export async function GET(req: Request) {
-
   try {
-
     const authHeader = req.headers.get("authorization");
-
     if (!authHeader) {
-      return new NextResponse(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: corsHeaders() }
-      );
+      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { 
+        status: 401, headers: corsHeaders() 
+      });
     }
 
     const token = authHeader.split(" ")[1];
     const decoded: any = verifyToken(token);
 
-    // Allow only ADMIN or SUPER_ADMIN
     if (decoded.role !== "ADMIN" && decoded.role !== "SUPER_ADMIN") {
-      return new NextResponse(
-        JSON.stringify({ error: "Forbidden" }),
-        { status: 403, headers: corsHeaders() }
-      );
+      return new NextResponse(JSON.stringify({ error: "Forbidden" }), { 
+        status: 403, headers: corsHeaders() 
+      });
     }
 
     const purchases = await prisma.purchase.findMany({
       include: {
+        admin: { select: { username: true } },
+        superAdmin: { select: { username: true } },
         items: {
           include: {
-            product: true,
+            product: {
+              select: { name: true, metalType: true },
+            },
           },
         },
-        admin: true,
-        superAdmin: true, // 👈 add this
       },
-      orderBy: {
-        purchasedAt: "desc",
-      },
+      orderBy: { purchasedAt: "desc" },
     });
 
-    const rows: any[] = [];
+    // Flattening while including the new financial fields
+    const rows = purchases.flatMap((purchase) => {
+      const createdBy = purchase.admin?.username || purchase.superAdmin?.username || "SYSTEM";
 
-    for (const purchase of purchases) {
+      return purchase.items.map((item) => ({
+        id: purchase.id, // Purchase UUID
+        paymentId: purchase.paymentId || "N/A",
+        paymentStatus: purchase.paymentStatus,
+        customerName: purchase.customerName,
+        phoneNumber: purchase.phoneNumber,
+        
+        // Financial Fields from the Purchase model
+        totalAmount: purchase.totalAmount,
+        gstAmount: purchase.gstAmount,
+        discountAmount: purchase.discountAmount,
+        finalAmount: purchase.finalAmount,
 
-      const createdBy =
-        purchase.admin?.username ||
-        purchase.superAdmin?.username ||
-        "SYSTEM";
-
-      for (const item of purchase.items) {
-        rows.push({
-          id: purchase.id,
-          customer: purchase.customerName,
-          phone: purchase.phoneNumber,
-          product: item.product.name,
-          category: item.product.metalType,
-          grams: item.grams,
-          total: item.cost,
-          date: purchase.purchasedAt,
-          createdBy: createdBy
-        });
-      }
-
-    }
+        // Item specific fields
+        productName: item.product.name,
+        category: item.product.metalType,
+        grams: item.grams,
+        itemCost: item.cost, // Individual item cost
+        
+        // Metadata
+        purchasedAt: purchase.purchasedAt,
+        createdBy: createdBy,
+      }));
+    });
 
     return new NextResponse(
       JSON.stringify({ purchases: rows }),
@@ -84,13 +82,10 @@ export async function GET(req: Request) {
     );
 
   } catch (error) {
-
-    console.error("REPORT ERROR:", error);
-
+    console.error("REPORT_ERROR:", error);
     return new NextResponse(
       JSON.stringify({ error: "Server error" }),
       { status: 500, headers: corsHeaders() }
     );
   }
-
 }
