@@ -22,7 +22,6 @@ const BillingPOS = () => {
   const [filteredProducts, setFilteredProducts] = useState<any[]>([]);
   const [search, setSearch] = useState("");
 
-  // Initialize cart from localStorage to prevent data loss on refresh
   const [cart, setCart] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       const savedCart = localStorage.getItem("suvarna_pos_cart");
@@ -43,6 +42,14 @@ const BillingPOS = () => {
   const [otp, setOtp] = useState("");
   const [managerDiscountPercent, setManagerDiscountPercent] = useState<number>(0);
 
+  // EXCHANGE JEWELLERY STATES
+  const [isExchangeApplied, setIsExchangeApplied] = useState(false);
+  const [exchangeData, setExchangeData] = useState({
+    name: "",
+    grams: 0,
+    discount: 0
+  });
+
   // LIVE DATA & CUSTOMER
   const [liveRates, setLiveRates] = useState<any>(null);
   const [customer, setCustomer] = useState({ name: "", phone: "", email: "", address: "" });
@@ -51,12 +58,10 @@ const BillingPOS = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
-  // Persist cart to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem("suvarna_pos_cart", JSON.stringify(cart));
   }, [cart]);
 
-  // INITIAL LOAD: Rates & Inventory
   useEffect(() => {
     const initializeTerminal = async () => {
       try {
@@ -138,12 +143,16 @@ const BillingPOS = () => {
     setShowDropdown(true);
   };
 
+  // FINANCIAL CALCULATIONS
   const subtotal = cart.reduce((acc, item) => acc + (getDynamicPrice(item) * item.quantity), 0);
-  const gst = subtotal * 0.03;
+  const cgst = subtotal * 0.015;
+  const sgst = subtotal * 0.015;
   const managerWaiver = isDiscountUnlocked ? (subtotal * (managerDiscountPercent / 100)) : 0;
-  const total = Math.max(0, subtotal + gst - managerWaiver - couponDiscount);
+  const exchangeDiscountValue = isExchangeApplied ? exchangeData.discount : 0;
+  
+  // Final Total = Subtotal + GST - Manager Waiver - Coupon - Exchange
+  const total = Math.max(0, subtotal + cgst + sgst - managerWaiver - couponDiscount - exchangeDiscountValue);
 
-  // PAYMENT GATEWAY LOGIC
   const handleCheckout = async () => {
     if (cart.length === 0 || !customer.name || !customer.phone) {
       setToastMessage("Check cart and customer details");
@@ -157,14 +166,16 @@ const BillingPOS = () => {
         body: JSON.stringify({
           amount: Math.ceil(total),
           customerName: customer.name,
-          phoneNumber: customer.phone
+          phoneNumber: customer.phone,
+          emailid: customer.email,
+          Address: customer.address,
         }),
       });
       const orderData = await orderRes.json();
       const order = orderData.order;
 
       const options = {
-        key: "rzp_test_SQBmMDbmpm3m0D", // Replace with your live key when ready
+        key: "rzp_test_SQBmMDbmpm3m0D",
         amount: order.amount,
         currency: "INR",
         name: "Suvarna Jewellery",
@@ -180,9 +191,15 @@ const BillingPOS = () => {
               purchaseData: {
                 customerName: customer.name,
                 phoneNumber: customer.phone,
+                emailid: customer.email,
+                Address: customer.address,
                 totalAmount: subtotal,
-                gstAmount: gst,
-                discountAmount: managerWaiver + couponDiscount,
+                cgstAmount: cgst,
+                sgstAmount: sgst,
+                jewelleryexchangediscount: exchangeDiscountValue,
+                excahngejewellryname: isExchangeApplied ? exchangeData.name : null,
+                excahngejewellrygrams: isExchangeApplied ? exchangeData.grams : null,
+                discountAmount: managerWaiver ,
                 finalAmount: total,
                 items: cart.map((item) => ({
                   productId: item.id,
@@ -201,6 +218,8 @@ const BillingPOS = () => {
             setCart([]);
             localStorage.removeItem("suvarna_pos_cart");
             setCustomer({ name: "", phone: "", email: "", address: "" });
+            setExchangeData({ name: "", grams: 0, discount: 0 });
+            setIsExchangeApplied(false);
             setCheckoutStep(1);
           }
         },
@@ -379,6 +398,8 @@ const BillingPOS = () => {
                       <h3 className="font-serif font-bold text-lg text-slate-800">Financial Summary</h3>
                     </div>
                     <div className="space-y-5 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                      
+                      {/* OTP & Manager Discount */}
                       <div className="space-y-3">
                         <div className="flex gap-2">
                           <Input
@@ -399,37 +420,107 @@ const BillingPOS = () => {
                           </div>
                         )}
                       </div>
+
+                      {/* Coupon Section */}
                       <div className="flex gap-2">
                         <Input placeholder="REWARD CODE" value={coupon} onChange={(e) => setCoupon(e.target.value)} className="h-12 rounded-xl border-2 border-dashed border-gold/10 text-center font-bold" />
                         <Button onClick={() => { if (coupon === "HERITAGE2026") setCouponDiscount(1000); }} variant="gold" className="h-12">Apply</Button>
                       </div>
+
+                      {/* EXCHANGE SECTION */}
+                      <div className="space-y-3 p-4 bg-amber-50/50 rounded-2xl border border-gold/20">
+                        <div className="flex items-center gap-2 mb-1">
+                          <RefreshCcw size={14} className="text-gold" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600">Exchange Old Jewellery</span>
+                          <input 
+                            type="checkbox" 
+                            checked={isExchangeApplied} 
+                            onChange={(e) => setIsExchangeApplied(e.target.checked)}
+                            className="ml-auto accent-gold h-4 w-4"
+                          />
+                        </div>
+
+                        {isExchangeApplied && (
+                          <div className="grid grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                            <Input 
+                              placeholder="Item Name" 
+                              value={exchangeData.name}
+                              onChange={(e) => setExchangeData({...exchangeData, name: e.target.value})}
+                              className="h-10 text-xs bg-white border-gold/10"
+                            />
+                            <Input 
+                              type="number" 
+                              placeholder="Grams" 
+                              value={exchangeData.grams || ""}
+                              onChange={(e) => setExchangeData({...exchangeData, grams: Number(e.target.value)})}
+                              className="h-10 text-xs bg-white border-gold/10"
+                            />
+                            <Input 
+                              type="number" 
+                              placeholder="Exchange Value (₹)" 
+                              value={exchangeData.discount || ""}
+                              className="h-10 text-xs bg-white col-span-2 border-gold/30 font-bold"
+                              onChange={(e) => setExchangeData({...exchangeData, discount: Number(e.target.value)})}
+                            />
+                          </div>
+                        )}
+                      </div>
+
                       <GoldDivider opacity={30} />
+
+                      {/* Final Price Breakdown */}
                       <div className="space-y-3">
                         <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase"><span>Gross Value</span><span className="text-slate-900 font-serif text-lg">₹{subtotal.toLocaleString()}</span></div>
-                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase"><span>GST (3%)</span><span className="text-slate-900 font-serif text-lg">₹{gst.toLocaleString()}</span></div>
+                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase"><span>CGST (1.5%)</span><span className="text-slate-900 font-serif text-lg">₹{cgst.toLocaleString()}</span></div>
+                        <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase"><span>SGST (1.5%)</span><span className="text-slate-900 font-serif text-lg">₹{sgst.toLocaleString()}</span></div>
+                        
                         {managerWaiver > 0 && (
                           <div className="flex justify-between text-[10px] font-bold text-emerald-600 italic bg-emerald-50 p-3 rounded-xl border border-emerald-100">
                             <span>Manager Waiver ({managerDiscountPercent}%)</span>
                             <span>-₹{managerWaiver.toLocaleString()}</span>
                           </div>
                         )}
+
+                        {isExchangeApplied && exchangeData.discount > 0 && (
+                          <div className="flex justify-between text-[10px] font-bold text-amber-600 italic bg-amber-50 p-3 rounded-xl border border-amber-100">
+                            <span className="flex items-center gap-1"><RefreshCcw size={10} /> Exchange: {exchangeData.name}</span>
+                            <span>-₹{exchangeData.discount.toLocaleString()}</span>
+                          </div>
+                        )}
+
+                        {couponDiscount > 0 && (
+                          <div className="flex justify-between text-[10px] font-bold text-blue-600 italic bg-blue-50 p-3 rounded-xl border border-blue-100">
+                            <span>Coupon Applied</span>
+                            <span>-₹{couponDiscount.toLocaleString()}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
+
                     <div className="pt-6 mt-4 border-t border-gold/10">
                       <p className="text-4xl font-serif font-bold text-slate-900">₹{total.toLocaleString()}</p>
-                      <Button disabled={cart.length === 0} onClick={() => setCheckoutStep(2)} variant="gold" className="w-full h-14 mt-4">Check out <ChevronRight className="ml-2" /></Button>
+                      <Button disabled={cart.length === 0} onClick={() => setCheckoutStep(2)} variant="gold" className="w-full h-14 mt-4">Proceed to Customer <ChevronRight className="ml-2" /></Button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col animate-in slide-in-from-right duration-300">
-                    <button onClick={() => setCheckoutStep(1)} className="flex items-center gap-2 text-gold text-[10px] font-bold uppercase mb-6"><ArrowLeft size={16} /> Return</button>
+                    <button onClick={() => setCheckoutStep(1)} className="flex items-center gap-2 text-gold text-[10px] font-bold uppercase mb-6"><ArrowLeft size={16} /> Return to Summary</button>
                     <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                      <Input placeholder="Full Name" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="h-11 rounded-xl" />
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold uppercase text-slate-400 ml-1">Customer Details</label>
+                        <Input placeholder="Full Name" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="h-11 rounded-xl" />
+                      </div>
                       <Input placeholder="Contact Phone" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className="h-11 rounded-xl" />
-                      <Input placeholder="Email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} className="h-11 rounded-xl" />
-                      <textarea placeholder="Address" rows={2} value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} className="w-full p-4 rounded-xl border border-gold/10 text-sm outline-none" />
+                      <Input placeholder="Email Address" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} className="h-11 rounded-xl" />
+                      <textarea placeholder="Shipping/Billing Address" rows={3} value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} className="w-full p-4 rounded-xl border border-gold/10 text-sm outline-none bg-white focus:border-gold/40 transition-all" />
                     </div>
-                    <Button onClick={handleCheckout} variant="gold" className="w-full h-16 rounded-[1.5rem] mt-6">Pay Now</Button>
+                    <div className="pt-6 mt-4 border-t border-gold/10">
+                      <div className="flex justify-between items-center mb-4 px-2">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Final Amount</span>
+                        <span className="text-2xl font-serif font-bold text-slate-900">₹{total.toLocaleString()}</span>
+                      </div>
+                      <Button onClick={handleCheckout} variant="gold" className="w-full h-16 rounded-[1.5rem]">Complete Payment</Button>
+                    </div>
                   </div>
                 )}
               </LuxuryCard>

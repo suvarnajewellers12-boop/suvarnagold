@@ -75,14 +75,14 @@ model Product {
   id              String         @id @default(uuid())
   name            String
   metalType       String
-  carats          String         // Stores Gold Carats or Silver Purity
-  category        String         @default("others")// e.g., "Bangle", "Ring", "Necklace", "Earring"
-  bodyPart        String         @default("others")// e.g., "Wrist", "Fingers", "Neck", "Ear"
-  grams           Float          // Metal weight
+  carats          String
+  category        String         @default("others")
+  bodyPart        String         @default("others")
+  grams           Float
   stoneWeight     Float          @default(0)
-  netWeight       Float          @default(0) // Sum of grams + stoneWeight
+  netWeight       Float          @default(0)
   quantity        Int            @default(1)
-  huid            String?        // Optional HUID string
+  huid            String?
   uniqueCode      String         @unique
   sku             String         @unique
   isSold          Boolean        @default(false)
@@ -97,8 +97,14 @@ model Product {
 model Purchase {
   id             String         @id @default(uuid())
   customerName   String
+  emailid        String?
+  Address        String?
   totalAmount    Float
-  gstAmount      Float
+  sgstAmount      Float @default(2500)
+  cgstAmount      Float  @default(2500)
+  jewelleryexchangediscount  Float?
+  excahngejewellryname String?
+  excahngejewellrygrams Float? 
   discountAmount Float
   finalAmount    Float
   phoneNumber    String
@@ -141,6 +147,7 @@ model Customer {
   password  String
   phone     String
   createdAt DateTime         @default(now())
+  mpin      String?
   schemes   CustomerScheme[]
 }
 
@@ -181,9 +188,9 @@ model ProductImgs {
   title       String
   description String?
   weight      Float
-  image       Bytes    // Binary image storage
-  mimeType    String   @default("image/jpeg")  // ✅ add this
-  metalType   String   @default("gold") 
+  image       Bytes
+  mimeType    String   @default("image/jpeg")
+  metalType   String   @default("gold")
   carats      String   @default("24k")
   createdAt   DateTime @default(now())
 }

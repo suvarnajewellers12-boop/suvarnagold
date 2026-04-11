@@ -66,6 +66,10 @@ export async function GET(
         barcodeImage,
         productId: product.id,
         sku: product.sku,
+        netWeight: product.netWeight,
+        stoneWeight: product.stoneWeight,
+        grams: product.grams,
+        huid: product.huid,
       },
       { headers: corsHeaders }
     );

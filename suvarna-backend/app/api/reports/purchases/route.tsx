@@ -39,7 +39,15 @@ export async function GET(req: Request) {
         items: {
           include: {
             product: {
-              select: { name: true, metalType: true },
+              select: { 
+                name: true, 
+                metalType: true,
+                carats: true,      // For PURITY
+                grams: true,       // For GROSS WT
+                netWeight: true,   // For NET WT
+                va: true,          // For VA (Making charge)
+                huid: true,        // For HUID
+              },
             },
           },
         },
@@ -47,30 +55,38 @@ export async function GET(req: Request) {
       orderBy: { purchasedAt: "desc" },
     });
 
-    // Flattening while including the new financial fields
     const rows = purchases.flatMap((purchase) => {
       const createdBy = purchase.admin?.username || purchase.superAdmin?.username || "SYSTEM";
 
       return purchase.items.map((item) => ({
-        id: purchase.id, // Purchase UUID
+        id: purchase.id,
         paymentId: purchase.paymentId || "N/A",
         paymentStatus: purchase.paymentStatus,
         customerName: purchase.customerName,
         phoneNumber: purchase.phoneNumber,
-        
-        // Financial Fields from the Purchase model
+        Address: purchase.Address || "N/A",
+        emailid: purchase.emailid || "N/A",
+        jewelleryexchangediscount:purchase.jewelleryexchangediscount,
+        excahngejewellrygrams:purchase.excahngejewellrygrams,
+        excahngejewellryname:purchase.excahngejewellryname,
+
         totalAmount: purchase.totalAmount,
-        gstAmount: purchase.gstAmount,
+        cgstAmount: purchase.cgstAmount,
+        sgstAmount: purchase.sgstAmount,
         discountAmount: purchase.discountAmount,
         finalAmount: purchase.finalAmount,
 
-        // Item specific fields
+        // Item specific fields (Direct & Product relations)
         productName: item.product.name,
         category: item.product.metalType,
-        grams: item.grams,
-        itemCost: item.cost, // Individual item cost
+        purity: item.product.carats,       // Added
+        grossWt: item.product.grams,       // Added
+        netWt: item.product.netWeight,     // Added
+        va: item.product.va,               // Added
+        huid: item.product.huid || "N/A",  // Added
+        grams: item.grams,                 // Actual weight sold
+        itemCost: item.cost,               // Product Value
         
-        // Metadata
         purchasedAt: purchase.purchasedAt,
         createdBy: createdBy,
       }));

@@ -63,10 +63,16 @@ export async function POST(req: Request) {
     const purchasePayload: any = {
       customerName: purchaseData.customerName,
       phoneNumber: purchaseData.phoneNumber,
+      emailid: purchaseData.emailid,
+      Address: purchaseData.Address,
 
       totalAmount: purchaseData.totalAmount,
-      gstAmount: purchaseData.gstAmount,
+      cgstAmount: purchaseData.cgstAmount,
+      sgstAmount: purchaseData.sgstAmount,
       discountAmount: purchaseData.discountAmount,
+      jewelleryexchangediscount: purchaseData.jewelleryexchangediscount,
+      excahngejewellrygrams: purchaseData.excahngejewellrygrams,
+      excahngejewellryname  : purchaseData.excahngejewellryname,
       finalAmount: purchaseData.finalAmount,
 
       paymentStatus: "SUCCESS",

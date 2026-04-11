@@ -64,6 +64,11 @@ const Products = () => {
     image: string;
     productId: string;
     sku: string;
+    netWeight: number;
+    stoneWeight: number;
+    grams: number;
+    huid: string;
+
   } | null>(null);
 
   const [formData, setFormData] = useState({
@@ -144,8 +149,9 @@ const Products = () => {
         headers: { Authorization: `Bearer ${token}` },
       });  
       const data = await res.json();
+      console.log("Barcode Data:", data);
       if (res.ok) {
-        setBarcodeModal({ image: data.barcodeImage, productId, sku });
+        setBarcodeModal({ image: data.barcodeImage, productId, sku , netWeight: data.netWeight, stoneWeight: data.stoneWeight, grams: data.grams, huid: data.huid });
       }
     } catch (err) {
       console.error("Barcode Fetch Failed", err);
@@ -370,7 +376,7 @@ const Products = () => {
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
             <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg space-y-6">
               <h2 className="text-2xl font-serif font-bold text-center">Barcode Label Calibration</h2>
-              <BarcodeSettingsWidget barcodeImage={barcodeModal.image} sku={barcodeModal.sku} />
+              <BarcodeSettingsWidget barcodeImage={barcodeModal.image} sku={barcodeModal.sku} netWeight={barcodeModal.netWeight} stoneWeight={barcodeModal.stoneWeight} grams={barcodeModal.grams} huid={barcodeModal.huid} />
               <div className="flex flex-col gap-3">
                 <button onClick={() => printBarcode(barcodeModal.image, barcodeModal.sku)} className="w-full bg-black text-white py-3 rounded-xl font-bold">Print Label</button>
                 <button onClick={() => setBarcodeModal(null)} className="text-sm text-gray-500">Close</button>
