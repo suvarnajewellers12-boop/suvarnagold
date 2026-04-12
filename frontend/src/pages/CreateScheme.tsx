@@ -130,7 +130,7 @@ const SuperAdminCreateScheme = () => {
 
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:3000/api/schemes/create", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/schemes/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
