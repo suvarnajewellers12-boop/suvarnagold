@@ -26,7 +26,7 @@ const STORE_INFO = {
   line2: "Near YSR Statue, New Gajuwaka,",
   line3: "Visakhapatnam - 530026,",
   line4: "Andhra Pradesh",
-  phone: "Cell: 94943 34040",
+  phone: "Gmail: suvarnajewellers12@gmail.com",
 };
 
 const Reports = () => {

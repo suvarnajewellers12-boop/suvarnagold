@@ -254,4 +254,6 @@ export const ProductCard = ({
       </div>
     </div>
   );
+
+  
 };

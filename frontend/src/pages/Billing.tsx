@@ -11,7 +11,7 @@ import {
   ShoppingCart, Lock, Trash2, Search, Plus,
   ChevronRight, ScanLine, User, Phone,
   Mail, MapPin, Landmark, ReceiptText, ArrowLeft,
-  RefreshCcw, CheckCircle2, Percent
+  RefreshCcw, CheckCircle2, Percent, Edit3
 } from "lucide-react";
 
 const BillingPOS = () => {
@@ -84,25 +84,44 @@ const BillingPOS = () => {
     initializeTerminal();
   }, [token]);
 
+  // FIXED DYNAMIC PRICE LOGIC
   const getDynamicPrice = (item: any) => {
-    if (!liveRates || !item.grams) return item.cost || 0;
-    const metal = (item.metal || "gold").toLowerCase();
-    const carat = String(item.carat || "22").replace(/\D/g, "");
+    // 1. Manual Price always takes absolute priority
+    if (item.manualPrice !== undefined && item.manualPrice !== null) {
+      return Number(item.manualPrice);
+    }
 
-    let rateKey = "gold22";
-    if (metal === "silver") rateKey = "silver";
-    else if (carat === "18") rateKey = "gold18";
+    if (!liveRates || !item.grams) return 0;
+
+    const metal = (item.metal || "gold").toLowerCase();
+    const carat = String(item.carats || "").replace(/\D/g, "");
+
+    // CONDITION A: If metal is silver, default to 0
+    if (metal === "silver") return 0;
+
+    // Determine the rate key for Gold
+    let rateKey = "";
+    if (carat === "18") rateKey = "gold18";
+    else if (carat === "22") rateKey = "gold22";
     else if (carat === "24") rateKey = "gold24";
 
+    // CONDITION B: If gold carat is not found in live rates (null/undefined), default to 0
     const rateString = liveRates[rateKey];
-    if (!rateString) return item.cost || 0;
+    if (!rateKey || !rateString) return 0;
 
+    // Otherwise, calculate the rate normally
     const rateValue = parseFloat(String(rateString).replace(/[^\d.-]/g, ''));
     const baseMetalPrice = rateValue * item.grams;
     const vaPercent = parseFloat(item.va || 0);
     const makingCharges = baseMetalPrice * (vaPercent / 100);
 
     return Math.round(baseMetalPrice + makingCharges);
+  };
+
+  const updateManualPrice = (id: string, newPrice: string) => {
+    setCart(prev => prev.map(item =>
+      item.id === id ? { ...item, manualPrice: newPrice === "" ? undefined : Number(newPrice) } : item
+    ));
   };
 
   const processScannedBarcode = (scannedValue: string) => {
@@ -149,8 +168,6 @@ const BillingPOS = () => {
   const sgst = subtotal * 0.015;
   const managerWaiver = isDiscountUnlocked ? (subtotal * (managerDiscountPercent / 100)) : 0;
   const exchangeDiscountValue = isExchangeApplied ? exchangeData.discount : 0;
-  
-  // Final Total = Subtotal + GST - Manager Waiver - Coupon - Exchange
   const total = Math.max(0, subtotal + cgst + sgst - managerWaiver - couponDiscount - exchangeDiscountValue);
 
   const handleCheckout = async () => {
@@ -199,7 +216,7 @@ const BillingPOS = () => {
                 jewelleryexchangediscount: exchangeDiscountValue,
                 excahngejewellryname: isExchangeApplied ? exchangeData.name : null,
                 excahngejewellrygrams: isExchangeApplied ? exchangeData.grams : null,
-                discountAmount: managerWaiver ,
+                discountAmount: managerWaiver,
                 finalAmount: total,
                 items: cart.map((item) => ({
                   productId: item.id,
@@ -368,17 +385,26 @@ const BillingPOS = () => {
                     </div>
                   ) : (
                     cart.map((item) => (
-                      <div key={item.id} className="flex justify-between items-center p-6 rounded-[1.5rem] bg-white border border-gold/5 hover:border-gold/30 hover:shadow-lg transition-all">
+                      <div key={item.id} className="flex justify-between items-center p-6 rounded-[2.5rem] bg-white border border-gold/5 hover:border-gold/30 hover:shadow-lg transition-all">
                         <div className="flex items-center gap-6">
                           <div className="h-12 w-12 rounded-xl bg-slate-50 flex items-center justify-center text-gold font-serif text-xl border-2 border-gold/5">{item.name.charAt(0)}</div>
                           <div className="space-y-1">
                             <p className="text-lg font-serif font-bold text-slate-800 uppercase tracking-tight leading-none">{item.name}</p>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.grams}g | {item.carat || "22K"} | VA: {item.va}%</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.grams}g | {item.carats || "N/A"} | VA: {item.va}% | {item.metal}</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-8">
-                          <div className="text-right">
-                            <p className="text-xl font-serif font-bold text-slate-900 leading-none">₹{getDynamicPrice(item).toLocaleString()}</p>
+                        <div className="flex items-center gap-6">
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="text-[8px] font-bold text-gold uppercase tracking-tighter flex items-center gap-1"><Edit3 size={8} /> Edit Item Price</span>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                              <Input
+                                type="number"
+                                className="h-10 w-32 pl-6 text-right font-serif font-bold text-slate-900 bg-slate-50/50 border-gold/20 focus:border-gold rounded-xl"
+                                value={item.manualPrice ?? getDynamicPrice(item)}
+                                onChange={(e) => updateManualPrice(item.id, e.target.value)}
+                              />
+                            </div>
                           </div>
                           <Button onClick={() => removeItem(item.id)} variant="ghost" size="icon" className="h-10 w-10 text-slate-200 hover:text-red-500"><Trash2 size={20} /></Button>
                         </div>
@@ -398,7 +424,7 @@ const BillingPOS = () => {
                       <h3 className="font-serif font-bold text-lg text-slate-800">Financial Summary</h3>
                     </div>
                     <div className="space-y-5 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                      
+
                       {/* OTP & Manager Discount */}
                       <div className="space-y-3">
                         <div className="flex gap-2">
@@ -432,9 +458,9 @@ const BillingPOS = () => {
                         <div className="flex items-center gap-2 mb-1">
                           <RefreshCcw size={14} className="text-gold" />
                           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600">Exchange Old Jewellery</span>
-                          <input 
-                            type="checkbox" 
-                            checked={isExchangeApplied} 
+                          <input
+                            type="checkbox"
+                            checked={isExchangeApplied}
                             onChange={(e) => setIsExchangeApplied(e.target.checked)}
                             className="ml-auto accent-gold h-4 w-4"
                           />
@@ -442,25 +468,25 @@ const BillingPOS = () => {
 
                         {isExchangeApplied && (
                           <div className="grid grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                            <Input 
-                              placeholder="Item Name" 
+                            <Input
+                              placeholder="Item Name"
                               value={exchangeData.name}
-                              onChange={(e) => setExchangeData({...exchangeData, name: e.target.value})}
+                              onChange={(e) => setExchangeData({ ...exchangeData, name: e.target.value })}
                               className="h-10 text-xs bg-white border-gold/10"
                             />
-                            <Input 
-                              type="number" 
-                              placeholder="Grams" 
+                            <Input
+                              type="number"
+                              placeholder="Grams"
                               value={exchangeData.grams || ""}
-                              onChange={(e) => setExchangeData({...exchangeData, grams: Number(e.target.value)})}
+                              onChange={(e) => setExchangeData({ ...exchangeData, grams: Number(e.target.value) })}
                               className="h-10 text-xs bg-white border-gold/10"
                             />
-                            <Input 
-                              type="number" 
-                              placeholder="Exchange Value (₹)" 
+                            <Input
+                              type="number"
+                              placeholder="Exchange Value (₹)"
                               value={exchangeData.discount || ""}
                               className="h-10 text-xs bg-white col-span-2 border-gold/30 font-bold"
-                              onChange={(e) => setExchangeData({...exchangeData, discount: Number(e.target.value)})}
+                              onChange={(e) => setExchangeData({ ...exchangeData, discount: Number(e.target.value) })}
                             />
                           </div>
                         )}
@@ -473,7 +499,7 @@ const BillingPOS = () => {
                         <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase"><span>Gross Value</span><span className="text-slate-900 font-serif text-lg">₹{subtotal.toLocaleString()}</span></div>
                         <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase"><span>CGST (1.5%)</span><span className="text-slate-900 font-serif text-lg">₹{cgst.toLocaleString()}</span></div>
                         <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase"><span>SGST (1.5%)</span><span className="text-slate-900 font-serif text-lg">₹{sgst.toLocaleString()}</span></div>
-                        
+
                         {managerWaiver > 0 && (
                           <div className="flex justify-between text-[10px] font-bold text-emerald-600 italic bg-emerald-50 p-3 rounded-xl border border-emerald-100">
                             <span>Manager Waiver ({managerDiscountPercent}%)</span>
@@ -504,22 +530,87 @@ const BillingPOS = () => {
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col animate-in slide-in-from-right duration-300">
-                    <button onClick={() => setCheckoutStep(1)} className="flex items-center gap-2 text-gold text-[10px] font-bold uppercase mb-6"><ArrowLeft size={16} /> Return to Summary</button>
+                    <button
+                      onClick={() => setCheckoutStep(1)}
+                      className="flex items-center gap-2 text-gold text-[10px] font-bold uppercase mb-6"
+                    >
+                      <ArrowLeft size={16} /> Return to Summary
+                    </button>
+
                     <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+
+                      {/* Name */}
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold uppercase text-slate-400 ml-1">Customer Details</label>
-                        <Input placeholder="Full Name" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="h-11 rounded-xl" />
+                        <label className="text-[9px] font-bold uppercase text-slate-400 ml-1">
+                          Customer Details
+                        </label>
+                        <Input
+                          placeholder="Full Name"
+                          value={customer.name}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (/^[a-zA-Z\s]*$/.test(value)) {
+                              setCustomer({ ...customer, name: value });
+                            }
+                          }}
+                          className="h-11 rounded-xl"
+                        />
                       </div>
-                      <Input placeholder="Contact Phone" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className="h-11 rounded-xl" />
-                      <Input placeholder="Email Address" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} className="h-11 rounded-xl" />
-                      <textarea placeholder="Shipping/Billing Address" rows={3} value={customer.address} onChange={(e) => setCustomer({ ...customer, address: e.target.value })} className="w-full p-4 rounded-xl border border-gold/10 text-sm outline-none bg-white focus:border-gold/40 transition-all" />
+
+                      {/* Phone */}
+                      <Input
+                        placeholder="Contact Phone"
+                        value={customer.phone}
+                        maxLength={10}
+                        onChange={(e) => {
+                          let value = e.target.value.replace(/\D/g, ""); // only digits
+                          if (value.length <= 10) {
+                            setCustomer({ ...customer, phone: value });
+                          }
+                        }}
+                        className="h-11 rounded-xl"
+                      />
+
+                      {/* Email */}
+                      <Input
+                        type="email"
+                        placeholder="Email Address"
+                        value={customer.email}
+                        onChange={(e) =>
+                          setCustomer({ ...customer, email: e.target.value })
+                        }
+                        className="h-11 rounded-xl"
+                      />
+
+                      {/* Address */}
+                      <textarea
+                        placeholder="Shipping/Billing Address"
+                        rows={3}
+                        value={customer.address}
+                        onChange={(e) =>
+                          setCustomer({ ...customer, address: e.target.value })
+                        }
+                        className="w-full p-4 rounded-xl border border-gold/10 text-sm outline-none bg-white focus:border-gold/40 transition-all"
+                      />
                     </div>
+
                     <div className="pt-6 mt-4 border-t border-gold/10">
                       <div className="flex justify-between items-center mb-4 px-2">
-                        <span className="text-[10px] font-bold uppercase text-slate-400">Final Amount</span>
-                        <span className="text-2xl font-serif font-bold text-slate-900">₹{total.toLocaleString()}</span>
+                        <span className="text-[10px] font-bold uppercase text-slate-400">
+                          Final Amount
+                        </span>
+                        <span className="text-2xl font-serif font-bold text-slate-900">
+                          ₹{total.toLocaleString()}
+                        </span>
                       </div>
-                      <Button onClick={handleCheckout} variant="gold" className="w-full h-16 rounded-[1.5rem]">Complete Payment</Button>
+
+                      <Button
+                        onClick={handleCheckout}
+                        variant="gold"
+                        className="w-full h-16 rounded-[1.5rem]"
+                      >
+                        Complete Payment
+                      </Button>
                     </div>
                   </div>
                 )}

@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import qz from "qz-tray";
 
@@ -21,30 +20,14 @@ export default function BarcodeSettingsWidget({
   huid 
 }: Props) {
 
-  const [settings, setSettings] = useState({
+  // Hardcoded settings based on your image requirements
+  const CONFIG = {
     boxWidth: 54,
     boxHeight: 12,
-    barcodeWidth: 25, // Reduced width to prevent overlapping
-    barcodeHeight: 7,
-    marginTop: 1,
-    marginLeft: 2,
-    textSpacing: 22, // Vertical gap between lines in dots
-  });
-
-  useEffect(() => {
-    const saved = localStorage.getItem("barcodeSettings");
-    if (saved) {
-      setSettings(JSON.parse(saved));
-    }
-  }, []);
-
-  const saveSettings = () => {
-    localStorage.setItem("barcodeSettings", JSON.stringify(settings));
-    alert("Settings saved!");
-  };
-
-  const handleChange = (key: string, value: number) => {
-    setSettings((prev) => ({ ...prev, [key]: value }));
+    barcodeWidth: 45,
+    barcodeHeight: 8,
+    marginTop: 0,
+    marginLeft: 0,
   };
 
   const initQZ = async () => {
@@ -52,105 +35,91 @@ export default function BarcodeSettingsWidget({
   };
 
   const printLabel = async () => {
-  try {
-    await initQZ();
-    const printer = await qz.printers.find("TSC TE244");
-    const config = qz.configs.create(printer);
+    try {
+      await initQZ();
+      const printer = await qz.printers.find("TSC TE244");
+      const config = qz.configs.create(printer);
 
-    // 1mm = 8 dots. Total height (12mm) = 96 dots.
-    const dotX = settings.marginLeft * 8;
-    
-    // Start very high (4 dots from top) to fit all lines
-    const startY = 4; 
-    const rowGap = 18; // Tightened gap to fit 4 lines in 96 dots
+      // 1mm = 8 dots
+      const startY = 4; // Top padding in dots
+      const rowGap = 24; // Vertical spacing for text lines
+      
+      // Calculate barcode position (X = 0 as per your image margin)
+      // We position the barcode on the right side of the label
+      const barcodeStartX = (CONFIG.boxWidth - CONFIG.barcodeWidth) * 8;
 
-    // Calculate barcode start (Right side)
-    const barcodeStartX = (settings.boxWidth - settings.barcodeWidth - 2) * 8;
-
-    const tspl = `
-SIZE ${settings.boxWidth} mm,${settings.boxHeight} mm
+      const tspl = `
+SIZE ${CONFIG.boxWidth} mm,${CONFIG.boxHeight} mm
 GAP 3 mm,0 mm
 DIRECTION 1
 CLS
-/* 4 LINES OF TEXT - ALLIGNED LEFT */
-TEXT ${dotX},${startY},"1",0,1,1,"G:${grams}"
-TEXT ${dotX},${startY + rowGap},"1",0,1,1,"SW:${stoneWeight}"
-TEXT ${dotX},${startY + (rowGap * 2)},"1",0,1,1,"NW:${netWeight}"
-TEXT ${dotX},${startY + (rowGap*3)},"1",0,1,1,"ID:${huid}"
+/* LEFT SIDE DATA */
+TEXT 8,${startY},"1",0,1,1,"G:${grams}"
+TEXT 8,${startY + rowGap},"1",0,1,1,"SW:${stoneWeight}"
+TEXT 8,${startY + (rowGap * 2)},"1",0,1,1,"NW:${netWeight}"
 
-/* BARCODE - ALLIGNED RIGHT */
-/* We use a height of 6mm (48 dots) to ensure it fits the 12mm label */
-BARCODE ${barcodeStartX},${startY + 10},"128",48,1,0,2,2,"${sku}"
+/* RIGHT SIDE BARCODE (SKU) WITH HUID BELOW IT */
+BARCODE ${barcodeStartX},${startY},"128",48,0,0,2,2,"${sku}"
+TEXT ${barcodeStartX},${startY + 52},"1",0,1,1,"ID:${huid}"
+
 PRINT 1
 `;
 
-    const data = [{ type: "raw", format: "command", data: tspl }];
-    await qz.print(config, data);
-
-  } catch (err) {
-    console.error("Print Error", err);
-  }
-};
+      const data = [{ type: "raw", format: "command", data: tspl }];
+      await qz.print(config, data);
+    } catch (err) {
+      console.error("Print Error", err);
+    }
+  };
 
   return (
-    <div className="space-y-6 p-4 bg-gray-50 rounded-lg border">
-      <h2 className="text-sm font-bold text-gray-700">Printer & Layout Adjustments</h2>
-      
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-        {Object.entries(settings).map(([key, value]) => (
-          <div key={key}>
-            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">
-              {key.replace(/([A-Z])/g, " $1")}
-            </label>
-            <Input
-              className="h-8 text-xs"
-              type="number"
-              value={value}
-              onChange={(e) => handleChange(key, Number(e.target.value))}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <Button variant="outline" onClick={saveSettings}>Save Config</Button>
-        <Button className="bg-green-600" onClick={printLabel}>Print Now</Button>
-      </div>
-
-      <hr />
-
-      {/* DYNAMIC PREVIEW */}
-      <div className="flex flex-col items-center">
-        <span className="text-[10px] font-bold text-gray-400 mb-2">LIVE PREVIEW (54x12mm)</span>
+    <div className="flex flex-col items-center p-6 bg-white rounded-xl shadow-sm border border-gray-100">
+      {/* LABEL PREVIEW */}
+      <div className="mb-6 group relative">
+        <span className="block text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-widest text-center">
+          Label Preview (${CONFIG.boxWidth}x${CONFIG.boxHeight}mm)
+        </span>
+        
         <div
           style={{
-            width: `${settings.boxWidth}mm`,
-            height: `${settings.boxHeight}mm`,
+            width: `${CONFIG.boxWidth}mm`,
+            height: `${CONFIG.boxHeight}mm`,
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
             background: "white",
-            border: "1px solid black",
-            padding: `0 ${settings.marginLeft}mm`,
+            border: "1px solid #e5e7eb",
+            padding: "0 2mm",
             boxSizing: "border-box",
             overflow: "hidden"
           }}
         >  
-          {/* Vertical Text Stack */}
-          <div className="flex flex-col justify-center text-left font-mono font-bold" style={{ fontSize: '6px', lineHeight: '1.1' }}>
+          {/* Weights Stack */}
+          <div className="flex flex-col justify-center text-left font-mono font-bold" style={{ fontSize: '7px', lineHeight: '1.1' }}>
             <span>G: {grams}</span>
             <span>SW: {stoneWeight}</span>
             <span>NW: {netWeight}</span>
-            <span className="truncate w-24">ID: {huid}</span>
           </div>
 
-          {/* Barcode on the far right */}
-          <div className="flex items-center justify-end" style={{ width: `${settings.barcodeWidth}mm` }}>
-             <img src={barcodeImage} alt="barcode" style={{ height: `${settings.barcodeHeight}mm`, width: '100%', objectFit: 'contain' }} />
+          {/* Barcode + HUID Stack */}
+          <div className="flex flex-col items-center justify-center" style={{ width: `${CONFIG.barcodeWidth}mm` }}>
+             <img 
+               src={barcodeImage} 
+               alt="barcode" 
+               style={{ height: `${CONFIG.barcodeHeight}mm`, width: '100%', objectFit: 'contain' }} 
+             />
+             <span className="font-mono font-bold text-[6px] mt-0.5 uppercase">ID: {huid}</span>
           </div>
         </div>
-        <p className="mt-2 text-[10px] text-red-500">Note: Keep Barcode Width below 30 for this label size.</p>
       </div>
+
+      {/* ACTION BUTTON */}
+      <Button 
+        className="w-full max-w-[200px] bg-[#16a34a] hover:bg-[#15803d] text-white font-bold py-6 rounded-lg transition-all shadow-lg active:scale-95"
+        onClick={printLabel}
+      >
+        Print Label
+      </Button>
     </div>
   );
 }

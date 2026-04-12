@@ -44,6 +44,7 @@ const menuItems = [
   { title: "Reports", url: "/dashboard/reports", icon: FileText },
   { title: "Photos", url: "/dashboard/photos", icon: Package },
   // { title: "Settings", url: "/dashboard/settings", icon: Settings },
+  {title: "Coupons", url: "/dashboard/coupons", icon: Settings },
 ];
 
 export function DashboardSidebar() {

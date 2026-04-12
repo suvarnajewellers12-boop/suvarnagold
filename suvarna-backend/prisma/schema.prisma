@@ -95,27 +95,27 @@ model Product {
 }
 
 model Purchase {
-  id             String         @id @default(uuid())
-  customerName   String
-  emailid        String?
-  Address        String?
-  totalAmount    Float
-  sgstAmount      Float @default(2500)
-  cgstAmount      Float  @default(2500)
-  jewelleryexchangediscount  Float?
-  excahngejewellryname String?
-  excahngejewellrygrams Float? 
-  discountAmount Float
-  finalAmount    Float
-  phoneNumber    String
-  paymentId      String?
-  paymentStatus  String         @default("PENDING")
-  purchasedAt    DateTime       @default(now())
-  adminId        String?
-  superAdminId   String?
-  admin          Admin?         @relation(fields: [adminId], references: [id])
-  superAdmin     SuperAdmin?    @relation(fields: [superAdminId], references: [id])
-  items          PurchaseItem[]
+  id                        String         @id @default(uuid())
+  customerName              String
+  emailid                   String?
+  Address                   String?
+  totalAmount               Float
+  discountAmount            Float
+  finalAmount               Float
+  phoneNumber               String
+  paymentId                 String?
+  paymentStatus             String         @default("PENDING")
+  purchasedAt               DateTime       @default(now())
+  adminId                   String?
+  superAdminId              String?
+  cgstAmount                Float          @default(2500)
+  sgstAmount                Float          @default(2500)
+  excahngejewellrygrams     Float?
+  excahngejewellryname      String?
+  jewelleryexchangediscount Float?
+  admin                     Admin?         @relation(fields: [adminId], references: [id])
+  superAdmin                SuperAdmin?    @relation(fields: [superAdminId], references: [id])
+  items                     PurchaseItem[]
 }
 
 model PurchaseItem {
@@ -135,9 +135,17 @@ model Scheme {
   durationMonths   Int
   monthlyAmount    Float
   maturityAmount   Float
-  completionCoupon String?
+  completionCoupon String?          // You can use this as a prefix (e.g., "GOLD-")
   createdAt        DateTime         @default(now())
+  
+  // Track all customers enrolled in this scheme
   customers        CustomerScheme[]
+  
+  // Array to store all unique coupon codes generated under this scheme
+  issuedCouponCodes String[] 
+  
+  // Relation to the detailed Coupon records
+  coupons          Coupon[]
 }
 
 model Customer {
@@ -148,7 +156,9 @@ model Customer {
   phone     String
   createdAt DateTime         @default(now())
   mpin      String?
+  
   schemes   CustomerScheme[]
+  coupons   Coupon[]         // Relation to all coupons owned by this customer
 }
 
 model CustomerScheme {
@@ -162,11 +172,35 @@ model CustomerScheme {
   isCompleted      Boolean  @default(false)
   couponGenerated  Boolean  @default(false)
   startDate        DateTime @default(now())
+  
   customer         Customer @relation(fields: [customerId], references: [id])
   scheme           Scheme   @relation(fields: [schemeId], references: [id])
+
+  // Link to the specific unique coupon generated for this enrollment
+  coupon           Coupon?
 }
 
-model OtpVerification {
+model Coupon {
+  id          String   @id @default(uuid())
+  code        String   @unique   // The unique code generated for the user
+  couponValue Float             // Captured from Scheme.maturityAmount at enrollment
+  isUsed      Boolean  @default(false)
+  isActive    Boolean  @default(true) // Active by default once assigned to a user
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  // Link to the specific Enrollment (to track payments/progress)
+  customerSchemeId String @unique
+  customerScheme   CustomerScheme @relation(fields: [customerSchemeId], references: [id])
+
+  // Link to the Customer (The Owner)
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+
+  // Link to the Parent Scheme Type
+  schemeId    String
+  scheme      Scheme   @relation(fields: [schemeId], references: [id])
+}model OtpVerification {
   id            String    @id @default(cuid())
   phoneNumber   String    @db.VarChar(15)
   otpCode       String    @db.VarChar(6)

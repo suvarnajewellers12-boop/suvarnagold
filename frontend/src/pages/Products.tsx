@@ -158,22 +158,22 @@ const Products = () => {
     }
   };
 
-  const printBarcode = (image: string, sku: string) => {
-    const printWindow = window.open("", "", "width=400,height=300");
-    if (!printWindow) return;
-    printWindow.document.write(`
-      <html><head><title>Print Barcode</title><style>
-      @page{ size: 80mm 12mm; margin:0; }
-      body{ margin:0; padding:0; }
-      .label{ width:80mm; height:12mm; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-      img{ width:30mm; height:8mm; object-fit:contain; }
-      .sku{ font-size:2.5mm; font-weight:bold; margin-top:1mm; font-family:monospace; }
-      </style></head><body><div class="label"><img src="${image}" /><div class="sku">${sku}</div></div></body></html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
-  };
+  // const printBarcode = (image: string, sku: string) => {
+  //   const printWindow = window.open("", "", "width=400,height=300");
+  //   if (!printWindow) return;
+  //   printWindow.document.write(`
+  //     <html><head><title>Print Barcode</title><style>
+  //     @page{ size: 80mm 12mm; margin:0; }
+  //     body{ margin:0; padding:0; }
+  //     .label{ width:80mm; height:12mm; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  //     img{ width:30mm; height:8mm; object-fit:contain; }
+  //     .sku{ font-size:2.5mm; font-weight:bold; margin-top:1mm; font-family:monospace; }
+  //     </style></head><body><div class="label"><img src="${image}" /><div class="sku">${barcodeModal.huid}</div></div></body></html>
+  //   `);
+  //   printWindow.document.close();
+  //   printWindow.focus();
+  //   setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+  // };
 
   /* ---------------- CREATE PRODUCT ---------------- */
   const handleCreateProduct = async () => {
