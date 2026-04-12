@@ -373,17 +373,48 @@ const Products = () => {
 
         {/* --- BARCODE MODAL (RESTORED) --- */}
         {barcodeModal && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
-            <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg space-y-6">
-              <h2 className="text-2xl font-serif font-bold text-center">Barcode Label Calibration</h2>
-              <BarcodeSettingsWidget barcodeImage={barcodeModal.image} sku={barcodeModal.sku} netWeight={barcodeModal.netWeight} stoneWeight={barcodeModal.stoneWeight} grams={barcodeModal.grams} huid={barcodeModal.huid} />
-              <div className="flex flex-col gap-3">
-                <button onClick={() => printBarcode(barcodeModal.image, barcodeModal.sku)} className="w-full bg-black text-white py-3 rounded-xl font-bold">Print Label</button>
-                <button onClick={() => setBarcodeModal(null)} className="text-sm text-gray-500">Close</button>
-              </div>
-            </div>
-          </div>
-        )}
+  <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
+    <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg relative">
+      
+      {/* Top Right Close Icon */}
+      <button 
+        onClick={() => setBarcodeModal(null)}
+        className="absolute top-6 right-6 text-gray-400 hover:text-black transition-colors"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+
+      <div className="space-y-6">
+        <div className="text-center">
+          <h2 className="text-2xl font-serif font-bold">Print Barcode Label</h2>
+          <p className="text-sm text-gray-500 mt-1">Ready for TSC TE244 (54x12mm)</p>
+        </div>
+
+        {/* The Widget with hardcoded settings */}
+        <BarcodeSettingsWidget 
+          barcodeImage={barcodeModal.image} 
+          sku={barcodeModal.sku} 
+          netWeight={barcodeModal.netWeight} 
+          stoneWeight={barcodeModal.stoneWeight} 
+          grams={barcodeModal.grams} 
+          huid={barcodeModal.huid} 
+        />
+
+        <div className="flex flex-col gap-3">
+          <button 
+            onClick={() => setBarcodeModal(null)} 
+            className="w-full py-3 rounded-xl font-semibold border border-gray-200 hover:bg-gray-50 transition-colors text-gray-700"
+          >
+            Cancel & Close
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
         <main className="flex-1 overflow-auto h-screen">
           <header className="sticky top-0 z-40 bg-background border-b px-8 py-6 flex justify-between items-center shadow-sm">
