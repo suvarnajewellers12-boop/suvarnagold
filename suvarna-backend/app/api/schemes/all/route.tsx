@@ -24,7 +24,7 @@ export async function GET(req: Request) {
     // 🔹 Fetch Schemes with Customers (No Auth Conditions)
     const schemes = await prisma.scheme.findMany({
       include: {
-        customers: {
+        enrollments: {
           include: {
             customer: {
               select: {

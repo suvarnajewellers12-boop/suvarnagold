@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
-import crypto from "crypto";
 
 function corsHeaders() {
   return {
@@ -16,9 +15,7 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: Request) {
-
   try {
-
     const authHeader = req.headers.get("authorization");
 
     if (!authHeader) {
@@ -41,60 +38,54 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-      purchaseData
+      purchaseData,
+      paymentBreakdown // This contains { cash, upi, card, cheque }
     } = body;
 
-    // VERIFY PAYMENT SIGNATURE
-    const generatedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
-      .update(razorpay_order_id + "|" + razorpay_payment_id)
-      .digest("hex");
-
-    if (generatedSignature !== razorpay_signature) {
-      return new NextResponse(
-        JSON.stringify({ error: "Invalid payment signature" }),
-        { status: 400, headers: corsHeaders() }
-      );
-    }
-
+    // 1. Prepare the Purchase Payload with Multi-Modal logic
     const purchasePayload: any = {
       customerName: purchaseData.customerName,
       phoneNumber: purchaseData.phoneNumber,
-      emailid: purchaseData.emailid,
-      Address: purchaseData.Address,
+      emailid: purchaseData.emailid || null,
+      Address: purchaseData.Address || null,
 
+      // Financials
       totalAmount: purchaseData.totalAmount,
       cgstAmount: purchaseData.cgstAmount,
       sgstAmount: purchaseData.sgstAmount,
       discountAmount: purchaseData.discountAmount,
-      jewelleryexchangediscount: purchaseData.jewelleryexchangediscount,
-      excahngejewellrygrams: purchaseData.excahngejewellrygrams,
-      excahngejewellryname  : purchaseData.excahngejewellryname,
+      jewelleryexchangediscount: purchaseData.jewelleryexchangediscount || 0,
+      excahngejewellrygrams: purchaseData.excahngejewellrygrams || null,
+      excahngejewellryname: purchaseData.excahngejewellryname || null,
       finalAmount: purchaseData.finalAmount,
 
+      // Payment Breakdown (The new fields)
+      cashAmount: Number(paymentBreakdown.cash) || 0,
+      upiAmount: Number(paymentBreakdown.upi) || 0,
+      cardAmount: Number(paymentBreakdown.card) || 0,
+      chequeAmount: Number(paymentBreakdown.cheque) || 0,
+
+      // POS Metadata
       paymentStatus: "SUCCESS",
-      paymentId: razorpay_payment_id,
+      paymentId: `POS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     };
 
+    // 2. Assign ownership based on role
     if (decoded.role === "ADMIN") {
       purchasePayload.adminId = decoded.id;
-    }
-
-    if (decoded.role === "SUPER_ADMIN") {
+    } else if (decoded.role === "SUPER_ADMIN") {
       purchasePayload.superAdminId = decoded.id;
     }
 
+    // 3. Database Transaction
     const purchase = await prisma.$transaction(async (tx) => {
-
-      // CREATE ONE PURCHASE ONLY
+      
+      // Create the main Purchase record
       const createdPurchase = await tx.purchase.create({
         data: purchasePayload,
       });
 
-      // CREATE ALL ITEMS UNDER SAME PURCHASE
+      // Create individual items linked to this purchase
       const purchaseItems = purchaseData.items.map((item: any) => ({
         purchaseId: createdPurchase.id,
         productId: item.productId,
@@ -107,7 +98,7 @@ export async function POST(req: Request) {
         data: purchaseItems
       });
 
-      // MARK PRODUCTS SOLD
+      // Update inventory to mark items as Sold
       const productIds = purchaseData.items.map((i: any) => i.productId);
 
       await tx.product.updateMany({
@@ -121,26 +112,22 @@ export async function POST(req: Request) {
       });
 
       return createdPurchase;
-
     });
 
     return new NextResponse(
       JSON.stringify({
         success: true,
         purchaseId: purchase.id,
-        message: "Payment verified & purchase completed"
+        message: "Manual POS purchase completed successfully"
       }),
       { status: 200, headers: corsHeaders() }
     );
 
   } catch (error) {
-
-    console.error("PAYMENT VERIFY ERROR:", error);
-
+    console.error("POS PURCHASE ERROR:", error);
     return new NextResponse(
-      JSON.stringify({ error: "Payment verification failed" }),
+      JSON.stringify({ error: "Failed to process manual purchase" }),
       { status: 500, headers: corsHeaders() }
     );
-
   }
 }

@@ -99,25 +99,38 @@ model Purchase {
   customerName              String
   emailid                   String?
   Address                   String?
-  totalAmount               Float
-  discountAmount            Float
-  finalAmount               Float
   phoneNumber               String
-  paymentId                 String?
-  paymentStatus             String         @default("PENDING")
+  
+  // Financial Totals
+  totalAmount               Float          // Subtotal
+  discountAmount            Float          // Manager Waiver
+  cgstAmount                Float          @default(0)
+  sgstAmount                Float          @default(0)
+  jewelleryexchangediscount Float?         // Old gold value
+  finalAmount               Float          // Final payable amount
+
+  // Multi-Modal Payment Breakdown
+  cashAmount                Float          @default(0)
+  upiAmount                 Float          @default(0)
+  cardAmount                Float          @default(0) // Debit/Credit
+  chequeAmount              Float          @default(0)
+  
+  // Transaction Metadata
+  paymentId                 String?        @default("MANUAL_POS")
+  paymentStatus             String         @default("SUCCESS")
   purchasedAt               DateTime       @default(now())
-  adminId                   String?
-  superAdminId              String?
-  cgstAmount                Float          @default(2500)
-  sgstAmount                Float          @default(2500)
+  
+  // Old Jewellery Exchange Metadata
   excahngejewellrygrams     Float?
   excahngejewellryname      String?
-  jewelleryexchangediscount Float?
+  
+  // Relations
+  adminId                   String?
+  superAdminId              String?
   admin                     Admin?         @relation(fields: [adminId], references: [id])
   superAdmin                SuperAdmin?    @relation(fields: [superAdminId], references: [id])
   items                     PurchaseItem[]
 }
-
 model PurchaseItem {
   id         String   @id @default(uuid())
   purchaseId String
@@ -128,79 +141,111 @@ model PurchaseItem {
   product    Product  @relation(fields: [productId], references: [id])
   purchase   Purchase @relation(fields: [purchaseId], references: [id])
 }
-
+// ==========================================
+// 1. SCHEME BLUEPRINT
+// ==========================================
 model Scheme {
-  id               String           @id @default(uuid())
-  name             String
-  durationMonths   Int
-  monthlyAmount    Float
-  maturityAmount   Float
-  completionCoupon String?          // You can use this as a prefix (e.g., "GOLD-")
-  createdAt        DateTime         @default(now())
+  id                String           @id @default(uuid())
+  name              String
+  isWeightBased     Boolean          @default(false) // Toggle: True (Cat-B) | False (Cat-A)
+  durationMonths    Int              // Total Tenure (e.g., 11)
+  monthlyAmount     Float            // Fixed installment (e.g., 22000)
+  maturityMonths    Int?             // 1-25 Dropdown (Only for Cat-A)
+  createdAt         DateTime         @default(now())
   
-  // Track all customers enrolled in this scheme
-  customers        CustomerScheme[]
-  
-  // Array to store all unique coupon codes generated under this scheme
-  issuedCouponCodes String[] 
-  
-  // Relation to the detailed Coupon records
-  coupons          Coupon[]
+  enrollments       CustomerScheme[]
+  coupons           Coupon[]
 }
 
+// ==========================================
+// 2. CUSTOMER ENROLLMENT (The Digital Vault)
+// ==========================================
+model CustomerScheme {
+  id                String           @id @default(uuid())
+  customerId        String
+  schemeId          String
+  
+  // Progress Tracking
+  totalPaid         Float            @default(0)
+  installmentsPaid  Int              @default(0)
+  installmentsLeft  Int
+  
+  // LIVE VAULT: Updated continuously for Category-B
+  accumulatedGrams  Float            @default(0) 
+  remainingAmount   Float 
+  
+  isCompleted       Boolean          @default(false)
+  startDate         DateTime         @default(now())
+  
+  customer          Customer         @relation(fields: [customerId], references: [id])
+  scheme            Scheme           @relation(fields: [schemeId], references: [id])
+  payments          PaymentHistory[]
+  coupon            Coupon?          // One-to-one link to the live coupon
+}
+
+// ==========================================
+// 3. PAYMENT HISTORY (The Audit Trail)
+// ==========================================
+model PaymentHistory {
+  id               String         @id @default(uuid())
+  customerSchemeId String
+  amountPaid       Float
+  
+  // Captured at the exact moment of payment
+  liveRate24K      Float?         // Fetched from API
+  gramsAdded       Float?         // amountPaid / liveRate24K
+  
+  paidAt           DateTime       @default(now())
+  customerScheme   CustomerScheme @relation(fields: [customerSchemeId], references: [id])
+}
+
+// ==========================================
+// 4. COUPON (The "Avail Offer" Certificate)
+// ==========================================
+model Coupon {
+  id               String         @id @default(uuid())
+  code             String         @unique // e.g., SUV-2026-XXXX
+  
+  // Value for Category-A (Calculated at enrollment)
+  // Formula: (Tenure + MaturityMonths) * MonthlyAmount
+  totalCashValue   Float          @default(0) 
+  
+  // Value for Category-B (Updated continuously during payments)
+  // Logic: Matches CustomerScheme.accumulatedGrams
+  totalWeightGrams Float          @default(0) 
+  
+  isUsed           Boolean        @default(false)
+  isActive         Boolean        @default(false) // Becomes true when installmentsPaid == durationMonths
+  usedAt           DateTime?
+  
+  customerSchemeId String         @unique
+  customerScheme   CustomerScheme @relation(fields: [customerSchemeId], references: [id])
+  
+  customerId       String
+  customer         Customer       @relation(fields: [customerId], references: [id])
+  
+  schemeId         String
+  scheme           Scheme         @relation(fields: [schemeId], references: [id])
+
+  createdAt        DateTime        @default(now())
+}
+
+// ==========================================
+// 5. CUSTOMER PROFILE
+// ==========================================
 model Customer {
   id        String           @id @default(uuid())
   name      String
   username  String           @unique
   password  String
   phone     String
-  createdAt DateTime         @default(now())
   mpin      String?
+  createdAt DateTime         @default(now())
   
   schemes   CustomerScheme[]
-  coupons   Coupon[]         // Relation to all coupons owned by this customer
+  coupons   Coupon[]
 }
-
-model CustomerScheme {
-  id               String   @id @default(uuid())
-  customerId       String
-  schemeId         String
-  totalPaid        Float    @default(0)
-  remainingAmount  Float
-  installmentsPaid Int      @default(0)
-  installmentsLeft Int
-  isCompleted      Boolean  @default(false)
-  couponGenerated  Boolean  @default(false)
-  startDate        DateTime @default(now())
-  
-  customer         Customer @relation(fields: [customerId], references: [id])
-  scheme           Scheme   @relation(fields: [schemeId], references: [id])
-
-  // Link to the specific unique coupon generated for this enrollment
-  coupon           Coupon?
-}
-
-model Coupon {
-  id          String   @id @default(uuid())
-  code        String   @unique   // The unique code generated for the user
-  couponValue Float             // Captured from Scheme.maturityAmount at enrollment
-  isUsed      Boolean  @default(false)
-  isActive    Boolean  @default(true) // Active by default once assigned to a user
-  usedAt      DateTime?
-  createdAt   DateTime @default(now())
-
-  // Link to the specific Enrollment (to track payments/progress)
-  customerSchemeId String @unique
-  customerScheme   CustomerScheme @relation(fields: [customerSchemeId], references: [id])
-
-  // Link to the Customer (The Owner)
-  customerId  String
-  customer    Customer @relation(fields: [customerId], references: [id])
-
-  // Link to the Parent Scheme Type
-  schemeId    String
-  scheme      Scheme   @relation(fields: [schemeId], references: [id])
-}model OtpVerification {
+model OtpVerification {
   id            String    @id @default(cuid())
   phoneNumber   String    @db.VarChar(15)
   otpCode       String    @db.VarChar(6)
