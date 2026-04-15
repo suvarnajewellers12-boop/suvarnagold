@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
@@ -8,11 +8,12 @@ import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { 
   Download, Phone, RefreshCcw, Printer, Hash, 
   BadgePercent, Landmark, FileSpreadsheet, FileText, 
   Repeat, Banknote, CreditCard, Smartphone, ScrollText,
-  MapPin, Mail,Calendar
+  MapPin, Mail, Calendar, Filter
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,10 @@ const Reports = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year">("month");
+  
+  // New State for Payment Filtering
+  const [selectedPayments, setSelectedPayments] = useState<string[]>(["cash", "upi", "card", "cheque"]);
+  
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [ALL_PURCHASES, setPurchases] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -62,7 +67,6 @@ const Reports = () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem("token");
-      // Note: Reverted to the production URL as seen in previous stable logs
       const res = await fetch("https://suvarnagold-16e5.vercel.app/api/reports/purchases", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -102,7 +106,6 @@ const Reports = () => {
             exchangeName: p.excahngejewellryname,
             exchangeGrams: p.excahngejewellrygrams,
             grandTotal: Number(p.finalAmount),
-            // Explicit Payment Breakdown Mapping
             payments: {
               cash: Number(p.cashAmount || 0),
               upi: Number(p.upiAmount || 0),
@@ -131,16 +134,28 @@ const Reports = () => {
   const filteredData = useMemo(() => {
     const now = new Date();
     return ALL_PURCHASES.filter((item) => {
+      // 1. Time Filtering
       const itemDate = item.date;
-      if (timeRange === "day") return itemDate.toDateString() === now.toDateString();
-      if (timeRange === "week") return itemDate >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      if (timeRange === "month") return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
-      if (timeRange === "year") return itemDate.getFullYear() === now.getFullYear();
-      return true;
-    });
-  }, [timeRange, ALL_PURCHASES]);
+      let matchesTime = true;
+      if (timeRange === "day") matchesTime = itemDate.toDateString() === now.toDateString();
+      else if (timeRange === "week") matchesTime = itemDate >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      else if (timeRange === "month") matchesTime = itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
+      else if (timeRange === "year") matchesTime = itemDate.getFullYear() === now.getFullYear();
 
-  // Financial aggregation for top summary cards
+      if (!matchesTime) return false;
+
+      // 2. Payment Type Filtering
+      // If no checkboxes are selected, show nothing. Otherwise, check if transaction has the selected payment type.
+      if (selectedPayments.length === 0) return false;
+      
+      const hasSelectedPayment = selectedPayments.some(type => {
+        return item.payments[type as keyof typeof item.payments] > 0;
+      });
+
+      return hasSelectedPayment;
+    });
+  }, [timeRange, selectedPayments, ALL_PURCHASES]);
+
   const financialSummary = useMemo(() => {
     return filteredData.reduce((acc, curr) => {
       acc.totalCash += curr.payments.cash;
@@ -151,6 +166,12 @@ const Reports = () => {
       return acc;
     }, { totalCash: 0, totalUpi: 0, totalCard: 0, totalCheque: 0, grandTotal: 0 });
   }, [filteredData]);
+
+  const togglePaymentFilter = (type: string) => {
+    setSelectedPayments(prev => 
+      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
+    );
+  };
 
   const exportToExcel = () => {
     try {
@@ -168,7 +189,7 @@ const Reports = () => {
       const worksheet = XLSX.utils.json_to_sheet(dataToExport);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Sales_Report");
-      XLSX.writeFile(workbook, `Suvarna_Payments_${timeRange}_${new Date().toLocaleDateString()}.xlsx`);
+      XLSX.writeFile(workbook, `Suvarna_Payments_Export.xlsx`);
       setToastMessage("Excel report downloaded");
       setShowToast(true);
     } catch (err) { console.error(err); }
@@ -313,7 +334,7 @@ const Reports = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-3xl font-serif font-bold italic tracking-tight text-primary">Sales Intelligence</h1>
-                <p className="text-sm text-muted-foreground tracking-widest uppercase">Financial Settlements</p>
+                <p className="text-sm text-muted-foreground tracking-widest uppercase">Suvarna Financials</p>
               </div>
               <div className="flex gap-3">
                 <Button variant="outline" size="icon" onClick={() => fetchReports(true)}>
@@ -327,13 +348,34 @@ const Reports = () => {
           </header>
 
           <div className="flex-1 overflow-y-auto p-8 space-y-8">
-            <div className="flex gap-2 bg-secondary/50 p-1 rounded-lg w-fit border border-primary/10">
-              {(["day", "week", "month", "year"] as const).map((range) => (
-                <Button key={range} variant={timeRange === range ? "gold" : "ghost"} size="sm" onClick={() => setTimeRange(range)} className="capitalize px-6">{range}</Button>
-              ))}
-            </div>
+            {/* FILTER CONTROLS */}
+            <LuxuryCard className="p-4 bg-white shadow-sm flex flex-col md:flex-row gap-6 items-start md:items-center justify-between">
+              <div className="flex flex-col gap-2">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Calendar className="w-3 h-3"/> Time Period</span>
+                <div className="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit border border-primary/10">
+                  {(["day", "week", "month", "year"] as const).map((range) => (
+                    <Button key={range} variant={timeRange === range ? "gold" : "ghost"} size="sm" onClick={() => setTimeRange(range)} className="capitalize px-4 h-8 text-xs">{range}</Button>
+                  ))}
+                </div>
+              </div>
 
-            {/* TOP SUMMARY CARDS - RE-IMPLEMENTED TO FIX 0 VALUES */}
+              <div className="flex flex-col gap-2">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Filter className="w-3 h-3"/> Payment Methods</span>
+                <div className="flex gap-4 items-center bg-secondary/30 px-4 py-2 rounded-lg border border-primary/5">
+                  {["cash", "upi", "card", "cheque"].map((type) => (
+                    <label key={type} className="flex items-center gap-2 cursor-pointer group">
+                      <Checkbox 
+                        checked={selectedPayments.includes(type)} 
+                        onCheckedChange={() => togglePaymentFilter(type)} 
+                      />
+                      <span className="text-xs font-bold uppercase text-gray-600 group-hover:text-primary transition-colors">{type}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </LuxuryCard>
+
+            {/* SUMMARY CARDS */}
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <LuxuryCard className="p-4 border-l-4 border-green-500 bg-white shadow-sm">
                 <div className="flex items-center gap-2 text-green-600 mb-1">
@@ -364,12 +406,12 @@ const Reports = () => {
               </LuxuryCard>
 
               <LuxuryCard className="p-4 bg-primary text-primary-foreground shadow-lg">
-                <div className="text-[10px] font-bold uppercase opacity-70 mb-1 tracking-wider">TOTAL REVENUE</div>
+                <div className="text-[10px] font-bold uppercase opacity-70 mb-1 tracking-wider">FILTERED REVENUE</div>
                 <div className="text-3xl font-serif font-bold italic">₹{financialSummary.grandTotal.toLocaleString()}</div>
               </LuxuryCard>
             </div>
 
-            {/* TRANSACTION REGISTRY TABLE */}
+            {/* REGISTRY TABLE */}
             <LuxuryCard className="p-0 overflow-hidden border-primary/20 shadow-xl bg-white">
               <div className="p-6 border-b bg-primary/5 flex justify-between items-center">
                 <h3 className="font-serif font-bold text-xl flex items-center gap-2 text-primary"><Landmark className="w-5 h-5" /> Transaction Registry</h3>
@@ -408,7 +450,7 @@ const Reports = () => {
                   ))}
                   {filteredData.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="h-32 text-center text-muted-foreground">No transactions found for this period.</TableCell>
+                      <TableCell colSpan={4} className="h-32 text-center text-muted-foreground italic">No transactions found matching your selection.</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
@@ -418,7 +460,7 @@ const Reports = () => {
         </main>
       </div>
 
-      {/* DETAILED TRANSACTION MODAL */}
+      {/* TRANSACTION MODAL */}
       <Dialog open={!!selectedCustomer} onOpenChange={() => setSelectedCustomer(null)}>
         <DialogContent className="max-w-2xl p-0 overflow-hidden border-none shadow-2xl rounded-2xl">
           {selectedCustomer && (
