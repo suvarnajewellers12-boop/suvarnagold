@@ -91,7 +91,7 @@ const SuperAdminCreateScheme = () => {
 
     try {
       if (forceRefresh) setIsInitialLoading(true);
-      const res = await fetch("http://localhost:3000/api/schemes/all", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/schemes/all", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();

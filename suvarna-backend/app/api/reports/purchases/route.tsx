@@ -69,7 +69,10 @@ export async function GET(req: Request) {
         jewelleryexchangediscount:purchase.jewelleryexchangediscount,
         excahngejewellrygrams:purchase.excahngejewellrygrams,
         excahngejewellryname:purchase.excahngejewellryname,
-
+        cardAmount: purchase.cardAmount,
+        upiAmount: purchase.upiAmount,
+        chequeAmount: purchase.chequeAmount,
+        cashAmount: purchase.cashAmount,
         totalAmount: purchase.totalAmount,
         cgstAmount: purchase.cgstAmount,
         sgstAmount: purchase.sgstAmount,

@@ -171,7 +171,7 @@ const BillingPOS = () => {
     }
 
     try {
-      const response = await fetch("http://localhost:3000/api/payment/verify", {
+      const response = await fetch("https://suvarnagold-16e5.vercel.app/api/payment/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({

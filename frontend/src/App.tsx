@@ -12,6 +12,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 import Index from "./pages/Index";
+import EstimationTerminal from "./pages/EstimationTerminal";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import AdminManagement from "./pages/AdminManagement";
@@ -162,6 +163,7 @@ const App = () => (
             <Route path="/dashboard/billing" element={<Billing />} />
             <Route path="/dashboard/reports" element={<Reports />} />
             <Route path="/dashboard/settings" element={<Settings />} />
+            <Route path="/dashboard/estimation-terminal" element={<EstimationTerminal />} />
             <Route path="/dashboard/create-scheme" element={<SuperAdminCreateScheme />} />
             <Route path="/dashboard/customers" element={<SuperadminCustomerMangement />} />
             <Route path="/dashboard/staff" element={<StaffManagement />} />
