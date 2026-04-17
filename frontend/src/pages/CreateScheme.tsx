@@ -26,13 +26,15 @@ import {
   Loader2,
   CheckCircle2,
   Clock,
-  ShieldCheck
+  ShieldCheck,
+  Scale
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 // ================= CACHE CONFIGURATION =================
 let schemesCache: any[] | null = null;
 
+// ================= UI SKELETON =================
 const SchemeSkeleton = () => (
   <div className="border border-gold/10 rounded-[22px] overflow-hidden bg-white/50 animate-pulse">
     <div className="p-6 space-y-6">
@@ -62,15 +64,17 @@ const SuperAdminCreateScheme = () => {
   // Form State
   const [form, setForm] = useState({
     name: "",
+    category: "Category-A", // Default
     durationMonths: "",
     monthlyAmount: "",
-    maturityAmount: "",
+    maturityMonths: "", 
   });
 
   // Schemes & Loading State
   const [schemes, setSchemes] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [liveGoldRate, setLiveGoldRate] = useState<string | null>(null);
   
   // UI States
   const [toastMessage, setToastMessage] = useState("");
@@ -80,6 +84,21 @@ const SuperAdminCreateScheme = () => {
   // Selection States for Dialog
   const [selectedScheme, setSelectedScheme] = useState<any | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+
+  // ================= FETCH LIVE RATE =================
+  const fetchLiveRate = async () => {
+    try {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/rates");
+      const data = await res.json();
+      if (res.ok && data.gold24) {
+        // Cleaning the string (e.g., "₹15,557" -> "15557")
+        const rate = data.gold24.replace(/[^\d.]/g, '');
+        setLiveGoldRate(rate);
+      }
+    } catch (err) {
+      console.error("Rate fetch error", err);
+    }
+  };
 
   // ================= FETCH SCHEMES =================
   const fetchSchemes = async (forceRefresh = false) => {
@@ -109,10 +128,11 @@ const SuperAdminCreateScheme = () => {
 
   useEffect(() => {
     fetchSchemes();
+    fetchLiveRate();
   }, []);
 
   // ================= HANDLERS =================
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
@@ -122,27 +142,37 @@ const SuperAdminCreateScheme = () => {
   };
 
   const handleCreateScheme = async () => {
-    if (!form.name || !form.durationMonths || !form.monthlyAmount || !form.maturityAmount) {
-      setToastMessage("All fields are required");
+    const isCatB = form.category === "Category-B";
+    
+    // Validation Logic
+    if (!form.name || !form.durationMonths || !form.monthlyAmount || (!isCatB && !form.maturityMonths)) {
+      setToastMessage("All relevant fields are required");
       setShowToast(true);
       return;
     }
 
     try {
       setLoading(true);
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/schemes/create", {
+      
+      // We pass the live gold rate captured during form session if it's Cat-B
+      const payload = {
+        ...form,
+        goldRate24k: isCatB ? liveGoldRate : null
+      };
+
+      const res = await fetch("http://localhost:3000/api/schemes/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
-        setToastMessage("Scheme catalog updated successfully.");
+        setToastMessage(`${form.category} deployed successfully.`);
         setShowToast(true);
-        setForm({ name: "", durationMonths: "", monthlyAmount: "", maturityAmount: "" });
+        setForm({ name: "", category: "Category-A", durationMonths: "", monthlyAmount: "", maturityMonths: "" });
         setShowCreateBox(false);
         await fetchSchemes(true);
       }
@@ -200,42 +230,78 @@ const SuperAdminCreateScheme = () => {
                     <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-white">Create New Scheme</h2>
                   </div>
 
-                  <div className="space-y-4 flex-1">
+                  <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                    {/* Category Selection */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Scheme Category</label>
+                      <select 
+                        name="category" 
+                        value={form.category} 
+                        onChange={handleChange} 
+                        className="w-full h-11 rounded-xl bg-slate-50 border border-gold/10 px-3 text-sm font-bold text-gold focus:ring-1 focus:ring-gold outline-none"
+                      >
+                        <option value="Category-A">Category-A (Value Based)</option>
+                        <option value="Category-B">Category-B (Gold Weight)</option>
+                      </select>
+                    </div>
+
                     <div className="space-y-1.5">
                       <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Scheme Identity</label>
-                      <Input name="name" placeholder="Royal Sovereign" value={form.name} onChange={handleChange} className="h-10 rounded-xl bg-slate-50/50 border-gold/10 focus-visible:ring-gold" />
+                      <Input name="name" placeholder="Royal Sovereign" value={form.name} onChange={handleChange} className="h-11 rounded-xl bg-slate-50/50 border-gold/10 focus-visible:ring-gold" />
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5">
                         <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Tenure (Mo.)</label>
-                        <Input name="durationMonths" type="number" placeholder="12" value={form.durationMonths} onChange={handleChange} className="h-10 rounded-xl bg-slate-50/50 border-gold/10 focus-visible:ring-gold" />
+                        <Input name="durationMonths" type="number" placeholder="11" value={form.durationMonths} onChange={handleChange} className="h-11 rounded-xl bg-slate-50/50 border-gold/10" />
                       </div>
-                      <div className="space-y-1.5 flex flex-col justify-end italic text-gold/50 text-[9px] mb-2">
-                        Automated Couponing Enabled
-                      </div>
+                      
+                      {form.category === "Category-A" ? (
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Maturity Mo.</label>
+                          <select 
+                            name="maturityMonths" 
+                            value={form.maturityMonths} 
+                            onChange={handleChange} 
+                            className="w-full h-11 rounded-xl bg-slate-50/50 border border-gold/10 px-3 text-sm outline-none"
+                          >
+                            <option value="">Select</option>
+                            {Array.from({ length: 25 }, (_, i) => i + 1).map(num => (
+                              <option key={num} value={num}>{num} Months</option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col justify-end pb-1.5">
+                           <Badge variant="outline" className="text-[9px] bg-gold/5 text-gold border-gold/20 py-1 uppercase tracking-tighter h-11 flex items-center justify-center">Weight Accumulation</Badge>
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-1.5">
                       <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Monthly Contribution</label>
                       <div className="relative">
                         <IndianRupee className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gold/40" />
-                        <Input name="monthlyAmount" type="number" placeholder="0.00" className="h-10 pl-10 rounded-xl bg-slate-50/50 border-gold/10 font-semibold" value={form.monthlyAmount} onChange={handleChange} />
+                        <Input name="monthlyAmount" type="number" placeholder="22000" className="h-11 pl-10 rounded-xl bg-slate-50/50 border-gold/10 font-bold" value={form.monthlyAmount} onChange={handleChange} />
                       </div>
                     </div>
 
-                    <div className="mt-2 space-y-1 bg-gold/5 p-4 rounded-[1.8rem] border border-gold/10">
-                      <label className="text-[10px] uppercase font-bold tracking-widest text-gold ml-1">Expected Maturity</label>
-                      <div className="relative flex items-center">
-                        <IndianRupee className="w-5 h-5 text-gold mr-1" />
-                        <Input name="maturityAmount" type="number" placeholder="0.00" className="h-10 border-none bg-transparent focus-visible:ring-0 font-bold text-gold text-2xl p-0" value={form.maturityAmount} onChange={handleChange} />
+                    {/* LIVE RATE INFO FOR CAT-B */}
+                    {form.category === "Category-B" && (
+                      <div className="mt-4 p-4 rounded-2xl bg-amber-50 border border-amber-100 border-b-2 border-b-amber-200">
+                        <div className="flex justify-between items-center mb-1">
+                          <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest">Live 24K Rate</p>
+                          <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                        </div>
+                        <p className="text-2xl font-serif font-bold text-amber-800">₹{Number(liveGoldRate).toLocaleString()}/g</p>
+                        <p className="text-[8px] text-amber-500 italic mt-1 font-medium">System will auto-calculate grams using this live rate during payment.</p>
                       </div>
-                    </div>
+                    )}
                   </div>
 
                   <div className="pt-6 shrink-0">
-                    <Button variant="gold" className="w-full h-12 rounded-2xl text-[10px] uppercase tracking-[0.2em] font-bold shadow-lg" onClick={handleCreateScheme} disabled={loading}>
-                      {loading ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : "Create Scheme"}
+                    <Button variant="gold" className="w-full h-12 rounded-2xl text-[10px] uppercase tracking-[0.2em] font-bold shadow-lg transition-transform active:scale-95" onClick={handleCreateScheme} disabled={loading}>
+                      {loading ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : "Authorize Portfolio"}
                     </Button>
                   </div>
                 </div>
@@ -247,13 +313,13 @@ const SuperAdminCreateScheme = () => {
               <div className="flex items-center justify-between px-8 py-6 shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm"><LayoutGrid className="w-4 h-4 text-slate-600" /></div>
-                  <h2 className="text-lg font-serif font-bold">Active Schemes</h2>
+                  <h2 className="text-lg font-serif font-bold">Active Portfolios</h2>
                 </div>
-                <Badge variant="outline" className="border-gold/30 text-[10px] text-gold px-4 py-1 uppercase tracking-widest font-bold rounded-full">System Vault</Badge>
+                <Badge variant="outline" className="border-gold/30 text-[10px] text-gold px-4 py-1 uppercase tracking-widest font-bold rounded-full">Secure Registry</Badge>
               </div>
 
               <div className="flex-1 overflow-y-auto px-8 pb-12 custom-scrollbar">
-                <div className={`grid gap-6 transition-all duration-500 ${showCreateBox ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"}`}>
+                <div className={`grid gap-6 transition-all duration-500 ${showCreateBox ? "grid-cols-1 xl:grid-cols-2" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"}`}>
                   {isInitialLoading ? (
                     Array.from({ length: 8 }).map((_, i) => <SchemeSkeleton key={i} />)
                   ) : (
@@ -266,8 +332,13 @@ const SuperAdminCreateScheme = () => {
                         <LuxuryCard className="h-full hover:border-gold/40 transition-all duration-300 p-0 overflow-hidden flex flex-col shadow-sm hover:shadow-xl rounded-[22px]">
                           <div className="p-6 flex-1">
                             <div className="flex justify-between items-start mb-6">
-                              <h3 className="font-serif font-bold text-sm uppercase tracking-tight truncate pr-2 group-hover:text-gold transition-colors">{scheme.name}</h3>
-                              <div className="bg-emerald-50 p-1.5 rounded-full"><TrendingUp className="w-3.5 h-3.5 text-emerald-600" /></div>
+                              <div>
+                                <h3 className="font-serif font-bold text-sm uppercase tracking-tight truncate group-hover:text-gold transition-colors">{scheme.name}</h3>
+                                <Badge variant="gold" className="text-[7px] h-4 mt-1 bg-gold/5 text-gold border-none">{scheme.isWeightBased ? "CAT-B" : "CAT-A"}</Badge>
+                              </div>
+                              <div className={`p-1.5 rounded-full ${scheme.isWeightBased ? "bg-amber-50" : "bg-emerald-50"}`}>
+                                {scheme.isWeightBased ? <Scale className="w-3.5 h-3.5 text-amber-600" /> : <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />}
+                              </div>
                             </div>
                             <div className="grid grid-cols-2 gap-y-5">
                               <div className="space-y-1">
@@ -278,7 +349,7 @@ const SuperAdminCreateScheme = () => {
                               </div>
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2 text-muted-foreground">
-                                  <IndianRupee className="w-3 h-3 text-gold/60" /><span className="text-[8px] uppercase font-bold tracking-tighter">Monthly</span>
+                                  <IndianRupee className="w-3 h-3 text-gold/60" /><span className="text-[8px] uppercase font-bold tracking-tighter">Contribution</span>
                                 </div>
                                 <p className="font-bold text-xs pl-5">₹{Number(scheme.monthlyAmount).toLocaleString()}</p>
                               </div>
@@ -286,14 +357,15 @@ const SuperAdminCreateScheme = () => {
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                   <Users className="w-3 h-3 text-gold/60" /><span className="text-[8px] uppercase font-bold tracking-tighter">Members</span>
                                 </div>
-                                <p className="font-bold text-xs pl-5">{scheme.customers?.length || 0}</p>
+                                <p className="font-bold text-xs pl-5">{scheme.enrollments?.length || 0}</p>
                               </div>
-                              
                             </div>
                           </div>
                           <div className="bg-gold/[0.04] border-t border-gold/5 px-6 py-4 flex justify-between items-center group-hover:bg-gold/[0.07] transition-colors">
-                            <p className="text-[9px] font-bold text-muted-foreground/60 uppercase italic">Maturity</p>
-                            <p className="font-serif font-bold text-gold">₹{Number(scheme.maturityAmount).toLocaleString()}</p>
+                            <p className="text-[9px] font-bold text-muted-foreground/60 uppercase italic">Benefits Model</p>
+                            <p className="font-serif font-bold text-gold text-xs">
+                                {scheme.isWeightBased ? "Gram Accumulation" : `${scheme.maturityMonths} Month Bonus`}
+                            </p>
                           </div>
                         </LuxuryCard>
                       </div>
@@ -313,32 +385,26 @@ const SuperAdminCreateScheme = () => {
             <div className="flex justify-between items-center pr-6">
               <div>
                 <DialogTitle className="text-2xl font-serif font-bold text-gold uppercase tracking-tight">
-                  {selectedScheme?.name} - Members
+                  {selectedScheme?.name} - Registry
                 </DialogTitle>
                 <DialogDescription className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mt-1">
-                  Enrolled Customers and Financial Performance Analysis
+                  Monitoring enrolled assets and customer performance.
                 </DialogDescription>
               </div>
-              <div className="flex items-center gap-3">
-                 <div className="text-right mr-2 hidden md:block">
-                    <p className="text-[8px] uppercase font-black text-muted-foreground tracking-tighter">Scheme Maturity</p>
-                    <p className="text-sm font-bold text-gold">₹{Number(selectedScheme?.maturityAmount).toLocaleString()}</p>
-                 </div>
-                 <Badge variant="gold" className="rounded-full px-4 text-[10px] py-1 border-none bg-gold/10 text-gold font-black">
-                   {selectedScheme?.customers?.length || 0} Registered
-                 </Badge>
-              </div>
+              <Badge variant="gold" className="rounded-full px-4 text-[10px] py-1 border-none bg-gold/10 text-gold font-black">
+                {selectedScheme?.enrollments?.length || 0} Registered
+              </Badge>
             </div>
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto mt-6 custom-scrollbar pr-2 pb-6 px-2">
             <div className="space-y-4">
-              {selectedScheme?.customers?.length > 0 ? (
-                selectedScheme.customers.map((enrollment: any) => (
+              {selectedScheme?.enrollments?.length > 0 ? (
+                selectedScheme.enrollments.map((enrollment: any) => (
                   <div key={enrollment.id} className="p-6 rounded-[2rem] bg-slate-50 border border-gold/5 flex flex-col lg:flex-row lg:items-center justify-between gap-6 hover:border-gold/20 transition-all shadow-sm">
                     <div className="flex items-center gap-4">
-                      <div className="h-14 w-14 rounded-[1.2rem] bg-white shadow-sm border border-gold/5 flex items-center justify-center text-gold font-black text-xl">
-                        {enrollment.customer?.name?.[0].toUpperCase()}
+                      <div className="h-14 w-14 rounded-[1.2rem] bg-white shadow-sm border border-gold/5 flex items-center justify-center text-gold font-black text-xl uppercase">
+                        {enrollment.customer?.name?.[0]}
                       </div>
                       <div>
                         <h4 className="font-bold text-base text-slate-900 capitalize flex items-center gap-2">
@@ -357,36 +423,32 @@ const SuperAdminCreateScheme = () => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-left lg:border-l border-gold/10 lg:pl-10 flex-1">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6 text-left lg:border-l border-gold/10 lg:pl-10 flex-1">
                       <div>
-                        <p className="text-[8px] uppercase text-muted-foreground font-black tracking-widest mb-1">Installments</p>
+                        <p className="text-[8px] uppercase text-muted-foreground font-black tracking-widest mb-1">Paid Status</p>
                         <p className="text-sm font-bold text-slate-800">
                           {enrollment.installmentsPaid} <span className="text-[10px] text-muted-foreground font-medium">/ {selectedScheme.durationMonths} Mo.</span>
                         </p>
                       </div>
                       <div>
-                        <p className="text-[8px] uppercase text-muted-foreground font-black tracking-widest mb-1">Total Paid</p>
+                        <p className="text-[8px] uppercase text-muted-foreground font-black tracking-widest mb-1">Amount Contributed</p>
                         <p className="text-sm font-bold text-emerald-600">₹{enrollment.totalPaid.toLocaleString()}</p>
                       </div>
-                      <div>
-                        <p className="text-[8px] uppercase text-muted-foreground font-black tracking-widest mb-1">Maturity Goal</p>
-                        <p className="text-sm font-bold text-gold flex items-center gap-1">
-                          ₹{Number(selectedScheme.maturityAmount).toLocaleString()}
-                          <ShieldCheck className="w-3 h-3 opacity-50" />
-                        </p>
-                      </div>
-                      <div className="flex items-center">
-                        <Badge className={`text-[9px] uppercase font-black px-4 h-7 border-none rounded-full shadow-sm ${enrollment.isCompleted ? "bg-emerald-500 text-white" : "bg-gold/10 text-gold"}`}>
-                          {enrollment.isCompleted ? "Fully Matured" : "Active Portfolio"}
-                        </Badge>
-                      </div>
+                      {selectedScheme.isWeightBased && (
+                        <div>
+                          <p className="text-[8px] uppercase text-muted-foreground font-black tracking-widest mb-1">Accumulated Weight</p>
+                          <p className="text-sm font-bold text-gold flex items-center gap-1">
+                            {enrollment.accumulatedGrams?.toFixed(3) || "0.000"} g
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="h-60 flex flex-col items-center justify-center opacity-30">
                   <div className="p-5 bg-slate-100 rounded-full mb-4"><Users className="w-10 h-10" /></div>
-                  <p className="font-serif italic text-lg text-slate-600">No member data available for this vault.</p>
+                  <p className="font-serif italic text-lg text-slate-600">No member data available.</p>
                 </div>
               )}
             </div>

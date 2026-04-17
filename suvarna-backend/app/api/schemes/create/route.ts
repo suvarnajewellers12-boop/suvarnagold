@@ -2,20 +2,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
 
-// 🔹 Your Gold API Integration helper
-// Update this with your actual external API call logic
-async function fetchLiveGoldRate() {
-  try {
-    // Example: const res = await fetch("https://api.goldrate.com/v1/24k");
-    // const data = await res.json();
-    // return data.price;
-    return 7850; // Mocking the 24K price per gram for logic flow
-  } catch (error) {
-    console.error("Gold API Fetch Error:", error);
-    return null;
-  }
-}
-
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
@@ -24,30 +10,44 @@ function corsHeaders() {
   };
 }
 
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: corsHeaders(),
+  });
+}
+
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get("authorization");
-    if (!authHeader) return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders() });
-
-    const token = authHeader.split(" ")[1];
-    const decoded: any = verifyToken(token);
+    const token = authHeader?.split(" ")[1];
+    const decoded: any = verifyToken(token || "");
 
     if (!decoded || (decoded.role !== "ADMIN" && decoded.role !== "SUPER_ADMIN")) {
       return new NextResponse(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: corsHeaders() });
     }
 
     const body = await req.json();
-    const { name, category, durationMonths, monthlyAmount, maturityMonths } = body;
 
+    const { 
+      name, 
+      category, 
+      durationMonths, 
+      monthlyAmount, 
+      maturityMonths,
+      goldRate24k // Passed from your frontend via the /api/rates call
+    } = body;
+
+    // 1. Core Validation
     if (!name || !durationMonths || !monthlyAmount || !category) {
-      return new NextResponse(JSON.stringify({ error: "Missing required fields" }), { status: 400, headers: corsHeaders() });
+      return new NextResponse(JSON.stringify({ error: "Missing required fields" }), { status: 400 });
     }
 
     const isWeightBased = category === "Category-B";
     const tenure = Number(durationMonths);
     const monthly = Number(monthlyAmount);
 
-    // Initial scheme data
     let schemeData: any = {
       name,
       durationMonths: tenure,
@@ -55,51 +55,41 @@ export async function POST(req: Request) {
       isWeightBased: isWeightBased,
     };
 
-    // ================= CATEGORY SWITCHING LOGIC =================
+    // ================= SWITCHING LOGIC =================
 
     if (isWeightBased) {
-      /**
-       * CATEGORY-B LOGIC
-       * 1. Ignore maturityMonths (set to null).
-       * 2. Fetch current 24k rate as a "Starting Reference" for the admin.
-       */
-      const currentRate = await fetchLiveGoldRate();
+      // 🔹 CATEGORY-B: WEIGHT LOGIC
+      // We don't need maturityMonths here.
       schemeData.maturityMonths = null;
-
-      console.log(`[CAT-B] Initializing Weight-Based Scheme. Current Market: ${currentRate}/g`);
+      
+      // We can log or store the 'Reference Rate' at the time of creation
+      // so the Admin knows what the market was like when they launched this scheme.
+      console.log(`[CAT-B] Scheme Created. Current 24K Rate: ${goldRate24k}`);
       
     } else {
-      /**
-       * CATEGORY-A LOGIC
-       * 1. Validate Maturity Months (1-25).
-       * 2. The total benefit is fixed: (Tenure + MaturityMonths) * Monthly.
-       */
+      // 🔹 CATEGORY-A: VALUE LOGIC
       if (!maturityMonths) {
-        return new NextResponse(JSON.stringify({ error: "Maturity Months required for Category-A" }), { status: 400, headers: corsHeaders() });
+        return new NextResponse(JSON.stringify({ error: "Maturity Months required for Category-A" }), { status: 400 });
       }
       schemeData.maturityMonths = Number(maturityMonths);
-      
-      const totalCashBenefit = (tenure + schemeData.maturityMonths) * monthly;
-      console.log(`[CAT-A] Initializing Value-Based Scheme. Fixed Benefit: ₹${totalCashBenefit}`);
     }
 
-    // Create the scheme template
+    // 2. Database Execution
     const scheme = await prisma.scheme.create({
       data: schemeData,
     });
 
     return new NextResponse(
       JSON.stringify({
-        message: `${category} created successfully`,
+        message: `${category} scheme initialized successfully`,
         scheme,
-        // Send back the live rate if it's Cat-B so the Admin sees the current value
-        currentRate: isWeightBased ? await fetchLiveGoldRate() : null 
+        marketReference: isWeightBased ? { gold24: goldRate24k } : null
       }),
       { status: 201, headers: corsHeaders() }
     );
 
   } catch (error) {
-    console.error("Scheme create error:", error);
-    return new NextResponse(JSON.stringify({ error: "Internal Server Error" }), { status: 500, headers: corsHeaders() });
+    console.error("Scheme creation failed:", error);
+    return new NextResponse(JSON.stringify({ error: "Internal Server Error" }), { status: 500 });
   }
 }
