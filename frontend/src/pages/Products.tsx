@@ -8,14 +8,16 @@ import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { 
-  Plus, RefreshCw, Loader2, Filter, Store, 
-  FileDown, Table as TableIcon 
+import {
+  Plus, RefreshCw, Loader2, Filter, Store,
+  FileDown, Table as TableIcon
 } from "lucide-react";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -68,6 +70,18 @@ const Products = () => {
   const [toastMessage, setToastMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
 
+  const ORNAMENT_MAPPING = {
+    head_hair: ["Tiara, Crown, Diadem", "Hair Comb, Hair Pin", "Fascinator Chain, Coronet", "Wreath (laurel), Circlet"],
+    forehead: ["Frontlet, Ferronnière", "Bandeau, Brow Band"],
+    ears: ["Stud, Hoop Earrings", "Drop, Chandelier Earrings", "Huggie Earrings, Ear Cuffs", "Clip-on, Threader, Crawler"],
+    nose: ["Nose Ring, Nose Stud", "Septum Ring, Nose Chain, Nose Cuff"],
+    neck: ["Necklace, Pendant, Choker", "Chain, Locket, Collar Necklace", "Torque/Torc, Riviere, Lavaliere", "Bib Necklace, Sautoir", "Opera, Rope Chain, Lariat"],
+    chest_shoulders: ["Brooch, Fibula, Pectoral", "Shoulder Chain, Epaulette, Body Chain"],
+    arms: ["Armlet, Arm Band, Upper Arm Cuff", "Arm Chain"],
+    wrists: ["Bangle, Bracelet, Cuff", "Tennis, Charm, Chain Bracelet", "Slave Bracelet (hand chain)"],
+    hands_fingers: ["Signet, Engagement, Wedding Band", "Cocktail, Eternity, Stackable Rings", "Knuckle Ring, Hand Harness/Chain"],
+  };
+
   const [barcodeModal, setBarcodeModal] = useState<{
     image: string;
     productId: string;
@@ -119,11 +133,11 @@ const Products = () => {
 
   const exportToPDF = () => {
     const doc = new jsPDF('landscape');
-    
+
     doc.setFontSize(20);
     doc.setTextColor(180, 150, 50); // Gold tone
     doc.text("Suvarna Jewellery - Inventory Report", 14, 20);
-    
+
     doc.setFontSize(10);
     doc.setTextColor(100);
     doc.text(`Exported: ${new Date().toLocaleString()} | Filter: ${filters.metal} / ${filters.branch}`, 14, 28);
@@ -213,10 +227,10 @@ const Products = () => {
     try {
       const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/products/barcode/${sku}`, {
         headers: { Authorization: `Bearer ${token}` },
-      });  
+      });
       const data = await res.json();
       if (res.ok) {
-        setBarcodeModal({ image: data.barcodeImage, productId, sku , netWeight: data.netWeight, stoneWeight: data.stoneWeight, grams: data.grams, huid: data.huid });
+        setBarcodeModal({ image: data.barcodeImage, productId, sku, netWeight: data.netWeight, stoneWeight: data.stoneWeight, grams: data.grams, huid: data.huid });
       }
     } catch (err) {
       console.error("Barcode Fetch Failed", err);
@@ -242,7 +256,7 @@ const Products = () => {
           netWeight: parseFloat(formData.netWeight),
           va: parseFloat(formData.va),
           manufactureDate: currentDate,
-          branchName: formData.branchName, 
+          branchName: formData.branchName,
           metalType: formData.type,
         }),
       });
@@ -298,7 +312,7 @@ const Products = () => {
               <h2 className="text-xl font-bold font-serif text-amber-900 border-b pb-2 flex items-center gap-2">
                 <Plus className="w-5 h-5" /> Add New Masterpiece
               </h2>
-              
+
               <div className="space-y-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
@@ -323,37 +337,51 @@ const Products = () => {
                 />
 
                 <div className="grid grid-cols-2 gap-3">
+                  {/* Placement Select */}
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-400 uppercase">Placement</label>
-                    <Select value={formData.bodyPart} onValueChange={(val) => setFormData({ ...formData, bodyPart: val })}>
-                      <SelectTrigger><SelectValue placeholder="Placement" /></SelectTrigger>
+                    <Select
+                      value={formData.bodyPart}
+                      onValueChange={(val) => setFormData({ ...formData, bodyPart: val, category: "" })}
+                    >
+                      <SelectTrigger className="h-10 bg-white border-gray-200">
+                        <SelectValue placeholder="Select Placement" />
+                      </SelectTrigger>
                       <SelectContent className="z-[130]">
-                        <SelectItem value="head">Head</SelectItem>
+                        <SelectItem value="head_hair">Head & Hair</SelectItem>
+                        <SelectItem value="forehead">Forehead</SelectItem>
                         <SelectItem value="ears">Ears</SelectItem>
                         <SelectItem value="nose">Nose</SelectItem>
                         <SelectItem value="neck">Neck</SelectItem>
-                        <SelectItem value="wrist">Wrist</SelectItem>
-                        <SelectItem value="fingers">Fingers</SelectItem>
-                        <SelectItem value="foot">Foot / Ankle</SelectItem>
+                        <SelectItem value="chest_shoulders">Chest & Shoulders</SelectItem>
+                        <SelectItem value="arms">Arms</SelectItem>
+                        <SelectItem value="wrists">Wrists</SelectItem>
+                        <SelectItem value="hands_fingers">Hands & Fingers</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
+
+                  {/* Category Select (Filtered) */}
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-400 uppercase">Category</label>
-                    <Select value={formData.category} onValueChange={(val) => setFormData({ ...formData, category: val })}>
-                      <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
-                      <SelectContent className="z-[130]">
-                        <SelectItem value="rings">Rings</SelectItem>
-                        <SelectItem value="earrings">Earrings</SelectItem>
-                        <SelectItem value="necklaces">Necklaces</SelectItem>
-                        <SelectItem value="bangles">Bangles</SelectItem>
-                        <SelectItem value="nosepins">Nose Pins</SelectItem>
-                        <SelectItem value="anklets">Anklets</SelectItem>
+                    <Select
+                      value={formData.category}
+                      onValueChange={(val) => setFormData({ ...formData, category: val })}
+                      disabled={!formData.bodyPart} // Disable if no placement is selected
+                    >
+                      <SelectTrigger className="h-10 bg-white border-gray-200">
+                        <SelectValue placeholder={formData.bodyPart ? "Select Type" : "Pick Placement first"} />
+                      </SelectTrigger>
+                      <SelectContent className="z-[130] max-h-[300px]">
+                        {formData.bodyPart && ORNAMENT_MAPPING[formData.bodyPart]?.map((item) => (
+                          <SelectItem key={item} value={item.toLowerCase().replace(/ /g, "_")}>
+                            {item}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
-
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-400 uppercase">Metal</label>
@@ -424,7 +452,7 @@ const Products = () => {
         {barcodeModal && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
             <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg relative">
-              <button 
+              <button
                 onClick={() => setBarcodeModal(null)}
                 className="absolute top-6 right-6 text-gray-400 hover:text-black transition-colors"
               >
@@ -435,13 +463,13 @@ const Products = () => {
                   <h2 className="text-2xl font-serif font-bold">Print Barcode Label</h2>
                   <p className="text-sm text-gray-500 mt-1">Ready for TSC TE244 (54x12mm)</p>
                 </div>
-                <BarcodeSettingsWidget 
-                  barcodeImage={barcodeModal.image} 
-                  sku={barcodeModal.sku} 
-                  netWeight={barcodeModal.netWeight} 
-                  stoneWeight={barcodeModal.stoneWeight} 
-                  grams={barcodeModal.grams} 
-                  huid={barcodeModal.huid} 
+                <BarcodeSettingsWidget
+                  barcodeImage={barcodeModal.image}
+                  sku={barcodeModal.sku}
+                  netWeight={barcodeModal.netWeight}
+                  stoneWeight={barcodeModal.stoneWeight}
+                  grams={barcodeModal.grams}
+                  huid={barcodeModal.huid}
                 />
                 <Button variant="outline" onClick={() => setBarcodeModal(null)} className="w-full py-6">
                   Cancel & Close
@@ -536,12 +564,12 @@ const Products = () => {
                 Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)
               ) : filteredProducts.length > 0 ? (
                 filteredProducts.map((product) => (
-                  <ProductCard 
-                    key={product.id} 
-                    product={product} 
-                    onUpdated={() => fetchProducts(true)} 
-                    showToast={setToastMessage} 
-                    onShowQR={(code: string) => handleShowBarcode(code, product.id)} 
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onUpdated={() => fetchProducts(true)}
+                    showToast={setToastMessage}
+                    onShowQR={(code: string) => handleShowBarcode(code, product.id)}
                   />
                 ))
               ) : (
