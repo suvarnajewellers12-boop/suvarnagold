@@ -168,7 +168,7 @@ const SuperadminCustomerManagement = () => {
     try {
       // Logic: Hit the existing payment collection API
       
-      const res = await fetch("http://localhost:3000/api/schemes/payoffline", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/schemes/payoffline", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ customerSchemeId, goldRate:rates.gold22 }),
@@ -176,7 +176,7 @@ const SuperadminCustomerManagement = () => {
       if (res.ok) {
         setToastMessage("Installment Collected Offline ✅");
         setShowToast(true);
-        const customerToUpdate = await fetch(`http://localhost:3000/api/customers/${selectedCustomer.id}`, {
+        const customerToUpdate = await fetch(`https://suvarnagold-16e5.vercel.app/api/customers/${selectedCustomer.id}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const updatedCust = await customerToUpdate.json();
@@ -191,7 +191,7 @@ const SuperadminCustomerManagement = () => {
     if (!assigningSchemeId) return;
     setIsCreating(true);
     try {
-      const res = await fetch("http://localhost:3000/api/schemes/assign-scheme", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/schemes/assign-scheme", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ customerId: selectedCustomer.id, schemeId: assigningSchemeId }),
