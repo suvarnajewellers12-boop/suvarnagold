@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { ProductCard } from "@/components/ProductCard";
@@ -8,7 +8,10 @@ import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, RefreshCw, Loader2, Filter, Store } from "lucide-react";
+import { 
+  Plus, RefreshCw, Loader2, Filter, Store, 
+  FileDown, Table as TableIcon 
+} from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -17,6 +20,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import BarcodeSettingsWidget from "@/components/BarcodeSettingsWidget";
+
+// Export Utilities
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 
 const ProductSkeleton = () => (
   <div className="h-[400px] w-full rounded-3xl bg-gray-100 animate-pulse flex flex-col p-6 space-y-4">
@@ -68,7 +76,6 @@ const Products = () => {
     stoneWeight: number;
     grams: number;
     huid: string;
-
   } | null>(null);
 
   const [formData, setFormData] = useState({
@@ -85,6 +92,66 @@ const Products = () => {
     category: "",
     branchName: "",
   });
+
+  /* ---------------- EXPORT FUNCTIONS ---------------- */
+  const exportToExcel = () => {
+    const dataToExport = filteredProducts.map(p => ({
+      "SKU": p.sku || "N/A",
+      "Product Name": p.name,
+      "Metal": p.metalType,
+      "Quality": p.carats || "N/A",
+      "Branch": p.branchName,
+      "Category": p.category,
+      "Body Part": p.bodyPart,
+      "Grams": p.grams,
+      "Stone Wt": p.stoneWeight,
+      "Net Weight": p.netWeight,
+      "VA (%)": p.va,
+      "HUID": p.huid || "N/A",
+      "Quantity": p.quantity
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Inventory");
+    XLSX.writeFile(workbook, `Inventory_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const exportToPDF = () => {
+    const doc = new jsPDF('landscape');
+    
+    doc.setFontSize(20);
+    doc.setTextColor(180, 150, 50); // Gold tone
+    doc.text("Suvarna Jewellery - Inventory Report", 14, 20);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Exported: ${new Date().toLocaleString()} | Filter: ${filters.metal} / ${filters.branch}`, 14, 28);
+
+    const tableColumn = ["SKU", "Name", "Branch", "Metal", "Grams", "Net Wt", "VA", "HUID", "Qty"];
+    const tableRows = filteredProducts.map(p => [
+      p.sku || "-",
+      p.name,
+      p.branchName,
+      `${p.metalType} (${p.carats})`,
+      p.grams,
+      p.netWeight,
+      `${p.va}%`,
+      p.huid || "-",
+      p.quantity
+    ]);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 35,
+      theme: 'grid',
+      headStyles: { fillColor: [180, 150, 50] },
+      styles: { fontSize: 8 }
+    });
+
+    doc.save(`Suvarna_Inventory_${Date.now()}.pdf`);
+  };
 
   /* ---------------- AUTO CALCULATION ---------------- */
   useEffect(() => {
@@ -142,14 +209,12 @@ const Products = () => {
     fetchBranches();
   }, []);
 
-  /* ---------------- BARCODE & PRINT LOGIC (RESTORED) ---------------- */
   const handleShowBarcode = async (sku: string, productId: string) => {
     try {
       const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/products/barcode/${sku}`, {
         headers: { Authorization: `Bearer ${token}` },
       });  
       const data = await res.json();
-      console.log("Barcode Data:", data);
       if (res.ok) {
         setBarcodeModal({ image: data.barcodeImage, productId, sku , netWeight: data.netWeight, stoneWeight: data.stoneWeight, grams: data.grams, huid: data.huid });
       }
@@ -158,24 +223,6 @@ const Products = () => {
     }
   };
 
-  // const printBarcode = (image: string, sku: string) => {
-  //   const printWindow = window.open("", "", "width=400,height=300");
-  //   if (!printWindow) return;
-  //   printWindow.document.write(`
-  //     <html><head><title>Print Barcode</title><style>
-  //     @page{ size: 80mm 12mm; margin:0; }
-  //     body{ margin:0; padding:0; }
-  //     .label{ width:80mm; height:12mm; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-  //     img{ width:30mm; height:8mm; object-fit:contain; }
-  //     .sku{ font-size:2.5mm; font-weight:bold; margin-top:1mm; font-family:monospace; }
-  //     </style></head><body><div class="label"><img src="${image}" /><div class="sku">${barcodeModal.huid}</div></div></body></html>
-  //   `);
-  //   printWindow.document.close();
-  //   printWindow.focus();
-  //   setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
-  // };
-
-  /* ---------------- CREATE PRODUCT ---------------- */
   const handleCreateProduct = async () => {
     setIsSubmitting(true);
     setIsLoading(true);
@@ -219,21 +266,23 @@ const Products = () => {
   };
 
   /* ---------------- FILTER LOGIC ---------------- */
-  const filteredProducts = products.filter((p) => {
-    const cleanMatch = (val: any, filterVal: string) => {
-      if (filterVal === "all") return true;
-      const normalizedVal = val?.toString().trim().toLowerCase() || "";
-      const normalizedFilter = filterVal.trim().toLowerCase();
-      return normalizedVal === normalizedFilter;
-    };
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      const cleanMatch = (val: any, filterVal: string) => {
+        if (filterVal === "all") return true;
+        const normalizedVal = val?.toString().trim().toLowerCase() || "";
+        const normalizedFilter = filterVal.trim().toLowerCase();
+        return normalizedVal === normalizedFilter;
+      };
 
-    return (
-      cleanMatch(p.metalType, filters.metal) &&
-      cleanMatch(p.bodyPart, filters.bodyPart) &&
-      cleanMatch(p.category, filters.category) &&
-      cleanMatch(p.branchName, filters.branch)
-    );
-  });
+      return (
+        cleanMatch(p.metalType, filters.metal) &&
+        cleanMatch(p.bodyPart, filters.bodyPart) &&
+        cleanMatch(p.category, filters.category) &&
+        cleanMatch(p.branchName, filters.branch)
+      );
+    });
+  }, [products, filters]);
 
   const resetFilters = () => setFilters({ metal: "all", bodyPart: "all", category: "all", branch: "all" });
 
@@ -371,50 +420,36 @@ const Products = () => {
           </div>
         )}
 
-        {/* --- BARCODE MODAL (RESTORED) --- */}
+        {/* --- BARCODE MODAL --- */}
         {barcodeModal && (
-  <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
-    <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg relative">
-      
-      {/* Top Right Close Icon */}
-      <button 
-        onClick={() => setBarcodeModal(null)}
-        className="absolute top-6 right-6 text-gray-400 hover:text-black transition-colors"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
-
-      <div className="space-y-6">
-        <div className="text-center">
-          <h2 className="text-2xl font-serif font-bold">Print Barcode Label</h2>
-          <p className="text-sm text-gray-500 mt-1">Ready for TSC TE244 (54x12mm)</p>
-        </div>
-
-        {/* The Widget with hardcoded settings */}
-        <BarcodeSettingsWidget 
-          barcodeImage={barcodeModal.image} 
-          sku={barcodeModal.sku} 
-          netWeight={barcodeModal.netWeight} 
-          stoneWeight={barcodeModal.stoneWeight} 
-          grams={barcodeModal.grams} 
-          huid={barcodeModal.huid} 
-        />
-
-        <div className="flex flex-col gap-3">
-          <button 
-            onClick={() => setBarcodeModal(null)} 
-            className="w-full py-3 rounded-xl font-semibold border border-gray-200 hover:bg-gray-50 transition-colors text-gray-700"
-          >
-            Cancel & Close
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
+            <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-lg relative">
+              <button 
+                onClick={() => setBarcodeModal(null)}
+                className="absolute top-6 right-6 text-gray-400 hover:text-black transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              <div className="space-y-6">
+                <div className="text-center">
+                  <h2 className="text-2xl font-serif font-bold">Print Barcode Label</h2>
+                  <p className="text-sm text-gray-500 mt-1">Ready for TSC TE244 (54x12mm)</p>
+                </div>
+                <BarcodeSettingsWidget 
+                  barcodeImage={barcodeModal.image} 
+                  sku={barcodeModal.sku} 
+                  netWeight={barcodeModal.netWeight} 
+                  stoneWeight={barcodeModal.stoneWeight} 
+                  grams={barcodeModal.grams} 
+                  huid={barcodeModal.huid} 
+                />
+                <Button variant="outline" onClick={() => setBarcodeModal(null)} className="w-full py-6">
+                  Cancel & Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <main className="flex-1 overflow-auto h-screen">
           <header className="sticky top-0 z-40 bg-background border-b px-8 py-6 flex justify-between items-center shadow-sm">
@@ -423,6 +458,12 @@ const Products = () => {
               <p className="text-sm text-muted-foreground">Manage your jewelry collection across branches</p>
             </div>
             <div className="flex gap-3">
+              <Button variant="outline" size="sm" onClick={exportToExcel} className="hidden md:flex border-amber-200 text-amber-800">
+                <TableIcon className="w-4 h-4 mr-2" /> Excel
+              </Button>
+              <Button variant="outline" size="sm" onClick={exportToPDF} className="hidden md:flex border-red-200 text-red-800">
+                <FileDown className="w-4 h-4 mr-2" /> PDF
+              </Button>
               <Button variant="outline" size="icon" onClick={() => fetchProducts(true)}>
                 <RefreshCw className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`} />
               </Button>
@@ -431,7 +472,6 @@ const Products = () => {
           </header>
 
           <div className="p-8 space-y-8 max-w-[1600px] mx-auto">
-            {/* 🔹 FILTER BAR */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-amber-100 flex flex-wrap gap-6 items-end">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Filter className="w-3 h-3" /> Metal</label>
@@ -445,7 +485,7 @@ const Products = () => {
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Store className="w-3 h-3" /> Branch</label>
                 <Select value={filters.branch} onValueChange={(val) => setFilters({ ...filters, branch: val })}>
-                  <SelectTrigger className="w-40 text-xs h-9 bg-gray-50 border-none ring-offset-background focus:ring-1 focus:ring-amber-200"><SelectValue placeholder="All Branches" /></SelectTrigger>
+                  <SelectTrigger className="w-40 text-xs h-9 bg-gray-50 border-none"><SelectValue placeholder="All Branches" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Branches</SelectItem>
                     {branches.map(b => (

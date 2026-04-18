@@ -10,11 +10,15 @@ import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import {
     Users, Plus, X, Phone, CreditCard, Calendar,
-    UserCircle, Loader2, Search, ArrowUpDown
+    UserCircle, Loader2, Search, ArrowUpDown, FileDown, Table as TableIcon
 } from "lucide-react";
 
+// Library imports for exporting
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
+
 // ================= CACHE CONFIGURATION =================
-// This lives outside the component to persist between tab switches
 let staffCache: any[] | null = null;
 
 const StaffSkeleton = () => (
@@ -56,9 +60,61 @@ export default function StaffManagement() {
         aadharNumber: ""
     });
 
-    // ================= FETCH WITH CACHE LOGIC =================
+    // ================= EXPORT FUNCTIONS =================
+    const exportToExcel = () => {
+        const dataToExport = filteredStaff.map(s => ({
+            "Full Name": s.fullName,
+            "Gender": s.gender,
+            "Phone Number": s.phoneNumber,
+            "Aadhar Number": s.aadharNumber,
+            "Monthly Salary (INR)": s.monthlySalary,
+            "Date of Joining": new Date(s.dateOfJoining).toLocaleDateString("en-GB")
+        }));
+
+        const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Staff Registry");
+        
+        // Export with current date in filename
+        XLSX.writeFile(workbook, `Staff_Registry_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
+
+    const exportToPDF = () => {
+        const doc = new jsPDF();
+        
+        // Add Title and Header info
+        doc.setFontSize(20);
+        doc.setTextColor(40);
+        doc.text("Suvarna Jewellery - Staff Registry", 14, 22);
+        
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text(`Total Staff: ${filteredStaff.length} | Generated on: ${new Date().toLocaleString()}`, 14, 30);
+
+        const tableColumn = ["Name", "Gender", "Phone", "Aadhar", "Salary", "Joined"];
+        const tableRows = filteredStaff.map(s => [
+            s.fullName,
+            s.gender,
+            s.phoneNumber,
+            s.aadharNumber,
+            `Rs. ${s.monthlySalary}`,
+            new Date(s.dateOfJoining).toLocaleDateString("en-GB")
+        ]);
+
+        autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: 35,
+            theme: 'grid',
+            headStyles: { fillColor: [180, 150, 50], textColor: [255, 255, 255] }, // Golden Theme
+            styles: { fontSize: 9 }
+        });
+
+        doc.save(`Staff_Registry_${Date.now()}.pdf`);
+    };
+
+    // ================= FETCH LOGIC =================
     const fetchStaff = async (forceRefresh = false) => {
-        // If data is in cache and we aren't forcing a refresh, use it
         if (!forceRefresh && staffCache !== null) {
             setStaff(staffCache);
             setIsLoading(false);
@@ -72,8 +128,6 @@ export default function StaffManagement() {
             });
             const data = await res.json();
             const staffData = data.staff || [];
-            
-            // Update both local state and global cache
             setStaff(staffData);
             staffCache = staffData;
         } catch (error) {
@@ -85,9 +139,7 @@ export default function StaffManagement() {
         }
     };
 
-    useEffect(() => { 
-        fetchStaff(); 
-    }, []);
+    useEffect(() => { fetchStaff(); }, []);
 
     const filteredStaff = useMemo(() => {
         const result = [...staff].filter((s) => {
@@ -118,10 +170,7 @@ export default function StaffManagement() {
             if (res.ok) {
                 setMessage("Staff Registered Successfully");
                 setToast(true);
-                
-                // CRITICAL: After creating, we force a refresh to update the cache
                 await fetchStaff(true);
-                
                 setForm({
                     fullName: "",
                     dateOfJoining: new Date().toISOString().split("T")[0],
@@ -143,6 +192,7 @@ export default function StaffManagement() {
             <div className="min-h-screen flex w-full bg-[#FCFBF7] font-sans">
                 <DashboardSidebar />
 
+                {/* Staff Detail Modal */}
                 {selectedStaff && (
                     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
                         <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
@@ -176,14 +226,34 @@ export default function StaffManagement() {
                                 <h1 className="text-3xl font-serif font-bold text-slate-900">Staff Registry</h1>
                                 <p className="text-sm text-slate-500 italic">Managing the jewelry house experts</p>
                             </div>
-                            <Button 
-                                variant="outline" 
-                                size="sm" 
-                                className="text-[10px] uppercase tracking-widest h-8"
-                                onClick={() => fetchStaff(true)}
-                            >
-                                Refresh Data
-                            </Button>
+                            
+                            {/* EXPORT BUTTONS */}
+                            <div className="flex gap-2">
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="text-[10px] uppercase tracking-widest h-8 border-amber-200 text-amber-800 hover:bg-amber-50"
+                                    onClick={exportToExcel}
+                                >
+                                    <TableIcon className="w-3 h-3 mr-2" /> Excel
+                                </Button>
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="text-[10px] uppercase tracking-widest h-8 border-red-200 text-red-800 hover:bg-red-50"
+                                    onClick={exportToPDF}
+                                >
+                                    <FileDown className="w-3 h-3 mr-2" /> PDF
+                                </Button>
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="text-[10px] uppercase tracking-widest h-8"
+                                    onClick={() => fetchStaff(true)}
+                                >
+                                    Refresh
+                                </Button>
+                            </div>
                         </header>
 
                         <LuxuryCard className="flex-1 flex flex-col overflow-hidden border-amber-200/20 shadow-none">

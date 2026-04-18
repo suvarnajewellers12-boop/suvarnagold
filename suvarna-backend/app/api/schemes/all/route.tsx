@@ -21,7 +21,7 @@ export async function OPTIONS() {
 // ================= GET ALL SCHEMES (Public) =================
 export async function GET(req: Request) {
   try {
-    // 🔹 Fetch Schemes with Customers (No Auth Conditions)
+    // 🔹 Fetch Schemes with Enrollments, Customers, AND Coupons
     const schemes = await prisma.scheme.findMany({
       include: {
         enrollments: {
@@ -34,6 +34,8 @@ export async function GET(req: Request) {
                 phone: true,
               },
             },
+            // 🚀 ADDED: Include full coupon details for this enrollment
+            coupon: true, 
           },
         },
       },
