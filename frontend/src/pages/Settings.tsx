@@ -13,7 +13,7 @@ const Settings = () => {
 
     setTimeout(() => {
       if (!isEnabled) {
-        speak("Accessibility mode enabled. You can now use voice navigation.");
+        speak("Accessibility mode is activated. You can now use voice navigation.");
       } else {
         stop();
       }
