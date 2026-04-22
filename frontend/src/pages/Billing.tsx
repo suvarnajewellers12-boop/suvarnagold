@@ -220,7 +220,7 @@ const BillingPOS = () => {
     }
     setIsApplyingCoupon(true);
     try {
-      const res = await fetch(`http://localhost:3000/api/payment/coupon/${couponCode.trim()}`, {
+      const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/payment/coupon/${couponCode.trim()}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -272,7 +272,7 @@ const BillingPOS = () => {
         }),
       });
       if ((await response.json()).success) {
-        if (couponData) await fetch(`http://localhost:3000/api/payment/coupon/${couponCode}/used`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+        if (couponData) await fetch(`https://suvarnagold-16e5.vercel.app/api/payment/coupon/${couponCode}/used`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
         setToastMessage("Sale Recorded Successfully"); setShowToast(true); setCart([]); setCouponData(null); setCheckoutStep(1);
       }
     } catch (e) { setToastMessage("Error finishing checkout"); setShowToast(true); }
