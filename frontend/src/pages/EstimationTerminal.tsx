@@ -46,14 +46,38 @@ const EstimationTerminal = () => {
   }, [token]);
 
   // CALCULATION LOGIC: Metal + VA + GST
+  // CALCULATION LOGIC: Metal (Silver/Gold) + VA + GST
   const calculateDetailedPrice = (item: any) => {
     if (!liveRates || !item.grams) return { metalValue: 0, makingCharges: 0, total: 0 };
     
-    const carat = String(item.carats || "").replace(/\D/g, "");
-    const rateKey = carat === "18" ? "gold18" : carat === "22" ? "gold22" : "gold24";
-    const rateValue = parseFloat(String(liveRates[rateKey]).replace(/[^\d.-]/g, ''));
+    // Improved detection for Silver vs Gold
+    const metalField = (item.metal || "").toLowerCase();
+    const caratsField = String(item.carats || "").toLowerCase();
+    const isSilver = metalField === "silver" || caratsField.includes("99") || caratsField.includes("silver");
     
-    const metalValue = rateValue * item.grams;
+    let effectiveRate = 0;
+
+    if (isSilver) {
+      // SILVER FORMULA: (Market Rate / 99) * Purity
+      const rawSilverRate = liveRates.silver;
+      if (!rawSilverRate) return { metalValue: 0, makingCharges: 0, total: 0 };
+      
+      const baseMarketRate = parseFloat(String(rawSilverRate).replace(/[^\d.-]/g, ''));
+      const ratePerOnePercent = baseMarketRate / 99.9;
+      
+      // Fallback to carats field if purity is missing (e.g. "99.9")
+      const purity = parseFloat(item.purity || item.carats || 0);
+      effectiveRate = ratePerOnePercent * purity;
+    } else {
+      // GOLD LOGIC
+      const carat = String(item.carats || "").replace(/\D/g, "");
+      const rateString = liveRates[rateKey];
+      
+      if (!rateString) return { metalValue: 0, makingCharges: 0, total: 0 };
+      effectiveRate = parseFloat(String(rateString).replace(/[^\d.-]/g, ''));
+    }
+    
+    const metalValue = effectiveRate * item.grams;
     const makingCharges = metalValue * ((item.va || 0) / 100);
     const totalItemPrice = metalValue + makingCharges;
 
@@ -63,7 +87,6 @@ const EstimationTerminal = () => {
       total: Math.round(totalItemPrice)
     };
   };
-
   // AGGREGATE TOTALS
   const totals = estimateCart.reduce((acc, item) => {
     const price = calculateDetailedPrice(item);
