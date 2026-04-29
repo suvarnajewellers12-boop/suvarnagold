@@ -37,7 +37,7 @@ const CreditNotes = () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:3000/api/reports/credit-note/all", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/reports/credit-note/all", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -79,7 +79,7 @@ const CreditNotes = () => {
     setIsProcessing(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:3000/api/reports/credit-note", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/reports/credit-note", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
