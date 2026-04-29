@@ -54,6 +54,7 @@ const products = await prisma.product.findMany({
     manufactureDate: true,
     createdAt: true,
     uniqueCode: true,
+    stoneCost: true, // 🔹 NEW FIELD
     // 🔹 ADD THESE TWO LINES
     branchName: true,
     va: true,

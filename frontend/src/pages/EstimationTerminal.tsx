@@ -51,12 +51,13 @@ const EstimationTerminal = () => {
     if (!liveRates || !item.grams) return { metalValue: 0, makingCharges: 0, total: 0 };
     
     // Improved detection for Silver vs Gold
-    const metalField = (item.metal || "").toLowerCase();
+    const metalField = (item.metalType || "").toLowerCase();
+    console.log("metal:", metalField);
     const caratsField = String(item.carats || "").toLowerCase();
     const isSilver = metalField === "silver" || caratsField.includes("99") || caratsField.includes("silver");
     
     let effectiveRate = 0;
-
+   
     if (isSilver) {
       // SILVER FORMULA: (Market Rate / 99) * Purity
       const rawSilverRate = liveRates.silver;
@@ -68,13 +69,18 @@ const EstimationTerminal = () => {
       // Fallback to carats field if purity is missing (e.g. "99.9")
       const purity = parseFloat(item.purity || item.carats || 0);
       effectiveRate = ratePerOnePercent * purity;
+
+      console.log(`Silver Calculation: Base Rate=${baseMarketRate}, Purity=${purity}%, Effective Rate=${effectiveRate}`); 
     } else {
       // GOLD LOGIC
       const carat = String(item.carats || "").replace(/\D/g, "");
+      const rateKey = `gold${carat}`;
       const rateString = liveRates[rateKey];
       
       if (!rateString) return { metalValue: 0, makingCharges: 0, total: 0 };
       effectiveRate = parseFloat(String(rateString).replace(/[^\d.-]/g, ''));
+
+      console.log(`Gold Calculation: Carat=${carat}K, Rate Key=${rateKey}, Effective Rate=${effectiveRate}`); 
     }
     
     const metalValue = effectiveRate * item.grams;

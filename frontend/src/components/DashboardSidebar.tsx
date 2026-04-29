@@ -9,8 +9,6 @@ import {
   Settings,
   LogOut,
   Store,
-  ChevronLeft,
-  ChevronRight,
   Plus
 } from "lucide-react";
 import {
@@ -18,43 +16,37 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarFooter,
   SidebarHeader,
-  useSidebar,
 } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
-import { title } from "process";
 import { AccessibleFocus } from "./accessibility/AccessibleFocus";
 
 const menuItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Admin Management", url: "/dashboard/admins", icon: Users },
-  { title: "Create Scheme", url: "/dashboard/create-scheme", icon: Plus },
-  { title: "Customer Management", url: "/dashboard/customers", icon: Users },
-  { title: "Staff Management", url: "/dashboard/staff", icon: Users },
-  { title: "Products", url: "/dashboard/products", icon: Package },
-  { title: "Job Work", url: "/dashboard/jobwork", icon: Package },
-  { title: "Gold Purchase", url: "/dashboard/gold-purchase", icon: Package },
-  // { title: "Store", url: "/dashboard/store", icon: Store },
   { title: "Billing", url: "/dashboard/billing", icon: Receipt },
   { title: "Reports", url: "/dashboard/reports", icon: FileText },
+  { title: "Products", url: "/dashboard/products", icon: Package },
+  { title: "Create Scheme", url: "/dashboard/create-scheme", icon: Plus },
+  { title: "Customer Management", url: "/dashboard/customers", icon: Users },
+  { title: "Estimation Terminal", url: "/dashboard/estimation-terminal", icon: Receipt },
+  { title: "Job Work", url: "/dashboard/jobwork", icon: Package },
+  { title: "Gold Purchase", url: "/dashboard/gold-purchase", icon: Package },
+  { title: "Staff Management", url: "/dashboard/staff", icon: Users },
+  { title: "Admin Management", url: "/dashboard/admins", icon: Users },
   { title: "Photos", url: "/dashboard/photos", icon: Package },
-  // { title: "Settings", url: "/dashboard/settings", icon: Settings },
-  // {title: "Coupons", url: "/dashboard/coupons", icon: Settings },
-  {title:"Estimation Terminal", url:"/dashboard/estimation-terminal", icon: Receipt}
+  { title: "Credit Notes", url: "/dashboard/credit-notes", icon: FileText }
 ];
 
 export function DashboardSidebar() {
-  const { state, toggleSidebar } = useSidebar();
-  const isCollapsed = state === "collapsed";
-
+  // Collapse logic removed - Sidebar will now remain permanently visible/expanded
+  
   return (
     <Sidebar className="border-r border-sidebar-border">
-      <SidebarHeader className="p-4">
+      {/* HEADER SECTION: Fixed at top */}
+      <SidebarHeader className="p-4 flex flex-col gap-4">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center">
             <img
@@ -63,24 +55,23 @@ export function DashboardSidebar() {
               className="w-25 h-10 object-contain"
             />
           </div>
-          {!isCollapsed && (
-            <div className="fade-in-up">
-              <h2 className="font-serif text-lg font-bold text-sidebar-foreground">
-                Suvarna Portal
-              </h2>
-              <p className="text-xs text-sidebar-foreground/60">Super Admin</p>
-            </div>
-          )}
+          <div className="fade-in-up">
+            <h2 className="font-serif text-lg font-bold text-sidebar-foreground">
+              Suvarna Portal
+            </h2>
+            <p className="text-xs text-sidebar-foreground/60">Super Admin</p>
+          </div>
+        </div>
+
+        {/* FIXED LABEL */}
+        <div className="px-2 text-sidebar-foreground/50 uppercase text-xs tracking-wider font-semibold">
+          Main Menu
         </div>
       </SidebarHeader>
 
-      <SidebarContent>
-        <SidebarGroup>
-          {!isCollapsed && (
-            <SidebarGroupLabel className="text-sidebar-foreground/50 uppercase text-xs tracking-wider">
-              Main Menu
-            </SidebarGroupLabel>
-          )}
+      {/* SCROLLABLE CONTENT: Scrollbar hidden */}
+      <SidebarContent className="overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        <SidebarGroup className="pt-0">
           <SidebarGroupContent>
             <SidebarMenu>
               {menuItems.map((item) => (
@@ -94,7 +85,7 @@ export function DashboardSidebar() {
                         activeClassName="bg-sidebar-primary text-sidebar-primary-foreground shadow-gold"
                       >
                         <item.icon className="w-5 h-5 flex-shrink-0" />
-                        {!isCollapsed && <span>{item.title}</span>}
+                        <span>{item.title}</span>
                       </NavLink>
                     </AccessibleFocus>
                   </SidebarMenuButton>
@@ -105,33 +96,18 @@ export function DashboardSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
+      {/* FOOTER SECTION: Logout arranged to the left side */}
       <SidebarFooter className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center justify-between">
-          <AccessibleFocus label="Toggle sidebar button">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleSidebar}
-              className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+        <div className="flex items-center justify-start">
+          <AccessibleFocus label="Logout button">
+            <NavLink
+              to="/"
+              className="flex items-center gap-2 text-sidebar-foreground/60 hover:text-destructive transition-colors group"
             >
-              {isCollapsed ? (
-                <ChevronRight className="w-5 h-5" />
-              ) : (
-                <ChevronLeft className="w-5 h-5" />
-              )}
-            </Button>
+              <LogOut className="w-5 h-5 transition-transform group-hover:-translate-x-1" />
+              <span className="text-sm font-medium">Logout</span>
+            </NavLink>
           </AccessibleFocus>
-          {!isCollapsed && (
-            <AccessibleFocus label="Logout button">
-              <NavLink
-                to="/"
-                className="flex items-center gap-2 text-sidebar-foreground/60 hover:text-destructive transition-colors"
-              >
-                <LogOut className="w-5 h-5" />
-                <span className="text-sm">Logout</span>
-              </NavLink>
-            </AccessibleFocus>
-          )}
         </div>
       </SidebarFooter>
     </Sidebar>

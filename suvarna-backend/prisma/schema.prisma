@@ -80,6 +80,7 @@ model Product {
   bodyPart        String         @default("others")
   grams           Float
   stoneWeight     Float          @default(0)
+  stoneCost       Float          @default(0)
   netWeight       Float          @default(0)
   quantity        Int            @default(1)
   huid            String?
@@ -100,6 +101,7 @@ model Purchase {
   emailid                   String?
   Address                   String?
   phoneNumber               String
+  invoice                   String @default("svj-234")
   
   // Financial Totals
   totalAmount               Float          // Subtotal
@@ -140,6 +142,7 @@ model PurchaseItem {
   cost       Float
   product    Product  @relation(fields: [productId], references: [id])
   purchase   Purchase @relation(fields: [purchaseId], references: [id])
+  isReturned Boolean  @default(false) // <--- Add this line
 }
 // ==========================================
 // 1. SCHEME BLUEPRINT
@@ -155,6 +158,21 @@ model Scheme {
   
   enrollments       CustomerScheme[]
   coupons           Coupon[]
+}
+
+model CreditNote {
+  id              String       @id @default(uuid())
+  productName     String
+  grams           Float
+  carats          String?
+  stoneWeight     Float?
+  overallCost     Float
+  
+  // Relation to the parent coupon
+  couponId        String
+  coupon          ReturnCoupon @relation(fields: [couponId], references: [id])
+  
+  createdAt       DateTime     @default(now())
 }
 
 // ==========================================
@@ -203,33 +221,39 @@ model PaymentHistory {
 // 4. COUPON (The "Avail Offer" Certificate)
 // ==========================================
 model Coupon {
-  id               String         @id @default(uuid())
-  code             String         @unique // e.g., SUV-2026-XXXX
+  id               String          @id @default(uuid())
+  code             String          @unique // e.g., RTN-XXXXXX or SUV-2026-XXXX
   
-  // Value for Category-A (Calculated at enrollment)
-  // Formula: (Tenure + MaturityMonths) * MonthlyAmount
-  totalCashValue   Float          @default(0) 
+  // NEW FIELDS for Return/Manual Logic
+  type             String          @default("WEIGHT") // "WEIGHT" for schemes, "CASH" for returns
+  value            Float           @default(0)        // Used specifically for CASH type returns
+  description      String?         // To store "Return Credit for Bill #123"
+
+  // Value for Category-A (Gold Schemes)
+  totalCashValue   Float           @default(0) 
   
-  // Value for Category-B (Updated continuously during payments)
-  // Logic: Matches CustomerScheme.accumulatedGrams
-  totalWeightGrams Float          @default(0) 
+  // Value for Category-B (Gold Schemes)
+  totalWeightGrams Float           @default(0) 
   
-  isUsed           Boolean        @default(false)
-  isActive         Boolean        @default(false) // Becomes true when installmentsPaid == durationMonths
+  isUsed           Boolean         @default(false)
+  isActive         Boolean         @default(true) // Set to true for Return Coupons immediately
   usedAt           DateTime?
   
-  customerSchemeId String         @unique
-  customerScheme   CustomerScheme @relation(fields: [customerSchemeId], references: [id])
+  // RELATIONS MADE OPTIONAL (?)
+  // This allows you to create a coupon WITHOUT a scheme for returns
+  customerSchemeId String?         @unique
+  customerScheme   CustomerScheme? @relation(fields: [customerSchemeId], references: [id])
   
+  // Link to Customer (Keep this mandatory if you want to track who owns the credit)
   customerId       String
-  customer         Customer       @relation(fields: [customerId], references: [id])
+  customer         Customer        @relation(fields: [customerId], references: [id])
   
-  schemeId         String
-  scheme           Scheme         @relation(fields: [schemeId], references: [id])
+  // Link to Scheme (Optional for Return Credits)
+  schemeId         String?
+  scheme           Scheme?         @relation(fields: [schemeId], references: [id])
 
   createdAt        DateTime        @default(now())
 }
-
 // ==========================================
 // 5. CUSTOMER PROFILE
 // ==========================================
@@ -260,6 +284,17 @@ model OtpVerification {
   @@index([phoneNumber])
   @@index([purpose])
   @@index([phoneNumber, purpose])
+}
+
+model ReturnCoupon {
+  id          String   @id @default(uuid())
+  code        String   @unique // The coupon code
+  cashAmount  Float    // The credit value
+  isUsed      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  invoice         String      @default("#svn")
+
+  creditNotes  CreditNote[]
 }
 
 model ProductImgs {

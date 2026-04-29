@@ -3,14 +3,14 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
 } from "@/components/ui/select";
-import { Edit2, Save, X, QrCode, Anchor, Weight, Fingerprint, Layers } from "lucide-react";
+import { Edit2, Save, X, QrCode, Anchor, Weight, Fingerprint, Layers, IndianRupee } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 
@@ -19,7 +19,7 @@ interface Product {
   name: string;
   metalType: "gold" | "silver" | "other";
   grams: number;
-  carats: string; 
+  carats: string;
   huid?: string;
   stoneWeight: number;
   netWeight: number;
@@ -27,6 +27,7 @@ interface Product {
   bodyPart: string;
   manufactureDate: string;
   sku: string;
+  stoneCost: number; // 🔹 NEW FIELD
 }
 
 interface ProductCardProps {
@@ -73,7 +74,8 @@ export const ProductCard = ({
             category: editedProduct.category,
             bodyPart: editedProduct.bodyPart,
             carats: editedProduct.carats,
-            metalType: editedProduct.metalType
+            metalType: editedProduct.metalType,
+            stoneCost: editedProduct.stoneCost, // 🔹 NEW FIELD
           }),
         }
       );
@@ -139,7 +141,16 @@ export const ProductCard = ({
                   <p className="text-[9px] uppercase text-muted-foreground font-bold">Stone</p>
                   <p className="text-sm font-semibold">{product.stoneWeight}g</p>
                 </div>
+
               </div>
+              <div className="flex items-center gap-2">
+                <IndianRupee className="w-3.5 h-3.5 text-amber-500" />
+                <div>
+                  <p className="text-[9px] uppercase text-muted-foreground font-bold">stoneCost</p>
+                  <p className="text-sm font-semibold">{product.stoneCost }</p>
+                </div>
+              </div>
+
               <div className="flex items-center gap-2">
                 <Fingerprint className="w-3.5 h-3.5 text-amber-500" />
                 <div>
@@ -162,9 +173,9 @@ export const ProductCard = ({
                 <p className="text-xl font-mono font-black text-amber-900">{product.netWeight}g</p>
               </div>
               <Button variant="gold" size="icon" className="rounded-2xl shadow-lg shadow-amber-200" disabled={isLoadingQR} onClick={async () => {
-                  setIsLoadingQR(true);
-                  try { await onShowQR?.(product.sku); } finally { setIsLoadingQR(false); }
-                }}>
+                setIsLoadingQR(true);
+                try { await onShowQR?.(product.sku); } finally { setIsLoadingQR(false); }
+              }}>
                 {isLoadingQR ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" />}
               </Button>
             </div>
@@ -193,7 +204,7 @@ export const ProductCard = ({
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Placement</label>
-                  <Select value={editedProduct.bodyPart} onValueChange={(v)=>setEditedProduct({...editedProduct, bodyPart: v})}>
+                  <Select value={editedProduct.bodyPart} onValueChange={(v) => setEditedProduct({ ...editedProduct, bodyPart: v })}>
                     <SelectTrigger className="bg-white/5 border-white/10 text-white h-7 text-[10px]"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {["head", "ears", "nose", "neck", "wrist", "fingers", "waist", "foot", "arms"].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
@@ -202,7 +213,7 @@ export const ProductCard = ({
                 </div>
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Type</label>
-                  <Select value={editedProduct.category} onValueChange={(v)=>setEditedProduct({...editedProduct, category: v})}>
+                  <Select value={editedProduct.category} onValueChange={(v) => setEditedProduct({ ...editedProduct, category: v })}>
                     <SelectTrigger className="bg-white/5 border-white/10 text-white h-7 text-[10px]"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {["rings", "earrings", "necklaces", "bangles", "pendants", "nosepins", "anklets", "mangalsutra", "coins", "other"].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
@@ -214,10 +225,10 @@ export const ProductCard = ({
               {/* Quality (Carats/Purity) */}
               <div className="space-y-1">
                 <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Quality / Carats</label>
-                <Select value={editedProduct.carats} onValueChange={(v)=>setEditedProduct({...editedProduct, carats: v})}>
+                <Select value={editedProduct.carats} onValueChange={(v) => setEditedProduct({ ...editedProduct, carats: v })}>
                   <SelectTrigger className="bg-white/5 border-white/10 text-white h-7 text-[10px]"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {editedProduct.metalType === "gold" ? 
+                    {editedProduct.metalType === "gold" ?
                       ["24K", "22K", "18K", "16K", "9K"].map(k => <SelectItem key={k} value={k}>{k}</SelectItem>) :
                       ["99.9%", "95.0%", "92.5%"].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)
                     }
@@ -255,5 +266,5 @@ export const ProductCard = ({
     </div>
   );
 
-  
+
 };

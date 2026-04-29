@@ -26,7 +26,7 @@ import SuperAdminCreateScheme from "./pages/CreateScheme";
 import GoldJobWorkPage from "./pages/GoldJobWorkPage";
 import GoldPurchasePage from "./pages/GoldPurchasePage";
 import SuperadminCustomerMangement from "./pages/Customers";
-
+import CreditNote from "./pages/CreditNote";
 
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -162,6 +162,7 @@ const App = () => (
             <Route path="/dashboard/store" element={<Store />} />
             <Route path="/dashboard/billing" element={<Billing />} />
             <Route path="/dashboard/reports" element={<Reports />} />
+            <Route path="/dashboard/credit-notes" element={<CreditNote />} />
             <Route path="/dashboard/settings" element={<Settings />} />
             <Route path="/dashboard/estimation-terminal" element={<EstimationTerminal />} />
             <Route path="/dashboard/create-scheme" element={<SuperAdminCreateScheme />} />

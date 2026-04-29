@@ -258,7 +258,7 @@ export default function GoldJobWorkPage() {
                           value={form.goldGivenType}
                           onChange={(e) => handleChange("goldGivenType", e.target.value)}
                         >
-                          <option value="MUDHA">Mudha</option>
+                          <option value="Orgnament">Orgnament</option>
                           <option value="BISCUIT">Biscuit</option>
                         </select>
                       </div>

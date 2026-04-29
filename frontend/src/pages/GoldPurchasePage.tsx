@@ -231,7 +231,7 @@ export default function GoldPurchasePage() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1.5"><label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Type</label>
                         <select className="w-full h-11 rounded-md border border-gold/10 bg-white px-3 text-sm focus:ring-1 focus:ring-gold outline-none" value={form.goldType} onChange={(e) => handleChange("goldType", e.target.value)}>
-                          <option value="BISCUIT">Biscuit</option><option value="MUDHA">Mudha</option>
+                          <option value="BISCUIT">Biscuit</option><option value="Orgnament">Orgnament</option>
                         </select>
                       </div>
                       <div className="space-y-1.5"><label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Weight (g)</label>

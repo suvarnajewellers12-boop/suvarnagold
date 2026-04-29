@@ -105,6 +105,7 @@ const Products = () => {
     bodyPart: "",
     category: "",
     branchName: "",
+    stoneCost: "0",
   });
 
   /* ---------------- EXPORT FUNCTIONS ---------------- */
@@ -122,7 +123,8 @@ const Products = () => {
       "Net Weight": p.netWeight,
       "VA (%)": p.va,
       "HUID": p.huid || "N/A",
-      "Quantity": p.quantity
+      "Quantity": p.quantity,
+      "Stone Cost": p.stoneCost || "0",
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
@@ -142,17 +144,19 @@ const Products = () => {
     doc.setTextColor(100);
     doc.text(`Exported: ${new Date().toLocaleString()} | Filter: ${filters.metal} / ${filters.branch}`, 14, 28);
 
-    const tableColumn = ["SKU", "Name", "Branch", "Metal", "Grams", "Net Wt", "VA", "HUID", "Qty"];
+    const tableColumn = ["SKU", "Name", "Branch", "Metal", "Grams","Stone Weight", "Net Wt", "VA", "HUID", "Qty", "Stone Cost"];
     const tableRows = filteredProducts.map(p => [
       p.sku || "-",
       p.name,
       p.branchName,
       `${p.metalType} (${p.carats})`,
       p.grams,
+      p.stoneWeight,
       p.netWeight,
       `${p.va}%`,
       p.huid || "-",
-      p.quantity
+      p.quantity,
+      p.stoneCost || "0"
     ]);
 
     autoTable(doc, {
@@ -204,7 +208,7 @@ const Products = () => {
     }
     setIsLoading(true);
     try {
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/products/all", {
+      const res = await fetch("http://localhost:3000/api/products/all", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -242,7 +246,7 @@ const Products = () => {
     setIsLoading(true);
     try {
       const currentDate = new Date().toISOString().split("T")[0];
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/products/create", {
+      const res = await fetch("http://localhost:3000/api/products/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -255,6 +259,7 @@ const Products = () => {
           stoneWeight: parseFloat(formData.stoneWeight),
           netWeight: parseFloat(formData.netWeight),
           va: parseFloat(formData.va),
+          stoneCost: parseFloat(formData.stoneCost),
           manufactureDate: currentDate,
           branchName: formData.branchName,
           metalType: formData.type,
@@ -417,13 +422,18 @@ const Products = () => {
                     <label className="text-[10px] font-bold text-gray-400 uppercase">Stone Weight</label>
                     <Input type="number" placeholder="Stone Wt" value={formData.stoneWeight} onChange={(e) => setFormData({ ...formData, stoneWeight: e.target.value })} />
                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase">Stone Cost</label>
+                    <Input type="number" placeholder="Stone Cost" value={formData.stoneCost} onChange={(e) => setFormData({ ...formData, stoneCost: e.target.value })} />
+                  </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-400 uppercase">VA (Making Charges)</label>
                     <Input type="number" placeholder="VA" value={formData.va} onChange={(e) => setFormData({ ...formData, va: e.target.value })} />
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-gray-400 uppercase">Quantity</label>
                     <Input type="number" placeholder="Qty" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} />

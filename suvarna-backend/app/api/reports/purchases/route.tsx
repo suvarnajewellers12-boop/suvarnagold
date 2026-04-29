@@ -46,7 +46,8 @@ export async function GET(req: Request) {
                 grams: true,       // For GROSS WT
                 netWeight: true,   // For NET WT
                 va: true,          // For VA (Making charge)
-                huid: true,        // For HUID
+                huid: true,
+                sku: true,        // For HUID
               },
             },
           },
@@ -89,7 +90,7 @@ export async function GET(req: Request) {
         huid: item.product.huid || "N/A",  // Added
         grams: item.grams,                 // Actual weight sold
         itemCost: item.cost,               // Product Value
-        
+        sku: item.product.sku || "N/A",    // Added
         purchasedAt: purchase.purchasedAt,
         createdBy: createdBy,
       }));

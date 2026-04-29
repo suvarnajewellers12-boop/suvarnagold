@@ -46,8 +46,11 @@ export async function POST(req: Request) {
       category,
       bodyPart,
       branchName,
+      stoneCost,
       va // 👈 NEW FIELD FROM FRONTEND
     } = body;
+
+    console.log("Creating product with data:", stoneCost);
 
     const qty = parseInt(quantity) || 0;
     if (qty <= 0) {
@@ -98,6 +101,7 @@ export async function POST(req: Request) {
           category: category || "Other",
           bodyPart: bodyPart || "Other",
           branchName: branchName || "Main",
+          stoneCost: parseFloat(stoneCost) || 0,
           va: parseFloat(va) || 0, // 👈 SAVING VA TO DB
         },
       });
