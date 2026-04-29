@@ -208,7 +208,7 @@ const Products = () => {
     }
     setIsLoading(true);
     try {
-      const res = await fetch("http://localhost:3000/api/products/all", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/products/all", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -246,7 +246,7 @@ const Products = () => {
     setIsLoading(true);
     try {
       const currentDate = new Date().toISOString().split("T")[0];
-      const res = await fetch("http://localhost:3000/api/products/create", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/products/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
