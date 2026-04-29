@@ -79,6 +79,7 @@ export async function GET(req: Request) {
         sgstAmount: purchase.sgstAmount,
         discountAmount: purchase.discountAmount,
         finalAmount: purchase.finalAmount,
+        invoice: purchase.invoice,
 
         // Item specific fields (Direct & Product relations)
         productName: item.product.name,

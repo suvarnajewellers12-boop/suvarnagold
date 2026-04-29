@@ -41,7 +41,7 @@ export async function POST(req: Request) {
       purchaseData,
       paymentBreakdown // This contains { cash, upi, card, cheque }
     } = body;
-
+    const invoiceNumber = `SUVJ-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     // 1. Prepare the Purchase Payload with Multi-Modal logic
     const purchasePayload: any = {
       customerName: purchaseData.customerName,
@@ -68,6 +68,7 @@ export async function POST(req: Request) {
       // POS Metadata
       paymentStatus: "SUCCESS",
       paymentId: `POS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      invoice: invoiceNumber,
     };
 
     // 2. Assign ownership based on role

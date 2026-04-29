@@ -68,7 +68,7 @@ const Reports = () => {
         setIsLoading(true);
         try {
             const token = localStorage.getItem("token");
-            const res = await fetch("https://suvarnagold-16e5.vercel.app/api/reports/purchases", {
+            const res = await fetch("http://localhost:3000/api/reports/purchases", {
                 headers: { Authorization: `Bearer ${token}` },
             });
             const data = await res.json();
@@ -109,11 +109,13 @@ const Reports = () => {
                         exchangeGrams: p.excahngejewellrygrams,
                         grandTotal: Number(p.finalAmount),
                         sku: p.sku,
+                        invoice: p.invoice,
                         payments: {
                             cash: Number(p.cashAmount || 0),
                             upi: Number(p.upiAmount || 0),
                             card: Number(p.cardAmount || 0),
                             cheque: Number(p.chequeAmount || 0),
+
                         },
                         items: [itemObj],
                     });
@@ -207,7 +209,7 @@ const Reports = () => {
                 p.items.forEach((item: any) => {
                     flattenedData.push({
                         "Date": format(p.date, "dd-MM-yyyy"),
-                        "Invoice": `#SVRN-${p.id.slice(-6).toUpperCase()}`,
+                        "Invoice": p.invoice,
                         "Customer": p.customer,
                         "Phone": p.phone,
                         "Product Name": item.productName, // Separate Column
@@ -270,13 +272,29 @@ const Reports = () => {
                 page.drawText(String(text || ""), { x: rightX - textWidth, y: height - yOffset, size, font: customFont, color });
             };
 
-            // Header info
-            draw("SUVARNA JEWELLERS", 40, 175, 12, gold);
-            draw(`Customer: ${purchase.customer}`, 350, 192, 11, black);
-            draw(`Phone: ${purchase.phone}`, 350, 207, 9, grey);
+            // --- ALIGNED HEADER SECTION ---
+            // Start both at yOffset: 175 to be perfectly level
+            const headerTopY = 175;
 
-            // Metadata Header
-            const headY = 285;
+            // LEFT COLUMN: STORE INFO
+            draw("SUVARNA JEWELLERS", 40, headerTopY, 14, gold);
+            draw(STORE_INFO.line1, 40, headerTopY + 18, 8, grey);
+            draw(STORE_INFO.line2, 40, headerTopY + 28, 8, grey);
+            draw(STORE_INFO.line3, 40, headerTopY + 38, 8, grey);
+            draw(STORE_INFO.line4, 40, headerTopY + 48, 8, grey);
+            draw(STORE_INFO.phone, 40, headerTopY + 62, 8, grey);
+
+            // RIGHT COLUMN: CUSTOMER & INVOICE INFO
+            draw(`INVOICE: ${purchase.invoice}`, 350, headerTopY, 11, black);
+            draw(`Date: ${format(purchase.date, "dd-MM-yyyy")}`, 350, headerTopY + 15, 9, grey);
+            draw(`Customer: ${purchase.customer}`, 350, headerTopY + 35, 11, black);
+            draw(`Address: ${purchase.address}`, 350, headerTopY + 60, 9, grey);
+            draw(`Phone: ${purchase.phone}`, 350, headerTopY + 50, 9, grey);
+            draw(`Email: ${purchase.email}`, 350, headerTopY + 70, 9, grey);
+
+
+            // --- TABLE HEADERS ---
+            const headY = 300;
             const col = { name: 40, purity: 180, gross: 250, net: 320, va: 380, price: 555 };
             draw("ITEM DETAILS", col.name, headY, 9, grey);
             draw("PURITY", col.purity, headY, 9, grey);
@@ -285,10 +303,10 @@ const Reports = () => {
             draw("VA%", col.va, headY, 9, grey);
             drawRight("PRICE", col.price, headY, 9, grey);
 
-            // Rows
+            // --- LINE ITEMS ---
             let currentY = headY + 25;
             purchase.items.forEach((item: any) => {
-                draw(item.productName, col.name, currentY, 10, black);
+                draw(item.productName.toUpperCase(), col.name, currentY, 10, black);
                 draw(item.purity, col.purity, currentY, 10, black);
                 draw(`${item.grossWt}g`, col.gross, currentY, 10, black);
                 draw(`${item.netWt}g`, col.net, currentY, 10, black);
@@ -296,16 +314,15 @@ const Reports = () => {
                 drawRight(`₹${item.itemCost.toLocaleString()}`, col.price, currentY, 10, black);
 
                 currentY += 14;
-                // Sub-details in separate "mini-row"
                 draw(`SKU: ${item.sku || "N/A"} | HUID: ${item.huid || "N/A"}`, col.name, currentY, 8, grey);
                 currentY += 22;
             });
 
-            // Totals
+            // --- TOTALS SECTION ---
             let totalY = currentY + 20;
             drawRight(`Subtotal: ₹${purchase.subtotal.toLocaleString()}`, col.price, totalY, 10);
             totalY += 18;
-            drawRight(`GST: ₹${(purchase.cgst + purchase.sgst).toLocaleString()}`, col.price, totalY, 10);
+            drawRight(`GST (3%): ₹${(purchase.cgst + purchase.sgst).toLocaleString()}`, col.price, totalY, 10);
 
             if (purchase.discount > 0) {
                 totalY += 18;
@@ -313,17 +330,18 @@ const Reports = () => {
             }
 
             totalY += 25;
-            drawRight(`GRAND TOTAL: ₹${purchase.grandTotal.toLocaleString()}`, col.price, totalY, 15, gold);
+            drawRight(`GRAND TOTAL: ₹${purchase.grandTotal.toLocaleString()}`, col.price, totalY, 16, gold);
 
-            // Footer QR
+            // --- FOOTER ---
             page.drawImage(qrImage, { x: (width - 40) / 2, y: 50, width: 40, height: 40 });
 
             const pdfBytes = await pdfDoc.save();
             const pdfUrl = URL.createObjectURL(new Blob([pdfBytes], { type: "application/pdf" }));
+
             if (mode === "download") {
                 const link = document.createElement("a");
                 link.href = pdfUrl;
-                link.download = `Invoice_${purchase.id.slice(-6)}.pdf`;
+                link.download = `Invoice_${purchase.invoice}.pdf`;
                 link.click();
             } else {
                 window.open(pdfUrl)?.print();
@@ -332,7 +350,6 @@ const Reports = () => {
             console.error("PDF Error:", error);
         }
     };
-
     return (
         <SidebarProvider>
             <div className="min-h-screen flex w-full bg-background overflow-hidden">
@@ -486,7 +503,7 @@ const Reports = () => {
                                         {filteredData.map((row) => (
                                             <TableRow key={row.id} onClick={() => setSelectedCustomer(row)} className="group cursor-pointer hover:bg-primary/[0.03] transition-colors">
                                                 <TableCell>
-                                                    <div className="font-mono font-bold text-primary">#SVRN-{row.id.slice(-6).toUpperCase()}</div>
+                                                    <div className="font-mono font-bold text-primary">{row.invoice}</div>
                                                     <div className="text-[10px] text-muted-foreground">{format(row.date, "PPP")}</div>
                                                 </TableCell>
                                                 <TableCell>
@@ -534,7 +551,7 @@ const Reports = () => {
                                     </div>
                                     <div className="text-right">
                                         <div className="text-xs uppercase tracking-widest opacity-60">Invoice No</div>
-                                        <div className="text-xl font-mono font-bold">#SVRN-{selectedCustomer.id.slice(-6).toUpperCase()}</div>
+                                        <div className="text-xl font-mono font-bold">{selectedCustomer.invoice}</div>
                                     </div>
                                 </div>
                             </div>

@@ -10,9 +10,11 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
-import { Edit2, Save, X, QrCode, Anchor, Weight, Fingerprint, Layers, IndianRupee } from "lucide-react";
+import { 
+  Edit2, Save, X, QrCode, Anchor, Weight, Fingerprint, 
+  Layers, IndianRupee, Loader2, Check 
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
 
 interface Product {
   id: string;
@@ -27,7 +29,8 @@ interface Product {
   bodyPart: string;
   manufactureDate: string;
   sku: string;
-  stoneCost: number; // 🔹 NEW FIELD
+  stoneCost: number;
+  va: number;
 }
 
 interface ProductCardProps {
@@ -35,13 +38,18 @@ interface ProductCardProps {
   onUpdated?: () => void;
   showToast?: (msg: string) => void;
   onShowQR?: (code: string) => void;
+  // Selection Props for Bulk Printing
+  isSelected: boolean;
+  onToggle: (product: Product) => void;
 }
 
 export const ProductCard = ({
   product,
   onUpdated,
   showToast,
-  onShowQR
+  onShowQR,
+  isSelected,
+  onToggle
 }: ProductCardProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedProduct, setEditedProduct] = useState(product);
@@ -75,7 +83,8 @@ export const ProductCard = ({
             bodyPart: editedProduct.bodyPart,
             carats: editedProduct.carats,
             metalType: editedProduct.metalType,
-            stoneCost: editedProduct.stoneCost, // 🔹 NEW FIELD
+            stoneCost: editedProduct.stoneCost,
+            va: editedProduct.va,
           }),
         }
       );
@@ -100,7 +109,24 @@ export const ProductCard = ({
   };
 
   return (
-    <div className="flip-card h-[400px] w-full group">
+    <div className={cn(
+      "flip-card h-[400px] w-full group relative transition-all duration-300",
+      isSelected && "scale-[0.98]"
+    )}>
+      
+      {/* SELECTION OVERLAY (Only visible on Front) */}
+      {!isEditing && (
+        <div 
+          onClick={() => onToggle(product)}
+          className={cn(
+            "absolute top-4 left-4 z-30 w-6 h-6 rounded-full border-2 cursor-pointer flex items-center justify-center transition-all",
+            isSelected ? "bg-amber-600 border-amber-600 shadow-lg" : "bg-white/80 border-amber-200 hover:border-amber-500"
+          )}
+        >
+          {isSelected && <Check className="w-4 h-4 text-white stroke-[4px]" />}
+        </div>
+      )}
+
       <div
         className={cn(
           "flip-card-inner relative w-full h-full transition-all duration-700",
@@ -109,8 +135,11 @@ export const ProductCard = ({
       >
         {/* FRONT: PREMIUM DISPLAY */}
         <div className="flip-card-front absolute w-full h-full">
-          <div className="card-luxury h-full p-6 flex flex-col bg-white border border-amber-100 shadow-xl rounded-3xl overflow-hidden">
-            <div className="flex items-center justify-between mb-4">
+          <div className={cn(
+            "card-luxury h-full p-6 flex flex-col bg-white border shadow-xl rounded-3xl overflow-hidden transition-colors",
+            isSelected ? "border-amber-500 ring-2 ring-amber-500/20" : "border-amber-100"
+          )}>
+            <div className="flex items-center justify-between mb-4 pl-8">
               <div className={cn(
                 "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm bg-gradient-to-r",
                 typeColors[product.metalType]
@@ -141,16 +170,21 @@ export const ProductCard = ({
                   <p className="text-[9px] uppercase text-muted-foreground font-bold">Stone</p>
                   <p className="text-sm font-semibold">{product.stoneWeight}g</p>
                 </div>
-
               </div>
               <div className="flex items-center gap-2">
-                <IndianRupee className="w-3.5 h-3.5 text-amber-500" />
+                <BadgePercent className="w-3.5 h-3.5 text-amber-500" />
                 <div>
-                  <p className="text-[9px] uppercase text-muted-foreground font-bold">stoneCost</p>
-                  <p className="text-sm font-semibold">{product.stoneCost }</p>
+                  <p className="text-[9px] uppercase text-muted-foreground font-bold">VA (Wastage)</p>
+                  <p className="text-sm font-semibold">{product.va}%</p>
                 </div>
               </div>
-
+              <div className="flex items-center gap-2 border-l border-amber-50 pl-2">
+                <IndianRupee className="w-3.5 h-3.5 text-amber-500" />
+                <div>
+                  <p className="text-[9px] uppercase text-muted-foreground font-bold">Stone Cost</p>
+                  <p className="text-sm font-semibold">₹{product.stoneCost}</p>
+                </div>
+              </div>
               <div className="flex items-center gap-2">
                 <Fingerprint className="w-3.5 h-3.5 text-amber-500" />
                 <div>
@@ -182,25 +216,23 @@ export const ProductCard = ({
           </div>
         </div>
 
-        {/* BACK: PREMIUM EDIT MODE (NOW SUPPORTS ALL FIELDS) */}
+        {/* BACK: EDIT MODE */}
         <div className="flip-card-back absolute w-full h-full">
           <div className="card-luxury h-full p-5 flex flex-col bg-[#1a0f0f] border border-red-900/30 rounded-3xl shadow-2xl">
             <div className="flex justify-between items-center mb-3 border-b border-white/10 pb-2">
               <h4 className="font-serif font-bold text-amber-200 uppercase tracking-widest text-xs">Edit Masterpiece</h4>
               <div className="flex gap-1">
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-green-400" onClick={handleSave}><Save className="w-4 h-4" /></Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400" onClick={() => { setIsEditing(false); setEditedProduct(product); }}><X className="w-4 h-4" /></Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-green-400 hover:bg-white/5" onClick={handleSave}><Save className="w-4 h-4" /></Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:bg-white/5" onClick={() => { setIsEditing(false); setEditedProduct(product); }}><X className="w-4 h-4" /></Button>
               </div>
             </div>
 
             <div className="space-y-2.5 overflow-y-auto pr-1 custom-scrollbar text-left">
-              {/* Name */}
               <div className="space-y-1">
                 <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Title</label>
                 <Input className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.name} onChange={(e) => setEditedProduct({ ...editedProduct, name: e.target.value })} />
               </div>
 
-              {/* Placement & Category */}
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Placement</label>
@@ -222,21 +254,6 @@ export const ProductCard = ({
                 </div>
               </div>
 
-              {/* Quality (Carats/Purity) */}
-              <div className="space-y-1">
-                <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Quality / Carats</label>
-                <Select value={editedProduct.carats} onValueChange={(v) => setEditedProduct({ ...editedProduct, carats: v })}>
-                  <SelectTrigger className="bg-white/5 border-white/10 text-white h-7 text-[10px]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {editedProduct.metalType === "gold" ?
-                      ["24K", "22K", "18K", "16K", "9K"].map(k => <SelectItem key={k} value={k}>{k}</SelectItem>) :
-                      ["99.9%", "95.0%", "92.5%"].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)
-                    }
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Weights */}
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Grams</label>
@@ -248,15 +265,24 @@ export const ProductCard = ({
                 </div>
               </div>
 
-              {/* HUID */}
+              <div className="grid grid-cols-2 gap-2">
+                 <div className="space-y-1">
+                  <label className="text-[8px] text-white/40 uppercase font-bold ml-1">VA %</label>
+                  <Input type="number" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.va} onChange={(e) => setEditedProduct({ ...editedProduct, va: Number(e.target.value) })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Stone Cost</label>
+                  <Input type="number" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.stoneCost} onChange={(e) => setEditedProduct({ ...editedProduct, stoneCost: Number(e.target.value) })} />
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label className="text-[8px] text-white/40 uppercase font-bold ml-1">HUID Tag</label>
                 <Input className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.huid || ""} onChange={(e) => setEditedProduct({ ...editedProduct, huid: e.target.value })} />
               </div>
 
-              {/* Calculated View */}
               <div className="bg-amber-400/10 p-2 rounded-lg border border-amber-400/20">
-                <p className="text-[8px] text-amber-400/60 uppercase font-bold">Auto-calculated Net</p>
+                <p className="text-[8px] text-amber-400/60 uppercase font-bold">Auto Net (G+SW)</p>
                 <p className="text-sm font-mono text-amber-400 font-bold">{editedProduct.netWeight}g</p>
               </div>
             </div>
@@ -265,6 +291,9 @@ export const ProductCard = ({
       </div>
     </div>
   );
-
-
 };
+
+// Dummy icon for VA if not imported
+const BadgePercent = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+);

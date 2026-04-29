@@ -80,7 +80,6 @@ model Product {
   bodyPart        String         @default("others")
   grams           Float
   stoneWeight     Float          @default(0)
-  stoneCost       Float          @default(0)
   netWeight       Float          @default(0)
   quantity        Int            @default(1)
   huid            String?
@@ -92,6 +91,7 @@ model Product {
   soldAt          DateTime?
   branchName      String         @default("Gajuwaka")
   va              Float          @default(2.5)
+  stoneCost       Float          @default(0)
   purchaseItems   PurchaseItem[]
 }
 
@@ -100,39 +100,30 @@ model Purchase {
   customerName              String
   emailid                   String?
   Address                   String?
+  totalAmount               Float
+  discountAmount            Float
+  finalAmount               Float
   phoneNumber               String
-  invoice                   String @default("svj-234")
-  
-  // Financial Totals
-  totalAmount               Float          // Subtotal
-  discountAmount            Float          // Manager Waiver
-  cgstAmount                Float          @default(0)
-  sgstAmount                Float          @default(0)
-  jewelleryexchangediscount Float?         // Old gold value
-  finalAmount               Float          // Final payable amount
-
-  // Multi-Modal Payment Breakdown
-  cashAmount                Float          @default(0)
-  upiAmount                 Float          @default(0)
-  cardAmount                Float          @default(0) // Debit/Credit
-  chequeAmount              Float          @default(0)
-  
-  // Transaction Metadata
   paymentId                 String?        @default("MANUAL_POS")
   paymentStatus             String         @default("SUCCESS")
   purchasedAt               DateTime       @default(now())
-  
-  // Old Jewellery Exchange Metadata
-  excahngejewellrygrams     Float?
-  excahngejewellryname      String?
-  
-  // Relations
   adminId                   String?
   superAdminId              String?
+  cgstAmount                Float          @default(0)
+  sgstAmount                Float          @default(0)
+  excahngejewellrygrams     Float?
+  excahngejewellryname      String?
+  jewelleryexchangediscount Float?
+  cardAmount                Float          @default(0)
+  cashAmount                Float          @default(0)
+  chequeAmount              Float          @default(0)
+  upiAmount                 Float          @default(0)
+  invoice                   String         @default("svj-234")
   admin                     Admin?         @relation(fields: [adminId], references: [id])
   superAdmin                SuperAdmin?    @relation(fields: [superAdminId], references: [id])
   items                     PurchaseItem[]
 }
+
 model PurchaseItem {
   id         String   @id @default(uuid())
   purchaseId String
@@ -140,135 +131,94 @@ model PurchaseItem {
   name       String
   grams      Float
   cost       Float
+  isReturned Boolean  @default(false)
   product    Product  @relation(fields: [productId], references: [id])
   purchase   Purchase @relation(fields: [purchaseId], references: [id])
-  isReturned Boolean  @default(false) // <--- Add this line
 }
-// ==========================================
-// 1. SCHEME BLUEPRINT
-// ==========================================
+
 model Scheme {
-  id                String           @id @default(uuid())
-  name              String
-  isWeightBased     Boolean          @default(false) // Toggle: True (Cat-B) | False (Cat-A)
-  durationMonths    Int              // Total Tenure (e.g., 11)
-  monthlyAmount     Float            // Fixed installment (e.g., 22000)
-  maturityMonths    Int?             // 1-25 Dropdown (Only for Cat-A)
-  createdAt         DateTime         @default(now())
-  
-  enrollments       CustomerScheme[]
-  coupons           Coupon[]
+  id             String           @id @default(uuid())
+  name           String
+  durationMonths Int
+  monthlyAmount  Float
+  createdAt      DateTime         @default(now())
+  isWeightBased  Boolean          @default(false)
+  maturityMonths Int?
+  coupons        Coupon[]
+  enrollments    CustomerScheme[]
 }
 
 model CreditNote {
-  id              String       @id @default(uuid())
-  productName     String
-  grams           Float
-  carats          String?
-  stoneWeight     Float?
-  overallCost     Float
-  
-  // Relation to the parent coupon
-  couponId        String
-  coupon          ReturnCoupon @relation(fields: [couponId], references: [id])
-  
-  createdAt       DateTime     @default(now())
+  id          String       @id @default(uuid())
+  productName String
+  grams       Float
+  carats      String?
+  stoneWeight Float?
+  overallCost Float
+  couponId    String
+  createdAt   DateTime     @default(now())
+  coupon      ReturnCoupon @relation(fields: [couponId], references: [id])
 }
 
-// ==========================================
-// 2. CUSTOMER ENROLLMENT (The Digital Vault)
-// ==========================================
 model CustomerScheme {
-  id                String           @id @default(uuid())
-  customerId        String
-  schemeId          String
-  
-  // Progress Tracking
-  totalPaid         Float            @default(0)
-  installmentsPaid  Int              @default(0)
-  installmentsLeft  Int
-  
-  // LIVE VAULT: Updated continuously for Category-B
-  accumulatedGrams  Float            @default(0) 
-  remainingAmount   Float 
-  
-  isCompleted       Boolean          @default(false)
-  startDate         DateTime         @default(now())
-  
-  customer          Customer         @relation(fields: [customerId], references: [id])
-  scheme            Scheme           @relation(fields: [schemeId], references: [id])
-  payments          PaymentHistory[]
-  coupon            Coupon?          // One-to-one link to the live coupon
+  id               String           @id @default(uuid())
+  customerId       String
+  schemeId         String
+  totalPaid        Float            @default(0)
+  remainingAmount  Float
+  installmentsPaid Int              @default(0)
+  installmentsLeft Int
+  isCompleted      Boolean          @default(false)
+  startDate        DateTime         @default(now())
+  accumulatedGrams Float            @default(0)
+  coupon           Coupon?
+  customer         Customer         @relation(fields: [customerId], references: [id])
+  scheme           Scheme           @relation(fields: [schemeId], references: [id])
+  payments         PaymentHistory[]
 }
 
-// ==========================================
-// 3. PAYMENT HISTORY (The Audit Trail)
-// ==========================================
 model PaymentHistory {
   id               String         @id @default(uuid())
   customerSchemeId String
   amountPaid       Float
-  
-  // Captured at the exact moment of payment
-  liveRate24K      Float?         // Fetched from API
-  gramsAdded       Float?         // amountPaid / liveRate24K
-  
+  liveRate24K      Float?
+  gramsAdded       Float?
   paidAt           DateTime       @default(now())
   customerScheme   CustomerScheme @relation(fields: [customerSchemeId], references: [id])
 }
 
-// ==========================================
-// 4. COUPON (The "Avail Offer" Certificate)
-// ==========================================
 model Coupon {
   id               String          @id @default(uuid())
-  code             String          @unique // e.g., RTN-XXXXXX or SUV-2026-XXXX
-  
-  // NEW FIELDS for Return/Manual Logic
-  type             String          @default("WEIGHT") // "WEIGHT" for schemes, "CASH" for returns
-  value            Float           @default(0)        // Used specifically for CASH type returns
-  description      String?         // To store "Return Credit for Bill #123"
-
-  // Value for Category-A (Gold Schemes)
-  totalCashValue   Float           @default(0) 
-  
-  // Value for Category-B (Gold Schemes)
-  totalWeightGrams Float           @default(0) 
-  
+  code             String          @unique
   isUsed           Boolean         @default(false)
-  isActive         Boolean         @default(true) // Set to true for Return Coupons immediately
   usedAt           DateTime?
-  
-  // RELATIONS MADE OPTIONAL (?)
-  // This allows you to create a coupon WITHOUT a scheme for returns
-  customerSchemeId String?         @unique
-  customerScheme   CustomerScheme? @relation(fields: [customerSchemeId], references: [id])
-  
-  // Link to Customer (Keep this mandatory if you want to track who owns the credit)
-  customerId       String
-  customer         Customer        @relation(fields: [customerId], references: [id])
-  
-  // Link to Scheme (Optional for Return Credits)
-  schemeId         String?
-  scheme           Scheme?         @relation(fields: [schemeId], references: [id])
-
   createdAt        DateTime        @default(now())
+  customerSchemeId String?         @unique
+  customerId       String
+  schemeId         String?
+  isActive         Boolean         @default(true)
+  totalCashValue   Float           @default(0)
+  totalWeightGrams Float           @default(0)
+  description      String?
+  type             String          @default("WEIGHT")
+  value            Float           @default(0)
+  customer         Customer        @relation(fields: [customerId], references: [id])
+  customerScheme   CustomerScheme? @relation(fields: [customerSchemeId], references: [id])
+  scheme           Scheme?         @relation(fields: [schemeId], references: [id])
 }
-// ==========================================
-// 5. CUSTOMER PROFILE
-// ==========================================
+
 model Customer {
   id        String           @id @default(uuid())
   name      String
   username  String           @unique
   password  String
   phone     String
-  mpin      String?
   createdAt DateTime         @default(now())
-  
-  schemes   CustomerScheme[]
+  mpin      String?
   coupons   Coupon[]
+  schemes   CustomerScheme[]
 }
+
 model OtpVerification {
   id            String    @id @default(cuid())
   phoneNumber   String    @db.VarChar(15)
@@ -287,14 +237,13 @@ model OtpVerification {
 }
 
 model ReturnCoupon {
-  id          String   @id @default(uuid())
-  code        String   @unique // The coupon code
-  cashAmount  Float    // The credit value
-  isUsed      Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  invoice         String      @default("#svn")
-
-  creditNotes  CreditNote[]
+  id          String       @id @default(uuid())
+  code        String       @unique
+  cashAmount  Float
+  isUsed      Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  invoice     String       @default("#svn")
+  creditNotes CreditNote[]
 }
 
 model ProductImgs {
