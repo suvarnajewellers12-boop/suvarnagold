@@ -29,11 +29,13 @@ import { title } from "process";
 const menuItems = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Products", url: "/admin/products", icon: Package },
-  {title:"Create Scheme",url:"/admin/create-scheme",icon:Settings},
+  // {title:"Create Scheme",url:"/admin/create-scheme",icon:Settings},
   {title:"Customers",url:"/admin/customers",icon:Settings},
   { title: "Billing", url: "/admin/billing", icon: Receipt },
   { title: "Reports", url: "/admin/reports", icon: FileText },
-  { title: "Settings", url: "/admin/settings", icon: Settings },
+  // { title: "Settings", url: "/admin/settings", icon: Settings },
+  {title:"credit notes",url:"/admin/credit-notes",icon:Settings},
+  {title:"Photos",url:"/admin/photos",icon:Settings},
 ];
 
 export function AdminSidebar() {

@@ -18,11 +18,11 @@ import { cn } from "@/lib/utils";
 const EstimationTerminal = () => {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-  const [inventory, setInventory] = useState<any[]>([]);
-  const [liveRates, setLiveRates] = useState<any>(null);
-  const [estimateCart, setEstimateCart] = useState<any[]>([]);
+  const [inventory, setInventory] = useState([]);
+  const [liveRates, setLiveRates] = useState(null);
+  const [estimateCart, setEstimateCart] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState([]);
   const [showResults, setShowResults] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -45,7 +45,7 @@ const EstimationTerminal = () => {
     fetchData();
   }, [token]);
 
-  const calculateDetailedPrice = (item: any) => {
+  const calculateDetailedPrice = (item) => {
     if (!liveRates || !item.grams) return { metalValue: 0, makingCharges: 0, total: 0 };
     
     const metalField = (item.metalType || "").toLowerCase();
@@ -88,13 +88,12 @@ const EstimationTerminal = () => {
     }, { metal: 0, va: 0, subtotal: 0 });
   }, [estimateCart, liveRates]);
 
-  // CALCULATION FIX: Apply discount on Overall Amount (Grand Total)
   const gstAmount = totals.subtotal * 0.03;
   const grandTotalBeforeDiscount = totals.subtotal + gstAmount;
   const discountAmount = grandTotalBeforeDiscount * (discountPercent / 100);
   const netEstimation = grandTotalBeforeDiscount - discountAmount;
 
-  const handleSearch = (query: string) => {
+  const handleSearch = (query) => {
     setSearchQuery(query);
     if (query.length > 1) {
       const filtered = inventory.filter(p => 
@@ -106,7 +105,7 @@ const EstimationTerminal = () => {
     } else { setShowResults(false); }
   };
 
-  const addToEstimate = (product: any) => {
+  const addToEstimate = (product) => {
     setEstimateCart(prev => [...prev, { ...product, tempId: crypto.randomUUID() }]);
     setSearchQuery("");
     setShowResults(false);
@@ -162,7 +161,7 @@ const EstimationTerminal = () => {
               <LuxuryCard className="flex-1 flex flex-col p-0 overflow-hidden border-slate-200 bg-white shadow-sm">
                 <div className="p-6 border-b flex items-center justify-between bg-slate-50/30">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Quote Manifest</span>
-                  <Badge className="bg-slate-900 text-gold">{estimateCart.length} Items</Badge>
+                  <Badge className="bg-slate-900 text-gold font-bold">{estimateCart.length} Items</Badge>
                 </div>
                 <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                   {estimateCart.length === 0 ? (
@@ -180,15 +179,15 @@ const EstimationTerminal = () => {
                               {item.carats.replace(/\D/g, "")}K
                             </div>
                             <div>
-                              <p className="text-sm font-bold uppercase text-slate-800">{item.name}</p>
-                              <p className="text-[10px] text-slate-400 font-bold mt-1">
+                              <p className="text-sm font-bold uppercase text-slate-900">{item.name}</p>
+                              <p className="text-[10px] text-slate-500 font-bold mt-1">
                                 {item.grams}g • VA: {item.va}% • SKU: {item.sku}
                               </p>
                             </div>
                           </div>
                           <div className="text-right">
-                             <p className="text-sm font-bold text-slate-900">₹{detail.total.toLocaleString()}</p>
-                             <button onClick={() => setEstimateCart(prev => prev.filter(i => i.tempId !== item.tempId))} className="text-[10px] text-red-500 font-bold mt-1 uppercase">Remove</button>
+                             <p className="text-sm font-black text-slate-900">₹{detail.total.toLocaleString()}</p>
+                             <button onClick={() => setEstimateCart(prev => prev.filter(i => i.tempId !== item.tempId))} className="text-[10px] text-red-600 font-bold mt-1 uppercase">Remove</button>
                           </div>
                         </div>
                       );
@@ -198,53 +197,54 @@ const EstimationTerminal = () => {
               </LuxuryCard>
             </div>
 
-            <div className="w-[420px] flex flex-col gap-4">
+            {/* Financial Analysis - Added Scrollbar logic */}
+            <div className="w-[420px]  overflow-y-auto no-scrollbar flex flex-col gap-4">
               <LuxuryCard className="p-8 border-gold/20 bg-[#FDFCF9] shadow-xl relative overflow-hidden">
-                <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-10">Financial Analysis</h3>
+                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-10">Financial Analysis</h3>
                 
                 <div className="space-y-6 relative z-10">
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-600 font-medium">Metal Base Value</span>
-                    <span className="text-slate-900 font-bold">₹{totals.metal.toLocaleString()}</span>
+                    <span className="text-slate-700 font-bold">Metal Base Value</span>
+                    <span className="text-slate-950 font-black">₹{totals.metal.toLocaleString()}</span>
                   </div>
                   
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-600 font-medium">Wastage / VA Total</span>
-                    <span className="text-slate-900 font-bold">₹{totals.va.toLocaleString()}</span>
+                    <span className="text-slate-700 font-bold">Wastage / VA Total</span>
+                    <span className="text-slate-950 font-black">₹{totals.va.toLocaleString()}</span>
                   </div>
 
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-600 font-medium">GST (3% on Original)</span>
-                    <span className="text-slate-900 font-bold">₹{Math.round(gstAmount).toLocaleString()}</span>
+                    <span className="text-slate-700 font-bold">GST (3% on Original)</span>
+                    <span className="text-slate-950 font-black">₹{Math.round(gstAmount).toLocaleString()}</span>
                   </div>
 
-                  <div className="pt-6 pb-2 border-t border-dashed border-slate-200">
+                  <div className="pt-6 pb-2 border-t border-dashed border-slate-300">
                     <div className="flex justify-between items-center mb-4">
                       <div className="flex items-center gap-2">
-                        <Percent size={14} className="text-green-600" />
-                        <span className="text-xs font-bold text-green-700 uppercase">Discount on Overall</span>
+                        <Percent size={14} className="text-green-700" />
+                        <span className="text-xs font-black text-green-800 uppercase">Discount on Overall</span>
                       </div>
-                      <span className="text-green-700 font-black">- ₹{Math.round(discountAmount).toLocaleString()}</span>
+                      <span className="text-green-800 font-black">- ₹{Math.round(discountAmount).toLocaleString()}</span>
                     </div>
                     <input 
                       type="range" min="0" max="5" step="0.5"
                       value={discountPercent}
                       onChange={(e) => setDiscountPercent(parseFloat(e.target.value))}
-                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-gold"
+                      className="w-full h-1.5 bg-slate-300 rounded-lg appearance-none cursor-pointer accent-gold"
                     />
                     <div className="flex justify-between mt-2">
-                       <span className="text-xs font-bold text-gold">{discountPercent}% Applied</span>
-                       <span className="text-[9px] font-bold text-slate-400 uppercase">5% Max Limit</span>
+                       <span className="text-xs font-black text-gold">{discountPercent}% Applied</span>
+                       <span className="text-[9px] font-bold text-slate-500 uppercase">5% Max Limit</span>
                     </div>
                   </div>
                   
-                  <div className="py-6">
-                    <GoldDivider opacity={20} />
+                  <div className="pt-2">
+                    <GoldDivider opacity={40} />
                   </div>
                   
                   <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-gold uppercase tracking-[0.1em]">Total Estimation</span>
-                    <p className="text-5xl font-serif font-bold text-slate-900 tracking-tighter">
+                    <span className="text-[10px] font-black text-gold uppercase tracking-[0.1em]">Total Estimation</span>
+                    <p className="text-5xl font-serif font-black text-slate-950 tracking-tighter">
                       ₹{Math.round(netEstimation).toLocaleString()}
                     </p>
                   </div>
@@ -255,64 +255,77 @@ const EstimationTerminal = () => {
         </main>
       </div>
 
-      {/* PRINT VIEW */}
-      <div className="hidden print:block p-16 bg-white text-black font-serif w-full h-full">
-        <div className="text-center border-b-4 border-black pb-8 mb-10">
-          <h1 className="text-4xl font-black uppercase tracking-[0.4em]">Suvarna Jewellery</h1>
-          <p className="text-md font-bold mt-3 italic tracking-widest">OFFICIAL ESTIMATION SLIP</p>
-          <div className="flex justify-between mt-6 text-[10px] font-bold uppercase tracking-wider">
-             <span>REF: EST-{Math.random().toString(36).substring(7).toUpperCase()}</span>
-             <span>DATE: {new Date().toLocaleDateString()}</span>
+      {/* PRINT VIEW - Optimized for centering and clarity */}
+      <div className="hidden print:flex flex-col items-center bg-white text-black font-serif w-full min-h-screen p-10">
+        <div className="w-full max-w-4xl">
+          <div className="text-center border-b-[6px] border-black pb-8 mb-10">
+            <h1 className="text-4xl font-black uppercase tracking-[0.3em] text-black">Suvarna Jewellers</h1>
+            <p className="text-lg font-black mt-3 italic tracking-widest text-black">OFFICIAL ESTIMATION SLIP</p>
+            <div className="flex justify-between mt-8 text-xs font-black uppercase tracking-wider text-black">
+               <span>REF: EST-{Math.random().toString(36).substring(7).toUpperCase()}</span>
+               <span>DATE: {new Date().toLocaleDateString()}</span>
+            </div>
           </div>
-        </div>
 
-        <table className="w-full text-xs mb-12">
-          <thead>
-            <tr className="border-b-2 border-black text-left uppercase">
-              <th className="py-4">Item Description</th>
-              <th className="text-center">Weight</th>
-              <th className="text-center">VA%</th>
-              <th className="text-right">Price (Base+VA)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {estimateCart.map((item) => {
-              const detail = calculateDetailedPrice(item);
-              return (
-                <tr key={item.tempId} className="border-b border-slate-300">
-                  <td className="py-5">
-                      <p className="font-bold uppercase">{item.name}</p>
-                      <p className="text-[9px] opacity-60 font-sans mt-1">{item.sku} | {item.carats} Gold</p>
-                  </td>
-                  <td className="text-center font-bold">{item.grams}g</td>
-                  <td className="text-center">{item.va}%</td>
-                  <td className="text-right font-bold">₹{detail.total.toLocaleString()}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+          <table className="w-full text-sm mb-12 border-collapse">
+            <thead>
+              <tr className="border-b-4 border-black text-left uppercase text-black">
+                <th className="py-5 px-2 font-black">Item Description</th>
+                <th className="text-center px-2 font-black">Weight</th>
+                <th className="text-center px-2 font-black">VA%</th>
+                <th className="text-right px-2 font-black">Price (Base+VA)</th>
+              </tr>
+            </thead>
+            <tbody className="text-black">
+              {estimateCart.map((item) => {
+                const detail = calculateDetailedPrice(item);
+                return (
+                  <tr key={item.tempId} className="border-b-2 border-slate-400">
+                    <td className="py-6 px-2">
+                        <p className="font-black text-lg uppercase leading-tight">{item.name}</p>
+                        <p className="text-xs font-bold mt-1 text-slate-800">{item.sku} | {item.carats} Gold</p>
+                    </td>
+                    <td className="text-center font-black px-2 text-md">{item.grams}g</td>
+                    <td className="text-center font-bold px-2 text-md">{item.va}%</td>
+                    <td className="text-right font-black px-2 text-md">₹{detail.total.toLocaleString()}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
 
-        <div className="flex justify-end">
-          <div className="w-1/2 space-y-3 text-sm">
-             <div className="flex justify-between"><span>Subtotal (Metal + VA):</span><span>₹{totals.subtotal.toLocaleString()}</span></div>
-             <div className="flex justify-between"><span>GST (3.0%):</span><span>₹{Math.round(gstAmount).toLocaleString()}</span></div>
-             
-             <div className="flex justify-between border-t border-black pt-2 font-bold">
-               <span>Total Value:</span>
-               <span>₹{Math.round(grandTotalBeforeDiscount).toLocaleString()}</span>
-             </div>
-
-             {discountPercent > 0 && (
-               <div className="flex justify-between text-gray-700 italic">
-                 <span>Less: Discount ({discountPercent}%):</span>
-                 <span>- ₹{Math.round(discountAmount).toLocaleString()}</span>
+          <div className="flex justify-end">
+            <div className="w-full max-w-md space-y-4 text-md text-black">
+               <div className="flex justify-between font-bold">
+                 <span>Subtotal (Metal + VA):</span>
+                 <span>₹{totals.subtotal.toLocaleString()}</span>
                </div>
-             )}
+               <div className="flex justify-between font-bold">
+                 <span>GST (3.0%):</span>
+                 <span>₹{Math.round(gstAmount).toLocaleString()}</span>
+               </div>
+               
+               <div className="flex justify-between border-t-2 border-black pt-3 font-black text-lg">
+                 <span>Total Value:</span>
+                 <span>₹{Math.round(grandTotalBeforeDiscount).toLocaleString()}</span>
+               </div>
 
-             <div className="flex justify-between border-t-4 border-black pt-4 font-black text-2xl mt-4">
-               <span>ESTIMATED NET:</span><span>₹{Math.round(netEstimation).toLocaleString()}</span>
-             </div>
+               {discountPercent > 0 && (
+                 <div className="flex justify-between text-slate-800 italic font-black">
+                   <span>Less: Discount ({discountPercent}%):</span>
+                   <span>- ₹{Math.round(discountAmount).toLocaleString()}</span>
+                 </div>
+               )}
+
+               <div className="flex justify-between border-t-[3px] border-black pt-5 font-black text-3xl mt-6">
+                 <span>ESTIMATED NET:</span>
+                 <span>₹{Math.round(netEstimation).toLocaleString()}</span>
+               </div>
+            </div>
+          </div>
+          
+          <div className="mt-20 text-center border-t border-slate-300 pt-10">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">This is a computer-generated estimation and does not serve as a final tax invoice.</p>
           </div>
         </div>
       </div>

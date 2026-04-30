@@ -30,6 +30,7 @@ import CreditNote from "./pages/CreditNote";
 
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminCreditNotes from "./pages/admin/AdminCreditnote";
 import AdminProducts from "./pages/admin/AdminProducts";
 import AdminBilling from "./pages/admin/AdminBilling";
 import AdminReports from "./pages/admin/AdminReports";
@@ -38,6 +39,8 @@ import CustomerManagement from "./pages/admin/AdminCustomer";
 import StaffManagement from "./pages/staff";
 import ProductsList from "./pages/ProductsList";
 import AdminCreateScheme from "./pages/admin/AdminCreateSchemes";
+import AdminProdyctList from "./pages/admin/AdminProductList";
+import AdminProductList from "./pages/admin/AdminProductList";
 
 const queryClient = new QueryClient();
 
@@ -176,9 +179,11 @@ const App = () => (
             <Route path="/admin/products" element={<AdminProducts />} />
             <Route path="/admin/billing" element={<AdminBilling />} />
             <Route path="/admin/reports" element={<AdminReports />} />
+            <Route path="/admin/credit-notes" element={<AdminCreditNotes />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/create-scheme" element={<AdminCreateScheme />} />
             <Route path="/admin/customers" element={<CustomerManagement />} />
+            <Route path="/admin/photos" element={<AdminProductList />} />
 
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
