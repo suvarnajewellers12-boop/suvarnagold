@@ -152,7 +152,7 @@ export default function GoldJobWorkPage() {
   const fetchJobWorks = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("http://localhost:3000/api/gold/jobwork/all", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/jobwork/all", {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -163,7 +163,7 @@ export default function GoldJobWorkPage() {
 
   const fetchUnassignedOrders = async () => {
     try {
-      const res = await fetch("http://localhost:3000/api/gold/order/all", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/order/all", {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -179,7 +179,7 @@ export default function GoldJobWorkPage() {
     if (selectedOrderIds.length === 0) return alert("Select Orders");
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://localhost:3000/api/gold/jobwork", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/jobwork", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ 
@@ -202,7 +202,7 @@ export default function GoldJobWorkPage() {
     if (!selectedJob) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://localhost:3000/api/gold/jobwork/completed", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/jobwork/completed", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ 
