@@ -33,7 +33,7 @@ export async function GET(req: Request) {
     const token = authHeader.split(" ")[1];
     const decoded: any = verifyToken(token);
 
-    if (decoded.role !== "SUPER_ADMIN") {
+    if (decoded.role !== "SUPER_ADMIN" && decoded.role !== "ADMIN") {
       return new NextResponse(
         JSON.stringify({ error: "Forbidden" }),
         {
@@ -55,6 +55,8 @@ export async function GET(req: Request) {
         role: true,
         createdAt: true,
         createdBy: true,
+        Address: true,
+        Gmail: true,
         // Note: We EXCLUDE 'password' here
       },
     });

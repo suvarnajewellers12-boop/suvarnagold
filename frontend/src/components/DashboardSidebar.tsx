@@ -37,7 +37,10 @@ const menuItems = [
   { title: "Staff Management", url: "/dashboard/staff", icon: Users },
   { title: "Admin Management", url: "/dashboard/admins", icon: Users },
   { title: "Photos", url: "/dashboard/photos", icon: Package },
-  { title: "Credit Notes", url: "/dashboard/credit-notes", icon: FileText }
+  { title: "Credit Notes", url: "/dashboard/credit-notes", icon: FileText },
+    {title:"Customer Orders", url:"/dashboard/customer-orders", icon: Store},
+
+  { title: "Upload", url: "/dashboard/upload", icon: Package }
 ];
 
 export function DashboardSidebar() {

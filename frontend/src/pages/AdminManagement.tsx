@@ -1,5 +1,5 @@
 "use client";
-import { Eye, EyeOff, Users, Plus, Edit, Trash2, Loader2, Search, X, AlertTriangle } from "lucide-react";
+import { Eye, EyeOff, Users, Plus, Edit, Trash2, Loader2, Search, X, AlertTriangle, MapPin, Mail } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
@@ -8,6 +8,7 @@ import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea"; // Ensure you have this component
 import {
   Dialog,
   DialogContent,
@@ -17,8 +18,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-// ================= CACHE CONFIGURATION =================
-let adminCache: any[] | null = null;
+let adminCache = null;
 
 const AdminSkeleton = () => (
   <LuxuryCard className="animate-pulse">
@@ -44,35 +44,39 @@ const AdminManagement = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const [admins, setAdmins] = useState<any[]>([]);
+  const [admins, setAdmins] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Form States for Creation
   const [username, setUsername] = useState("");
   const [branchName, setBranchName] = useState("");
   const [state, setState] = useState("");
+  const [email, setEmail] = useState("");
+  const [address, setAddress] = useState("");
   const [password, setPassword] = useState("");
 
   // Dialog States
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedAdmin, setSelectedAdmin] = useState<any>(null);
+  const [selectedAdmin, setSelectedAdmin] = useState(null);
   
   // Edit Form States
   const [editBranch, setEditBranch] = useState("");
   const [editState, setEditState] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editAddress, setEditAddress] = useState("");
 
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
   const fetchAdmins = async (forceRefresh = false) => {
     if (!forceRefresh && adminCache !== null) {
       setAdmins(adminCache);
-      setIsLoading(false);
+      setIsLoading(false);    
       return;
     }
     setIsLoading(true);
     try {
-      const response = await fetch("https://suvarnagold-16e5.vercel.app/api/admin/all", {
+      const response = await fetch("http://localhost:3000/api/admin/all", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();
@@ -92,16 +96,16 @@ const AdminManagement = () => {
     fetchAdmins();
   }, []);
 
-  // ================= ACTIONS =================
-
-  const openEditDialog = (admin: any) => {
+  const openEditDialog = (admin) => {
     setSelectedAdmin(admin);
     setEditBranch(admin.branchName);
     setEditState(admin.state);
+    setEditEmail(admin.email || "");
+    setEditAddress(admin.address || "");
     setEditDialogOpen(true);
   };
 
-  const openDeleteDialog = (admin: any) => {
+  const openDeleteDialog = (admin) => {
     setSelectedAdmin(admin);
     setDeleteDialogOpen(true);
   };
@@ -125,7 +129,7 @@ const AdminManagement = () => {
     }
   };
 
-  const handleUpdateAdmin = async (e: React.FormEvent) => {
+  const handleUpdateAdmin = async (e) => {
     e.preventDefault();
     if (!selectedAdmin) return;
     setIsSubmitting(true);
@@ -136,7 +140,12 @@ const AdminManagement = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ branchName: editBranch, state: editState }),
+        body: JSON.stringify({ 
+          branchName: editBranch, 
+          state: editState,
+          email: editEmail,
+          address: editAddress 
+        }),
       });
       setToastMessage("Admin details updated");
       setShowToast(true);
@@ -149,7 +158,7 @@ const AdminManagement = () => {
     }
   };
 
-  const handleCreateAdmin = async (e: React.FormEvent) => {
+  const handleCreateAdmin = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
@@ -159,16 +168,16 @@ const AdminManagement = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ username, branchName, state, password }),
+        body: JSON.stringify({ username, branchName, state, password, email, address }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to create admin");
       setToastMessage("Admin registered successfully!");
       setShowToast(true);
       setShowForm(false);
-      setUsername(""); setBranchName(""); setState(""); setPassword("");
+      setUsername(""); setBranchName(""); setState(""); setPassword(""); setEmail(""); setAddress("");
       fetchAdmins(true);
-    } catch (error: any) {
+    } catch (error) {
       alert(error.message);
     } finally {
       setIsSubmitting(false);
@@ -178,7 +187,8 @@ const AdminManagement = () => {
   const filteredAdmins = useMemo(() => {
     return admins.filter(admin =>
       admin.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      admin.branchName.toLowerCase().includes(searchQuery.toLowerCase())
+      admin.branchName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (admin.email && admin.email.toLowerCase().includes(searchQuery.toLowerCase()))
     );
   }, [admins, searchQuery]);
 
@@ -219,8 +229,22 @@ const AdminManagement = () => {
                       <Input placeholder="e.g. Vizag Main" value={branchName} onChange={(e) => setBranchName(e.target.value)} required />
                     </div>
                     <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Email Address</label>
+                      <Input type="email" placeholder="admin@suvarnagold.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                    </div>
+                    <div className="space-y-2">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Region / State</label>
                       <Input placeholder="e.g. Andhra Pradesh" value={state} onChange={(e) => setState(e.target.value)} required />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Full Address</label>
+                      <Textarea 
+                        placeholder="Enter complete branch or admin address" 
+                        value={address} 
+                        onChange={(e) => setAddress(e.target.value)} 
+                        className="min-h-[80px]"
+                        required 
+                      />
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Security Password</label>
@@ -252,7 +276,7 @@ const AdminManagement = () => {
             <div className="relative max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
-                placeholder="Search admins or branches..."
+                placeholder="Search admins, branches or emails..."
                 className="pl-10 h-11 bg-white border-gold/10"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -282,9 +306,17 @@ const AdminManagement = () => {
                         </div>
                       </div>
                       <h3 className="font-serif font-bold text-lg text-foreground">{admin.username}</h3>
-                      <div className="space-y-1 mt-2">
+                      <div className="space-y-2 mt-2">
                         <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider">{admin.branchName}</p>
-                        <p className="text-sm text-muted-foreground">{admin.state}</p>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Mail className="w-3.5 h-3.5 text-amber-500" />
+                            <span>{admin.Gmail}</span>
+                        </div>
+                        <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                            <MapPin className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+                            <span className="line-clamp-2">{admin.Address}</span>
+                        </div>
+                        <p className="text-sm font-medium">{admin.state}</p>
                       </div>
                       <p className="text-[10px] text-slate-400 mt-4 border-t border-gold/5 pt-3">
                         Registered: {new Date(admin.createdAt).toLocaleDateString("en-GB")}
@@ -298,14 +330,12 @@ const AdminManagement = () => {
         </main>
       </div>
 
-      {/* ================= MODALS ================= */}
-
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="sm:max-w-[425px] border-gold/20">
           <DialogHeader>
             <DialogTitle className="font-serif text-2xl">Edit Administrator</DialogTitle>
-            <DialogDescription>Update branch and location for {selectedAdmin?.username}</DialogDescription>
+            <DialogDescription>Update details for {selectedAdmin?.username}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpdateAdmin} className="space-y-4 py-4">
             <div className="space-y-2">
@@ -313,8 +343,16 @@ const AdminManagement = () => {
               <Input value={editBranch} onChange={(e) => setEditBranch(e.target.value)} required />
             </div>
             <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest">Email Address</label>
+              <Input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required />
+            </div>
+            <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest">State / Region</label>
               <Input value={editState} onChange={(e) => setEditState(e.target.value)} required />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest">Full Address</label>
+              <Textarea value={editAddress} onChange={(e) => setEditAddress(e.target.value)} required />
             </div>
             <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>

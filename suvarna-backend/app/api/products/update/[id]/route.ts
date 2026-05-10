@@ -49,7 +49,8 @@ export async function PUT(
       stoneWeight, 
       netWeight, 
       quantity, 
-      huid 
+      huid,
+      va
     } = body;
 
     const updated = await prisma.product.update({
@@ -61,6 +62,7 @@ export async function PUT(
         category,
         bodyPart,
         huid,
+        va,
         // 🔹 Ensure numbers are parsed correctly
         grams: grams !== undefined ? parseFloat(grams) : undefined,
         stoneWeight: stoneWeight !== undefined ? parseFloat(stoneWeight) : undefined,

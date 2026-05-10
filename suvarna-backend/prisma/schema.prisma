@@ -21,6 +21,8 @@ model Admin {
   branchName String
   state      String
   password   String
+  Address    String     @default("D.No. 13-1-12, Main Road,Near YSR Statue, New Gajuwaka,Visakhapatnam - 530026,Andhra Pradesh")
+  Gmail      String     @default("suvarnajewellers12@gmail.com")
   role       String     @default("ADMIN")
   createdAt  DateTime   @default(now())
   createdBy  String
@@ -44,21 +46,63 @@ model GoldPurchase {
 
 model GoldJobWork {
   id                String    @id @default(uuid())
-  companyName       String
-  productType       String
-  goldGivenType     String
-  goldGivenGrams    Float
+  workerName        String?   // Added ? to allow nulls for existing rows
+  totalGrams        Float?    // Added ? to allow nulls for existing rows
+  productType       String?
+  advancePaid       Float     @default(0)
   makingCharge      Float?
   status            String    @default("PENDING")
-  dateGiven         DateTime
+  dateGiven         DateTime  @default(now())
   dateReceived      DateTime?
   wastageGrams      Float?
   returnedGoldGrams Float?
   notes             String?
   createdBy         String
   createdAt         DateTime  @default(now())
+  totalPaid         Float? @default(0)
+  
+  // The relation field for orders
+  assignedOrders    Order[]   
 }
 
+model Order {
+  id               String        @id @default(uuid())
+  orderId          String        @unique // e.g., OR-2026-1001
+  customerName     String
+  phoneNumber      String
+  itemName         String
+  itemDescription  String?
+  metalType        String        // GOLD / SILVER
+  purity           String
+  liveRate         Float
+  givenMetalGrams  Float
+  addedMetalGrams  Float
+  stoneWeight      Float
+  netWeight        Float
+  grossWeight      Float
+  vaPercentage     Float
+  stoneCost        Float
+  gst        Float
+  totalAmount      Float
+  advanceCash      Float
+  discountAmount   Float? @default(10000)
+  balanceAmount    Float
+  deadlineDate     DateTime
+  createdAt        DateTime      @default(now())
+  createdBy        String
+
+  // ================= WORKFLOW & RELATIONSHIP FIELDS =================
+  
+  // 1. Status tracks the lifecycle of the customer's item
+  // Values: "NOT ASSIGNED" | "ASSIGNED" | "COMPLETED" | "DELIVERED"
+  status           String        @default("NOT ASSIGNED") 
+
+  // 2. The Foreign Key: Stores the ID of the JobWork record when assigned
+  jobWorkId        String?       
+
+  // 3. The Relation: This allows you to do: prisma.order.findUnique().jobWork()
+  jobWork          GoldJobWork?  @relation(fields: [jobWorkId], references: [id])
+}
 model Staff {
   id            String   @id @default(uuid())
   fullName      String
@@ -95,6 +139,9 @@ model Product {
   purchaseItems   PurchaseItem[]
 }
 
+
+
+
 model Purchase {
   id                        String         @id @default(uuid())
   customerName              String
@@ -114,6 +161,7 @@ model Purchase {
   excahngejewellrygrams     Float?
   excahngejewellryname      String?
   jewelleryexchangediscount Float?
+  couponDiscount            Float?         @default(0)
   cardAmount                Float          @default(0)
   cashAmount                Float          @default(0)
   chequeAmount              Float          @default(0)
@@ -243,6 +291,8 @@ model ReturnCoupon {
   isUsed      Boolean      @default(false)
   createdAt   DateTime     @default(now())
   invoice     String       @default("#svn")
+  pastinvoice String       @default("svn-invoice")
+
   creditNotes CreditNote[]
 }
 

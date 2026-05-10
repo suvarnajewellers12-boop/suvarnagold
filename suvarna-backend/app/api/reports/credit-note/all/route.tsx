@@ -45,6 +45,7 @@ export async function GET(req:any) {
       isUsed: coupon.isUsed,
       date: coupon.createdAt,
       invoice: coupon.invoice,
+      pastinvoice: coupon.pastinvoice,
 
       products: coupon.creditNotes.map((note) => ({
         name: note.productName,

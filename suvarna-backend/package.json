@@ -2,7 +2,6 @@
   "name": "suvarna-backend",
   "version": "0.1.0",
   "private": true,
-  
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -30,7 +29,8 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "twilio": "^5.13.0",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",

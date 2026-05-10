@@ -66,7 +66,7 @@ export const ProductCard = ({
   const handleSave = async () => {
     try {
       const res = await fetch(
-        `https://suvarnagold-16e5.vercel.app/api/products/update/${product.id}`,
+        `http://localhost:3000/api/products/update/${product.id}`,
         {
           method: "PUT",
           headers: {

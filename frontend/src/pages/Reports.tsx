@@ -30,6 +30,8 @@ import QRCode from "qrcode";
 
 let reportsCache: any[] | null = null;
 
+
+
 const STORE_INFO = {
     name: "Suvarna Jewellers",
     line1: "D.No. 13-1-12, Main Road,",
@@ -43,6 +45,7 @@ const Reports = () => {
     const [showToast, setShowToast] = useState(false);
     const [toastMessage, setToastMessage] = useState("");
     const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year" | "custom">("month");
+    const [liveRates, setLiveRates] = useState<any>(null);
 
     // Start with undefined so it doesn't immediately filter by "Today" on load
     const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
@@ -59,6 +62,20 @@ const Reports = () => {
         }).then(setQrCodeUrl).catch(console.error);
     }, []);
 
+    useEffect(() => {
+        const fetchRates = async () => {
+            try {
+                const response = await fetch("https://suvarnagold-16e5.vercel.app/api/rates");
+                const data = await response.json();
+                setLiveRates(data);
+            } catch (error) {
+                console.error("Error fetching live rates:", error);
+            }
+        };
+
+        fetchRates();
+    }, []);
+
     const fetchReports = async (forceRefresh = false) => {
         if (!forceRefresh && reportsCache !== null) {
             setPurchases(reportsCache);
@@ -72,9 +89,11 @@ const Reports = () => {
                 headers: { Authorization: `Bearer ${token}` },
             });
             const data = await res.json();
+            console.log("Raw API Data:", data);
 
             const grouped = (data.purchases || []).reduce((acc: any[], p: any) => {
                 const existing = acc.find((x: any) => x.id === p.id);
+                console.log(p.productName)
                 const itemObj = {
                     productName: p.productName,
                     category: p.category,
@@ -86,6 +105,8 @@ const Reports = () => {
                     itemCost: p.itemCost,
                     grams: p.grams,
                     sku: p.sku,
+                    stoneWeight: p.stoneWeight,
+                    stoneCost: p.stoneCost
                 };
 
                 if (existing) {
@@ -93,6 +114,7 @@ const Reports = () => {
                 } else {
                     acc.push({
                         id: p.id,
+                        couponDiscount: p.couponDiscount || 0,
                         customer: p.customerName,
                         phone: p.phoneNumber,
                         email: p.emailid,
@@ -103,7 +125,7 @@ const Reports = () => {
                         subtotal: Number(p.totalAmount),
                         cgst: Number(p.cgstAmount),
                         sgst: Number(p.sgstAmount),
-                        discount: Number(p.discountAmount),
+                        discount: Number(p.discountAmount) || 0,
                         exchangeDiscount: Number(p.jewelleryexchangediscount || 0),
                         exchangeName: p.excahngejewellryname,
                         exchangeGrams: p.excahngejewellrygrams,
@@ -122,6 +144,7 @@ const Reports = () => {
                 }
                 return acc;
             }, []);
+            console.log("Grouped Data:", grouped);
 
             setPurchases(grouped);
             reportsCache = grouped;
@@ -169,7 +192,7 @@ const Reports = () => {
                     matchesTime = isWithinInterval(itemDate, { start, end });
                 }
             }
-            console.log("ALL_PURCHASES", ALL_PURCHASES);
+            // console.log("ALL_PURCHASES", ALL_PURCHASES);
 
             if (!matchesTime) return false;
 
@@ -224,11 +247,13 @@ const Reports = () => {
                         "Subtotal": p.subtotal,
                         "CGST": p.cgst,
                         "SGST": p.sgst,
-                        "Discount": p.discount,
+                        "Discount": p.discount || 0,
                         "Exchange Item": p.exchangeName || "None",
                         "Exchange Value": p.exchangeDiscount,
                         "Grand Total": p.grandTotal,
                         "Payment Status": p.paymentStatus,
+                        "Stone Weight": p.stoneWeight,
+                        "Stone Cost": p.stoneCost,
                     });
                 });
             });
@@ -245,23 +270,25 @@ const Reports = () => {
         }
     };
 
-    const handleReceiptAction = async (purchase: any, mode: "download" | "print") => {
+    const handleReceiptAction = async (purchase: any, ratesData: any, mode: "download" | "print") => {
+        if (!ratesData) return;
+
         try {
             const [templateBytes, fontBytes] = await Promise.all([
-                fetch("/receipt-template3.pdf").then((res) => res.arrayBuffer()),
-                fetch("/fonts/Inter_18pt-Regular.ttf").then((res) => res.arrayBuffer()),
+                fetch("/receipt-template.pdf").then((res) => res.arrayBuffer()),
+                fetch("/fonts/NotoSans-VariableFont_wdth,wght.ttf").then((res) => res.arrayBuffer()),
             ]);
 
             const pdfDoc = await PDFDocument.load(templateBytes);
             pdfDoc.registerFontkit(fontkit);
             const customFont = await pdfDoc.embedFont(fontBytes);
             const page = pdfDoc.getPages()[0];
-            const { width, height } = page.getSize();
-            const qrImage = await pdfDoc.embedPng(qrCodeUrl);
+            const { height } = page.getSize();
 
             const gold = rgb(0.72, 0.52, 0.04);
             const grey = rgb(0.45, 0.45, 0.45);
             const black = rgb(0, 0, 0);
+            const red = rgb(0.8, 0, 0);
 
             const draw = (text: string, x: number, yOffset: number, size = 10, color = black) => {
                 page.drawText(String(text || ""), { x, y: height - yOffset, size, font: customFont, color });
@@ -272,82 +299,122 @@ const Reports = () => {
                 page.drawText(String(text || ""), { x: rightX - textWidth, y: height - yOffset, size, font: customFont, color });
             };
 
-            // --- ALIGNED HEADER SECTION ---
-            // Start both at yOffset: 175 to be perfectly level
+            // --- HEADER SECTION ---
             const headerTopY = 175;
-
-            // LEFT COLUMN: STORE INFO
             draw("SUVARNA JEWELLERS", 40, headerTopY, 14, gold);
-            draw(STORE_INFO.line1, 40, headerTopY + 18, 8, grey);
-            draw(STORE_INFO.line2, 40, headerTopY + 28, 8, grey);
-            draw(STORE_INFO.line3, 40, headerTopY + 38, 8, grey);
-            draw(STORE_INFO.line4, 40, headerTopY + 48, 8, grey);
-            draw(STORE_INFO.phone, 40, headerTopY + 62, 8, grey);
+            draw("D.No. 13-1-12, Main Road,", 40, headerTopY + 20, 11, grey);
+            draw("Near YSR Statue, New Gajuwaka,", 40, headerTopY + 32, 11, grey);
+            draw("Visakhapatnam - 530026, AP", 40, headerTopY + 44, 11, grey);
+            draw("Gmail: suvarnajewellers12@gmail.com", 40, headerTopY + 56, 11, grey);
 
-            // RIGHT COLUMN: CUSTOMER & INVOICE INFO
-            draw(`INVOICE: ${purchase.invoice}`, 350, headerTopY, 11, black);
-            draw(`Date: ${format(purchase.date, "dd-MM-yyyy")}`, 350, headerTopY + 15, 9, grey);
-            draw(`Customer: ${purchase.customer}`, 350, headerTopY + 35, 11, black);
-            draw(`Address: ${purchase.address}`, 350, headerTopY + 60, 9, grey);
-            draw(`Phone: ${purchase.phone}`, 350, headerTopY + 50, 9, grey);
-            draw(`Email: ${purchase.email}`, 350, headerTopY + 70, 9, grey);
+            draw(`INVOICE: ${purchase.invoice}`, 350, headerTopY, 12, black);
+            draw(`Date: ${format(new Date(purchase.date), "dd-MM-yyyy")}`, 350, headerTopY + 18, 10, grey);
+            draw(`Customer: ${purchase.customer}`, 350, headerTopY + 40, 12, black);
+            draw(`Phone: ${purchase.phone}`, 350, headerTopY + 55, 11, grey);
+            draw(`Address: ${purchase.address}`, 350, headerTopY + 70, 11, grey);
+            draw(`Email: ${purchase.email}`, 350, headerTopY + 85, 11, grey);
 
+            // --- LIVE RATES BAR ---
+            const metaY = headerTopY + 115;
+            draw(`DATE: ${format(new Date(purchase.date), "dd-MM-yyyy")}`, 40, metaY, 12, black);
+            drawRight(`24K: ₹${liveRates.gold24} | 22K: ₹${liveRates.gold22} | 18K: ₹${liveRates.gold18} | Silver: ₹${liveRates.silver}`, 555, metaY, 12, black);
 
             // --- TABLE HEADERS ---
-            const headY = 300;
-            const col = { name: 40, purity: 180, gross: 250, net: 320, va: 380, price: 555 };
-            draw("ITEM DETAILS", col.name, headY, 9, grey);
-            draw("PURITY", col.purity, headY, 9, grey);
-            draw("GROSS", col.gross, headY, 9, grey);
-            draw("NET", col.net, headY, 9, grey);
-            draw("VA%", col.va, headY, 9, grey);
-            drawRight("PRICE", col.price, headY, 9, grey);
+            const headY = 320;
+            const col = { name: 40, purity: 150, gross: 200, sWt: 250, net: 300, sCost: 350, rate: 410, va: 470, price: 555 };
+            const headers = ["ITEM DETAILS", "PURITY", "GROSS", "S.WT", "NET", "RATE", "VA(₹)", "S.COST"];
 
-            // --- LINE ITEMS ---
-            let currentY = headY + 25;
+            draw(headers[0], col.name, headY, 12, grey);
+            draw(headers[1], col.purity, headY, 12, grey);
+            draw(headers[2], col.gross, headY, 12, grey);
+            draw(headers[3], col.sWt, headY, 12, grey);
+            draw(headers[4], col.net, headY, 12, grey);
+            draw(headers[5], col.rate, headY, 12, grey);
+            draw(headers[6], col.va, headY, 12, grey);
+            draw(headers[7], col.sCost, headY, 12, grey);
+            drawRight("PRICE", col.price, headY, 12, grey);
+
+            // --- ITEMS LOOP ---
+            let currentY = headY + 30;
             purchase.items.forEach((item: any) => {
-                draw(item.productName.toUpperCase(), col.name, currentY, 10, black);
-                draw(item.purity, col.purity, currentY, 10, black);
-                draw(`${item.grossWt}g`, col.gross, currentY, 10, black);
-                draw(`${item.netWt}g`, col.net, currentY, 10, black);
-                draw(`${item.va}%`, col.va, currentY, 10, black);
-                drawRight(`₹${item.itemCost.toLocaleString()}`, col.price, currentY, 10, black);
+                const k = String(item.purity || "").replace(/\D/g, "") || "22";
+                const rateStr = liveRates[`gold${k}`] || liveRates.gold22;
+                const effectiveRate = parseFloat(String(rateStr).replace(/[^\d.-]/g, '')) || 0;
+                const vaAmount = (effectiveRate * item.grams) * (item.va / 100);
 
-                currentY += 14;
-                draw(`SKU: ${item.sku || "N/A"} | HUID: ${item.huid || "N/A"}`, col.name, currentY, 8, grey);
-                currentY += 22;
+                draw(item.productName, col.name, currentY, 11);
+                draw(`SKU: ${item.sku || "N/A"} | HUID: ${item.huid || "N/A"}`, col.name, currentY + 14, 8, grey);
+
+                draw(item.purity, col.purity, currentY, 12);
+                draw(Math.round(effectiveRate).toLocaleString(), col.rate, currentY, 12);
+                draw(`${item.grams}g`, col.gross, currentY, 12);
+                draw(`${item.stoneWeight}g`, col.sWt, currentY, 12);
+                draw(`${item.netWt}g`, col.net, currentY, 12);
+                draw(Math.round(vaAmount).toLocaleString(), col.va, currentY, 12);
+                draw(item.stoneCost.toLocaleString(), col.sCost, currentY, 12);
+                drawRight(item.itemCost.toLocaleString(), col.price, currentY, 12);
+
+                currentY += 35;
             });
 
-            // --- TOTALS SECTION ---
-            let totalY = currentY + 20;
-            drawRight(`Subtotal: ₹${purchase.subtotal.toLocaleString()}`, col.price, totalY, 10);
-            totalY += 18;
-            drawRight(`GST (3%): ₹${(purchase.cgst + purchase.sgst).toLocaleString()}`, col.price, totalY, 10);
+            // --- TOTALS ---
+            let totalY = currentY + 25;
+            drawRight(`Subtotal: ₹${purchase.subtotal.toLocaleString()}`, col.price, totalY, 12, black);
 
-            if (purchase.discount > 0) {
-                totalY += 18;
-                drawRight(`Discount: -₹${purchase.discount.toLocaleString()}`, col.price, totalY, 10, rgb(0.8, 0, 0));
+            if (purchase.cgst > 0) { totalY += 25; drawRight(`CGST (1.5%): ₹${purchase.cgst.toLocaleString()}`, col.price, totalY, 12, grey); }
+            if (purchase.sgst > 0) { totalY += 25; drawRight(`SGST (1.5%): ₹${purchase.sgst.toLocaleString()}`, col.price, totalY, 12, grey); }
+            if (purchase.couponDiscount > 0) { totalY += 25; drawRight(`Coupon Discount: -₹${purchase.couponDiscount.toLocaleString()}`, col.price, totalY, 12, red); }
+            if (purchase.discount > 0) { totalY += 25; drawRight(`Manager Discount: -₹${purchase.discount.toLocaleString()}`, col.price, totalY, 12, red); }
+            if (purchase.exchangeDiscount > 0) { totalY += 25; drawRight(`Exchange Discount: -₹${purchase.exchangeDiscount.toLocaleString()}`, col.price, totalY, 12, red); }
+
+            totalY += 30;
+            drawRight(`GRAND TOTAL: ₹${Math.round(purchase.grandTotal).toLocaleString()}`, col.price, totalY, 16, gold);
+            const token = localStorage.getItem("token");
+            // --- PDF BYTES ---
+            const pdfBytes = await pdfDoc.save();
+
+            // --- TRIGGER EMAIL NOTIFICATION (Browser-Safe Base64) ---
+            if (purchase.email) {
+                const pdfBase64 = btoa(
+                    new Uint8Array(pdfBytes).reduce(
+                        (data, byte) => data + String.fromCharCode(byte),
+                        ''
+                    )
+                );
+
+                fetch("https://suvarnagold-16e5.vercel.app/api/reports/send-report", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        email: purchase.email,
+                        customerName: purchase.customer,
+                        invoice: purchase.invoice,
+                        pdfData: pdfBase64
+                    })
+                }).catch(err => console.error("Email API Error:", err));
             }
 
-            totalY += 25;
-            drawRight(`GRAND TOTAL: ₹${purchase.grandTotal.toLocaleString()}`, col.price, totalY, 16, gold);
-
-            // --- FOOTER ---
-            page.drawImage(qrImage, { x: (width - 40) / 2, y: 50, width: 40, height: 40 });
-
-            const pdfBytes = await pdfDoc.save();
-            const pdfUrl = URL.createObjectURL(new Blob([pdfBytes], { type: "application/pdf" }));
+            // --- HANDLE PRINT/DOWNLOAD (Properly Scoped URL) ---
+            const blob = new Blob([pdfBytes], { type: "application/pdf" });
+            const pdfUrl = URL.createObjectURL(blob);
 
             if (mode === "download") {
                 const link = document.createElement("a");
                 link.href = pdfUrl;
                 link.download = `Invoice_${purchase.invoice}.pdf`;
                 link.click();
+                // Optional: URL.revokeObjectURL(pdfUrl) after small delay
             } else {
-                window.open(pdfUrl)?.print();
+                const printWindow = window.open(pdfUrl);
+                if (printWindow) {
+                    printWindow.addEventListener('load', () => printWindow.print());
+                }
             }
         } catch (error) {
-            console.error("PDF Error:", error);
+            console.error("PDF Generation Error", error);
         }
     };
     return (
@@ -486,9 +553,14 @@ const Reports = () => {
                         {/* REGISTRY TABLE */}
                         <LuxuryCard className="p-0 overflow-hidden border-primary/20 shadow-xl bg-white">
                             <div className="p-6 border-b bg-primary/5 flex justify-between items-center">
-                                <h3 className="font-serif font-bold text-xl flex items-center gap-2 text-primary"><Landmark className="w-5 h-5" /> Transaction Registry</h3>
-                                <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-[10px] font-bold tracking-[0.2em]">{filteredData.length} RECORDS</span>
+                                <h3 className="font-serif font-bold text-xl flex items-center gap-2 text-primary">
+                                    <Landmark className="w-5 h-5" /> Transaction Registry
+                                </h3>
+                                <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-[10px] font-bold tracking-[0.2em]">
+                                    {isLoading ? "SYNCING..." : `${filteredData.length} RECORDS`}
+                                </span>
                             </div>
+
                             <div className="overflow-x-auto">
                                 <Table>
                                     <TableHeader className="bg-muted/50">
@@ -496,34 +568,83 @@ const Reports = () => {
                                             <TableHead className="font-bold">Invoice</TableHead>
                                             <TableHead className="font-bold">Customer</TableHead>
                                             <TableHead className="font-bold">Settlement Method</TableHead>
-                                            <TableHead className="text-right font-bold">Grand Total</TableHead>
+                                            <TableHead className="text-right font-bold w-[160px]">Grand Total</TableHead>
                                         </TableRow>
                                     </TableHeader>
+
                                     <TableBody>
-                                        {filteredData.map((row) => (
-                                            <TableRow key={row.id} onClick={() => setSelectedCustomer(row)} className="group cursor-pointer hover:bg-primary/[0.03] transition-colors">
-                                                <TableCell>
-                                                    <div className="font-mono font-bold text-primary">{row.invoice}</div>
-                                                    <div className="text-[10px] text-muted-foreground">{format(row.date, "PPP")}</div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="font-bold text-gray-800">{row.customer}</div>
-                                                    <div className="text-[10px] text-muted-foreground flex items-center gap-1"><Phone className="w-2.5 h-2.5" />{row.phone}</div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {row.payments.cash > 0 && <span className="text-[8px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded border border-green-200 uppercase">Cash</span>}
-                                                        {row.payments.upi > 0 && <span className="text-[8px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded border border-blue-200 uppercase">UPI</span>}
-                                                        {row.payments.card > 0 && <span className="text-[8px] bg-purple-100 text-purple-700 font-bold px-1.5 py-0.5 rounded border border-purple-200 uppercase">Card</span>}
-                                                        {row.payments.cheque > 0 && <span className="text-[8px] bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded border border-orange-200 uppercase">CHQ</span>}
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-right font-bold text-lg text-amber-700 italic">₹{row.grandTotal.toLocaleString()}</TableCell>
-                                            </TableRow>
-                                        ))}
-                                        {filteredData.length === 0 && (
+                                        {isLoading ? (
+                                            /* --- LOADING STATE (Skeletons) --- */
+                                            Array.from({ length: 5 }).map((_, index) => (
+                                                <TableRow key={`skeleton-${index}`} className="animate-pulse">
+                                                    <TableCell>
+                                                        <div className="h-4 w-24 bg-muted rounded mb-2" />
+                                                        <div className="h-3 w-16 bg-muted/40 rounded" />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="h-4 w-32 bg-muted rounded mb-2" />
+                                                        <div className="h-3 w-20 bg-muted/40 rounded" />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex gap-1">
+                                                            <div className="h-4 w-10 bg-muted rounded" />
+                                                            <div className="h-4 w-10 bg-muted rounded" />
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="w-[160px]">
+                                                        <div className="h-6 w-24 bg-muted rounded ml-auto" />
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        ) : filteredData.length > 0 ? (
+                                            /* --- ACTUAL DATA STATE --- */
+                                            filteredData.map((row) => (
+                                                <TableRow
+                                                    key={row.id}
+                                                    onClick={() => setSelectedCustomer(row)} // RESTORED: Click functionality
+                                                    className="group cursor-pointer hover:bg-primary/[0.03] transition-colors"
+                                                >
+                                                    <TableCell>
+                                                        <div className="font-mono font-bold text-primary">{row.invoice}</div>
+                                                        <div className="text-[10px] text-muted-foreground">{format(row.date, "PPP")}</div>
+                                                    </TableCell>
+
+                                                    <TableCell>
+                                                        <div className="font-bold text-gray-800">{row.customer}</div>
+                                                        <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                                            <Phone className="w-2.5 h-2.5" />{row.phone}
+                                                        </div>
+                                                    </TableCell>
+
+                                                    <TableCell>
+                                                        {/* RESTORED: Full Settlement Method Badges */}
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {row.payments.cash > 0 && (
+                                                                <span className="text-[8px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded border border-green-200 uppercase">Cash</span>
+                                                            )}
+                                                            {row.payments.upi > 0 && (
+                                                                <span className="text-[8px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded border border-blue-200 uppercase">UPI</span>
+                                                            )}
+                                                            {row.payments.card > 0 && (
+                                                                <span className="text-[8px] bg-purple-100 text-purple-700 font-bold px-1.5 py-0.5 rounded border border-purple-200 uppercase">Card</span>
+                                                            )}
+                                                            {row.payments.cheque > 0 && (
+                                                                <span className="text-[8px] bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded border border-orange-200 uppercase">CHQ</span>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+
+                                                    <TableCell className="text-right font-bold text-lg text-amber-700 italic w-[160px]">
+                                                        ₹{row.grandTotal.toLocaleString()}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        ) : (
+                                            /* --- EMPTY STATE --- */
                                             <TableRow>
-                                                <TableCell colSpan={4} className="h-32 text-center text-muted-foreground italic">No transactions found matching your selection.</TableCell>
+                                                <TableCell colSpan={4} className="h-32 text-center text-muted-foreground italic">
+                                                    No transactions found matching your selection.
+                                                </TableCell>
                                             </TableRow>
                                         )}
                                     </TableBody>
@@ -574,12 +695,14 @@ const Reports = () => {
                                         <div key={i} className="p-4 rounded-xl bg-secondary/20 border border-primary/5 space-y-2">
                                             <div className="flex justify-between items-center">
                                                 <p className="font-bold text-sm text-gray-800">{item.productName}</p>
-                                                <p className="font-bold text-primary italic">₹{item.itemCost.toLocaleString()}</p>
+                                                {/* <p className="font-bold text-primary italic">₹{item.itemCost.toLocaleString()}</p> */}
                                             </div>
                                             <div className="grid grid-cols-4 text-[10px] uppercase text-muted-foreground font-medium">
                                                 <span>Purity: {item.purity}</span>
                                                 <span>Gross: {item.grossWt}g</span>
                                                 <span>Net: {item.netWt}g</span>
+                                                <span>Stone Wt: {item.stoneWeight}g</span>
+                                                <span>Stone Cost: ₹{item.stoneCost.toLocaleString()}</span>
                                                 <span>VA: {item.va}%</span>
                                                 <span>HUID: {item.huid || "N/A"}</span>
                                                 <span>SKU: {item.sku || "N/A"}</span>

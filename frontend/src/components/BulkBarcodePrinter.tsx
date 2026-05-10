@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import qz from "qz-tray";
-import { 
-  Printer, X, ListChecks, Play, Loader2, 
-  Trash2, Layers, Weight, Tag 
+import {
+  Printer, X, ListChecks, Play, Loader2,
+  Trash2, Layers, Weight, Tag
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -42,7 +42,6 @@ export default function BulkBarcodePrinter({
   };
 
   const logStatus = (msg: string, isError = false) => {
-    console.log(`[QZ-Bulk] ${msg}`);
     setStatus(isError ? `❌ ${msg}` : msg);
   };
 
@@ -63,39 +62,46 @@ export default function BulkBarcodePrinter({
     setIsPrinting(true);
     try {
       await initQZ();
-
-      logStatus(`Finding 'TSC TE244'...`);
       const printer = await qz.printers.find("TSC TE244");
       const config = qz.configs.create(printer);
 
       let fullTspl = "";
 
-      // Iterate through the selected products and build one continuous TSPL command
       queue.forEach((item) => {
-        const startY = 20;
-        const rowGap = 24;
-        const barcodeStartX = (CONFIG.boxWidth - CONFIG.barcodeWidth) * 8;
+        // Label is 63mm wide. 63 * 8 = 504 dots total width.
+        // We place text at X=10 (Left) and Barcode at X=200 (Right)
+
+        const textX = 10;
+        const barcodeX = 220;
+        const startY = 15; // Starting vertical position
+        const lineSpacing = 22; // Space between text lines
 
         fullTspl += `
 CLS
 SIZE ${CONFIG.boxWidth} mm,${CONFIG.boxHeight} mm
 GAP 3 mm,0 mm
 DIRECTION 1
-TEXT 0,${startY},"1",0,1,1,"G:${item.grams}"
-TEXT 0,${startY + rowGap},"1",0,1,1,"SW:${item.stoneWeight}"
-TEXT 0,${startY + (rowGap * 2)},"1",0,1,1,"NW:${item.netWeight}"
-BARCODE ${barcodeStartX},${startY},"128",48,0,0,2,2,"${item.sku}"
-TEXT ${barcodeStartX},${startY + 52},"1",0,1,1,"ID:${item.huid || ""} ${item.sku}"
-PRINT 1
+REFERENCE 0,0
 `;
+
+        // --- Left Side: Product Details ---
+        fullTspl += `TEXT ${textX},${startY},"1",0,1,1,"G: ${item.grams}"\n`;
+        fullTspl += `TEXT ${textX},${startY + lineSpacing},"1",0,1,1,"SW: ${item.stoneWeight}"\n`;
+        fullTspl += `TEXT ${textX},${startY + (lineSpacing * 2)},"1",0,1,1,"NW: ${item.netWeight}        ${item.huid || ''}  ${item.sku || ''}"\n`;
+
+        // --- Right Side: Barcode ---
+        // Narrow/Wide set to 1,1 to keep it compact
+        fullTspl += `BARCODE ${barcodeX},${startY},"128",40,0,0,1,1,"${item.sku}"\n`;
+
+        // SKU/HUID text placed directly under the barcode
+        fullTspl += `TEXT ${barcodeX},${startY + 45},"1",0,1,1,"\n`;
+
+        fullTspl += `PRINT 1\n`;
       });
-
-      logStatus(`Sending ${queue.length} labels...`);
       const data = [{ type: "raw", format: "command", data: fullTspl }];
-
       await qz.print(config, data);
       logStatus(`Success: ${queue.length} labels printed.`);
-      onClearQueue(); // Optionally clear queue after successful print
+      onClearQueue();
     } catch (err: any) {
       logStatus(`Print Error: ${err.message}`, true);
     } finally {
@@ -124,10 +130,10 @@ PRINT 1
             <span className="text-[10px] uppercase tracking-widest opacity-80">{queue.length} Items Selected</span>
           </div>
         </div>
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          onClick={onClearQueue} 
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onClearQueue}
           className="text-white hover:bg-white/10 rounded-full h-8 w-8"
         >
           <X className="w-4 h-4" />
@@ -143,8 +149,8 @@ PRINT 1
           </div>
         ) : (
           queue.map((item) => (
-            <div 
-              key={item.id} 
+            <div
+              key={item.id}
               className="flex items-center justify-between bg-white p-3 rounded-2xl border border-amber-100/50 group hover:border-amber-300 transition-all shadow-sm"
             >
               <div className="flex items-center gap-3">
@@ -159,8 +165,8 @@ PRINT 1
                   </div>
                 </div>
               </div>
-              <button 
-                onClick={() => onRemoveFromQueue(item.id)} 
+              <button
+                onClick={() => onRemoveFromQueue(item.id)}
                 className="opacity-0 group-hover:opacity-100 h-8 w-8 flex items-center justify-center rounded-full text-red-400 hover:bg-red-50 hover:text-red-600 transition-all"
               >
                 <Trash2 className="w-4 h-4" />
@@ -178,7 +184,7 @@ PRINT 1
         )}>
           {status}
         </div>
-        
+
         <Button
           disabled={isPrinting || queue.length === 0}
           className="w-full bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-700 hover:to-emerald-600 text-white font-black h-14 rounded-[1.25rem] shadow-xl shadow-green-200 transition-all active:scale-95 flex items-center justify-center gap-3 text-xs tracking-widest uppercase"

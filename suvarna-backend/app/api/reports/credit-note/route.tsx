@@ -19,8 +19,8 @@ export async function POST(req: Request) {
     // 1. AUTHORIZATION CHECK
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
-      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { 
-        status: 401, headers: corsHeaders() 
+      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: corsHeaders()
       });
     }
 
@@ -28,30 +28,30 @@ export async function POST(req: Request) {
     const decoded: any = verifyToken(token);
 
     if (decoded.role !== "ADMIN" && decoded.role !== "SUPER_ADMIN") {
-      return new NextResponse(JSON.stringify({ error: "Forbidden: Admin access required" }), { 
-        status: 403, headers: corsHeaders() 
+      return new NextResponse(JSON.stringify({ error: "Forbidden: Admin access required" }), {
+        status: 403, headers: corsHeaders()
       });
     }
 
     // 2. PARSE BODY
     const body = await req.json();
-    const {  overallCost, products } = body;
+    const { overallCost, products, pastInvoice } = body;
 
     if (!overallCost || isNaN(Number(overallCost))) {
-      return new NextResponse(JSON.stringify({ error: "A valid overall cost is required" }), { 
-        status: 400, headers: corsHeaders() 
+      return new NextResponse(JSON.stringify({ error: "A valid overall cost is required" }), {
+        status: 400, headers: corsHeaders()
       });
     }
 
     if (!products || !Array.isArray(products) || products.length === 0) {
-      return new NextResponse(JSON.stringify({ error: "At least one product detail is required" }), { 
-        status: 400, headers: corsHeaders() 
+      return new NextResponse(JSON.stringify({ error: "At least one product detail is required" }), {
+        status: 400, headers: corsHeaders()
       });
     }
 
     // 3. EXECUTE TRANSACTION
     const result = await prisma.$transaction(async (tx) => {
-      
+
       const couponCode = `RTN-${Math.random().toString(36).toUpperCase().substring(2, 8)}`;
       const invoiceId = `#SVJ-CN-${Math.random().toString(36).toUpperCase().substring(2, 8)}`;
       // Create the Coupon and nest the product details
@@ -61,6 +61,7 @@ export async function POST(req: Request) {
           cashAmount: Math.round(Number(overallCost)), // Total value for the customer
           isUsed: false,
           invoice: invoiceId, // Save the unique ID here
+          pastinvoice: pastInvoice,
 
           creditNotes: {
             create: products.map((p: any) => ({
@@ -95,7 +96,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("CREDIT_NOTE_SYSTEM_ERROR:", error);
     const status = error.name === "JsonWebTokenError" ? 401 : 500;
-    
+
     return new NextResponse(
       JSON.stringify({ error: error.message || "Internal Server Error" }),
       { status, headers: corsHeaders() }

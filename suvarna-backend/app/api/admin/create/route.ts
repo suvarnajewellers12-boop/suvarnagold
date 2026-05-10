@@ -29,9 +29,9 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { username, branchName, state, password } = body;
+    const { username, branchName, state, password, address, email } = body;
 
-    if (!username || !branchName || !state || !password) {
+    if (!username || !branchName || !state || !password ||!address || !email) {
       return cors(
         NextResponse.json({ error: "All fields required" }, { status: 400 })
       );
@@ -59,6 +59,8 @@ export async function POST(req: Request) {
         state,
         password: hashedPassword,
         createdBy: decoded.id,
+        Address: address,
+        Gmail: email,
       },
     });
 

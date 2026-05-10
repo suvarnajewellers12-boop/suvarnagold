@@ -53,11 +53,12 @@ export async function POST(req: Request) {
       totalAmount: purchaseData.totalAmount,
       cgstAmount: purchaseData.cgstAmount,
       sgstAmount: purchaseData.sgstAmount,
-      discountAmount: purchaseData.discountAmount,
+      discountAmount: purchaseData.discountAmount||0,
       jewelleryexchangediscount: purchaseData.jewelleryexchangediscount || 0,
       excahngejewellrygrams: purchaseData.excahngejewellrygrams || null,
       excahngejewellryname: purchaseData.excahngejewellryname || null,
       finalAmount: purchaseData.finalAmount,
+      couponDiscount: purchaseData.couponDiscount || 0,
 
       // Payment Breakdown (The new fields)
       cashAmount: Number(paymentBreakdown.cash) || 0,

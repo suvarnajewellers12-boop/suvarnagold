@@ -16,6 +16,7 @@ export async function OPTIONS() {
 
 export async function GET(req: Request) {
   try {
+    // 1. Auth & Verification
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
       return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { 
@@ -32,72 +33,76 @@ export async function GET(req: Request) {
       });
     }
 
+    // 2. Calculate Today's Range (IST Focus)
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    // 3. Fetch Data with Date Filter
     const purchases = await prisma.purchase.findMany({
+      where: {
+        purchasedAt: {
+          gte: startOfToday,
+          lte: endOfToday,
+        },
+      },
       include: {
         admin: { select: { username: true } },
         superAdmin: { select: { username: true } },
         items: {
           include: {
-            product: {
-              select: { 
-                name: true, 
-                metalType: true,
-                carats: true,      // For PURITY
-                grams: true,       // For GROSS WT
-                netWeight: true,   // For NET WT
-                va: true,          // For VA (Making charge)
-                huid: true,
-                sku: true, 
-                stoneWeight: true,
-                stoneCost: true       // For HUID
-              },
-            },
+            product: true, // Simplified include for clarity, adjust as needed
           },
         },
       },
       orderBy: { purchasedAt: "desc" },
     });
 
+    // 4. Flatten Items into Rows (As per your inspiration)
     const rows = purchases.flatMap((purchase) => {
       const createdBy = purchase.admin?.username || purchase.superAdmin?.username || "SYSTEM";
 
       return purchase.items.map((item) => ({
         id: purchase.id,
-        paymentId: purchase.paymentId || "N/A",
-        paymentStatus: purchase.paymentStatus,
+        invoice: purchase.invoice,
         customerName: purchase.customerName,
         phoneNumber: purchase.phoneNumber,
         Address: purchase.Address || "N/A",
         emailid: purchase.emailid || "N/A",
-        jewelleryexchangediscount:purchase.jewelleryexchangediscount,
-        excahngejewellrygrams:purchase.excahngejewellrygrams,
-        excahngejewellryname:purchase.excahngejewellryname,
-        cardAmount: purchase.cardAmount,
-        upiAmount: purchase.upiAmount,
-        chequeAmount: purchase.chequeAmount,
-        cashAmount: purchase.cashAmount,
-        totalAmount: purchase.totalAmount,
-        cgstAmount: purchase.cgstAmount,
-        sgstAmount: purchase.sgstAmount,
-        discountAmount: purchase.discountAmount,
-        couponDiscount: purchase.couponDiscount,
-        finalAmount: purchase.finalAmount,
-        invoice: purchase.invoice,
+        
+        // Payment split for the "Settlement Method" badges in your table
+        payments: {
+          cash: purchase.cashAmount || 0,
+          upi: purchase.upiAmount || 0,
+          card: purchase.cardAmount || 0,
+          cheque: purchase.chequeAmount || 0,
+        },
 
-        // Item specific fields (Direct & Product relations)
+        // Financials
+        subtotal: purchase.totalAmount,
+        cgst: purchase.cgstAmount,
+        sgst: purchase.sgstAmount,
+        discount: purchase.discountAmount,
+        couponDiscount: purchase.couponDiscount,
+        exchangeDiscount: purchase.jewelleryexchangediscount,
+        grandTotal: purchase.finalAmount,
+
+        // Item specific fields
         productName: item.product.name,
+        grams: item.product.grams,
         category: item.product.metalType,
-        purity: item.product.carats,       // Added
-        grossWt: item.product.grams,       // Added
-        netWt: item.product.netWeight,     // Added
-        va: item.product.va,               // Added
-        huid: item.product.huid || "N/A",  // Added
-        grams: item.grams,                 // Actual weight sold
-        itemCost: item.cost,               // Product Value
-        sku: item.product.sku || "N/A",    // Added
+        purity: item.product.carats,
+        grossWt: item.product.grams,
+        netWt: item.product.netWeight,
+        va: item.product.va,
+        huid: item.product.huid || "N/A",
+        sku: item.product.sku || "N/A",
+        itemCost: item.cost,
+        
+        // Metadata
         purchasedAt: purchase.purchasedAt,
-        stoneWeight: item.product.stoneWeight || 0, // Added
-        stoneCost: item.product.stoneCost || 0,     // Added
         createdBy: createdBy,
       }));
     });
@@ -108,7 +113,7 @@ export async function GET(req: Request) {
     );
 
   } catch (error) {
-    console.error("REPORT_ERROR:", error);
+    console.error("TODAYS_PURCHASE_ERROR:", error);
     return new NextResponse(
       JSON.stringify({ error: "Server error" }),
       { status: 500, headers: corsHeaders() }

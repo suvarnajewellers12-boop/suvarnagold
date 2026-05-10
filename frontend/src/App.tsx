@@ -24,9 +24,11 @@ import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import SuperAdminCreateScheme from "./pages/CreateScheme";
 import GoldJobWorkPage from "./pages/GoldJobWorkPage";
+import CustomerOrder from "./pages/CustomerOrder";
 import GoldPurchasePage from "./pages/GoldPurchasePage";
 import SuperadminCustomerMangement from "./pages/Customers";
 import CreditNote from "./pages/CreditNote";
+import Upload from "./pages/Upload";
 
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -35,7 +37,7 @@ import AdminProducts from "./pages/admin/AdminProducts";
 import AdminBilling from "./pages/admin/AdminBilling";
 import AdminReports from "./pages/admin/AdminReports";
 import AdminSettings from "./pages/admin/AdminSettings";
-import CustomerManagement from "./pages/admin/AdminCustomer";
+import AdminCustomerManagement from "./pages/admin/AdminCustomer";
 import StaffManagement from "./pages/staff";
 import ProductsList from "./pages/ProductsList";
 import AdminCreateScheme from "./pages/admin/AdminCreateSchemes";
@@ -160,6 +162,8 @@ const App = () => (
             {/* Super Admin Routes */}
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/dashboard/photos" element={<ProductsList />} />
+            <Route path="/dashboard/customer-orders" element={<CustomerOrder />} />
+            <Route path="/dashboard/upload" element={<Upload />} />
             <Route path="/dashboard/admins" element={<AdminManagement />} />
             <Route path="/dashboard/products" element={<Products />} />
             <Route path="/dashboard/store" element={<Store />} />
@@ -182,7 +186,7 @@ const App = () => (
             <Route path="/admin/credit-notes" element={<AdminCreditNotes />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/create-scheme" element={<AdminCreateScheme />} />
-            <Route path="/admin/customers" element={<CustomerManagement />} />
+            <Route path="/admin/customers" element={<AdminCustomerManagement />} />
             <Route path="/admin/photos" element={<AdminProductList />} />
 
             {/* Catch-all */}

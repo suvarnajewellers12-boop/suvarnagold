@@ -2,45 +2,63 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
 
-function corsHeaders(){
-return{
-"Access-Control-Allow-Origin":"*",
-"Access-Control-Allow-Headers":"Content-Type, Authorization",
-"Access-Control-Allow-Methods":"GET,OPTIONS"
-}
-}
-
-export async function OPTIONS(){
-return new NextResponse(null,{status:200,headers:corsHeaders()})
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "GET,OPTIONS",
+  };
 }
 
-export async function GET(req:Request){
-
-try{
-
-const authHeader=req.headers.get("authorization");
-
-if(!authHeader){
-return new NextResponse(JSON.stringify({error:"Unauthorized"}),{status:401,headers:corsHeaders()})
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 200, headers: corsHeaders() });
 }
 
-const token=authHeader.split(" ")[1];
-const decoded:any=verifyToken(token);
+export async function GET(req: Request) {
+  try {
+    const authHeader = req.headers.get("authorization");
 
-if(!decoded || decoded.role!=="SUPER_ADMIN"){
-return new NextResponse(JSON.stringify({error:"Forbidden"}),{status:403,headers:corsHeaders()})
-}
+    if (!authHeader) {
+      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: corsHeaders(),
+      });
+    }
 
-const jobworks=await prisma.goldJobWork.findMany({
-orderBy:{createdAt:"desc"}
-})
+    const token = authHeader.split(" ")[1];
+    const decoded: any = verifyToken(token);
 
-return new NextResponse(JSON.stringify({jobworks}),{status:200,headers:corsHeaders()})
+    if (!decoded || decoded.role !== "SUPER_ADMIN") {
+      return new NextResponse(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: corsHeaders(),
+      });
+    }
 
-}catch(error){
+    // 🔥 UPDATED FETCH LOGIC
+    const jobworks = await prisma.goldJobWork.findMany({
+      include: {
+        assignedOrders: true, // This fetches all linked Order details for each Job
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
 
-return new NextResponse(JSON.stringify({error:"Server error"}),{status:500,headers:corsHeaders()})
+    return new NextResponse(
+      JSON.stringify({ 
+        success: true,
+        count: jobworks.length,
+        jobworks 
+      }),
+      { status: 200, headers: corsHeaders() }
+    );
 
-}
-
+  } catch (error) {
+    console.error("FETCH_JOBWORK_ERROR:", error);
+    return new NextResponse(
+      JSON.stringify({ error: "Internal Server Error" }),
+      { status: 500, headers: corsHeaders() }
+    );
+  }
 }

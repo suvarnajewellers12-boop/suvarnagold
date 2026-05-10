@@ -45,7 +45,7 @@ export async function GET(req: Request) {
     });
 
     const jobworks = await prisma.goldJobWork.aggregate({
-      _sum: { goldGivenGrams: true },
+      _sum: { goldGivenGrams: true } as any,
     });
 
     const purchased = purchases._sum.grams || 0;

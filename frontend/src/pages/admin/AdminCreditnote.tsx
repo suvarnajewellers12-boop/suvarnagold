@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { AdminSidebar } from "@/components/AdminSidebar";
+import{AdminSidebar} from "@/components/AdminSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
@@ -10,13 +10,17 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { 
-  Plus, Search, RefreshCcw, Banknote, Trash2, 
-  Hash, Landmark, Calendar, Loader2, ScrollText, Package
+  Plus, Search, RefreshCcw, Trash2, 
+  Landmark, Calendar, Loader2, ScrollText, Package, Printer
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
-const AdminCreditNotes = () => {
+// PDF Libraries
+import { PDFDocument, rgb } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
+
+const CreditNotes = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -53,6 +57,151 @@ const AdminCreditNotes = () => {
 
   useEffect(() => { fetchCreditNotes(); }, []);
 
+  // --- PDF GENERATION LOGIC ---
+  const generateCreditReceipt = async (note: any) => {
+    try {
+      const [templateBytes, fontBytes] = await Promise.all([
+        fetch("/receipt-template3.pdf").then((res) => res.arrayBuffer()),
+        fetch("/fonts/Inter_18pt-Regular.ttf").then((res) => res.arrayBuffer()),
+      ]);
+
+      const pdfDoc = await PDFDocument.load(templateBytes);
+      pdfDoc.registerFontkit(fontkit);
+      const customFont = await pdfDoc.embedFont(fontBytes);
+      const page = pdfDoc.getPages()[0];
+      const { width, height } = page.getSize();
+
+      const gold = rgb(0.72, 0.52, 0.04);
+      const grey = rgb(0.45, 0.45, 0.45);
+      const lightGrey = rgb(0.85, 0.85, 0.85); // Slightly darker for visibility
+      const black = rgb(0, 0, 0);
+
+      const draw = (text: string, x: number, yOffset: number, size = 10, color = black) => {
+        page.drawText(String(text || ""), { x, y: height - yOffset, size, font: customFont, color });
+      };
+
+      const drawRight = (text: string, rightX: number, yOffset: number, size = 10, color = black) => {
+        const textWidth = customFont.widthOfTextAtSize(String(text || ""), size);
+        page.drawText(String(text || ""), { x: rightX - textWidth, y: height - yOffset, size, font: customFont, color });
+      };
+
+      // --- HEADER ---
+      const headerTopY = 175;
+      draw("SUVARNA JEWELLERS", 40, headerTopY, 14, gold);
+      draw("CREDIT VOUCHER / RETURN RECEIPT", 40, headerTopY + 18, 9, black);
+      
+      draw(`Invoice No: ${note.invoice}`, 350, headerTopY, 11, black);
+      draw(`Date: ${format(new Date(note.date), "dd-MM-yyyy")}`, 350, headerTopY + 15, 9, grey);
+      
+      draw("COUPON CODE:", 350, headerTopY + 40, 9, grey);
+      draw(note.couponCode, 350, headerTopY + 55, 16, gold);
+
+      // --- TABLE CONFIGURATION ---
+      const startX = 40;
+      const endX = width - 40;
+      const tableWidth = endX - startX+20;
+      const headY = 300;
+      const rowHeight = 25;
+      
+      // Column X-Positions
+      const col1 = startX + 5;   // Returned Item
+      const col2 = startX + 220; // Purity
+      const col3 = startX + 350; // Weight
+      const col4 = startX + 480; // Stone Wt
+
+      // 1. Draw Header Background
+      page.drawRectangle({
+        x: startX,
+        y: height - headY - 15,
+        width: tableWidth,
+        height: rowHeight,
+        color: rgb(0.97, 0.97, 0.97),
+      });
+
+      // 2. Draw Header Text
+      const textPaddingY = headY + 2; 
+      draw("RETURNED ITEM", col1, textPaddingY, 8, grey);
+      draw("PURITY", col2, textPaddingY, 8, grey);
+      draw("WEIGHT", col3, textPaddingY, 8, grey);
+      draw("STONE WT", col4, textPaddingY, 8, grey);
+
+      // --- LINE ITEMS ---
+      let currentY = headY + 10;
+
+      note.products.forEach((p: any, index: number) => {
+        currentY += rowHeight;
+
+        // Row Separator Line (Top of row)
+        page.drawLine({
+          start: { x: startX, y: height - currentY + 15 },
+          end: { x: endX, y: height - currentY + 15 },
+          thickness: 0.5,
+          color: lightGrey,
+        });
+
+        // Data
+        draw(p.name.toUpperCase(), col1, currentY, 9, black);
+        draw(p.carats, col2, currentY, 9, black);
+        draw(`${p.grams}g`, col3, currentY, 9, black);
+        draw(p.stoneWeight > 0 ? `${p.stoneWeight}g` : "-", col4, currentY, 9, black);
+      });
+
+      // --- TABLE BORDERS (Gird) ---
+      const tableBottomY = currentY + 10;
+      
+      // Outer Border
+      page.drawRectangle({
+        x: startX,
+        y: height - tableBottomY,
+        width: tableWidth,
+        height: tableBottomY - headY + 15,
+        borderColor: lightGrey,
+        borderWidth: 1,
+      });
+
+      // Vertical Dividers
+      const verticalLines = [col2 - 10, col3 - 10, col4 - 10];
+      verticalLines.forEach((xPos) => {
+        page.drawLine({
+          start: { x: xPos, y: height - headY + 10 },
+          end: { x: xPos, y: height - tableBottomY },
+          thickness: 0.5,
+          color: lightGrey,
+        });
+      });
+
+      // --- TOTAL VALUE BOX ---
+      let totalY = tableBottomY + 30;
+      const boxWidth = 240;
+      const boxX = width - boxWidth - 40;
+      
+      page.drawRectangle({
+        x: boxX,
+        y: height - totalY - 50,
+        width: boxWidth,
+        height: 60,
+        color: rgb(1, 1, 1),
+        borderColor: gold,
+        borderWidth: 1.5,
+      });
+
+      draw("TOTAL CREDIT VALUE", boxX + 15, totalY + 15, 8, grey);
+      drawRight(`₹${note.overallPrice.toLocaleString()}`, endX - 15, totalY + 45, 20, gold);
+
+      // Footer
+      draw("* This voucher is valid for one-time use only against a new purchase.", 40, height - 60, 8, grey);
+      draw("* Please present this voucher at the billing counter.", 40, height - 50, 8, grey);
+
+      const pdfBytes = await pdfDoc.save();
+      const pdfUrl = URL.createObjectURL(new Blob([pdfBytes], { type: "application/pdf" }));
+      window.open(pdfUrl)?.print();
+
+    } catch (error) {
+      console.error("Receipt Error:", error);
+      setToastMessage("Could not generate PDF");
+      setShowToast(true);
+    }
+  };
   const handleAddProductRow = () => {
     setProducts([...products, { name: "", grams: "", carats: "22k", stoneWeight: "" }]);
   };
@@ -123,7 +272,6 @@ const AdminCreditNotes = () => {
   const filteredNotes = useMemo(() => {
     return creditNotes.filter(n => 
       n.couponCode.toLowerCase().includes(searchQuery.toLowerCase())
-    
     );
   }, [searchQuery, creditNotes]);
 
@@ -174,12 +322,11 @@ const AdminCreditNotes = () => {
                     <TableHead className="font-bold">Invoice / ID</TableHead>
                     <TableHead className="font-bold">Coupon Code</TableHead>
                     <TableHead className="font-bold">Inventory Breakdown</TableHead>
-                    <TableHead className="font-bold text-right">Credit Value</TableHead>
+                    <TableHead className="font-bold text-right">Action & Value</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredNotes.map((note) => (
-
                     <TableRow key={note.couponId} className="hover:bg-primary/[0.02] transition-colors group">
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -220,8 +367,20 @@ const AdminCreditNotes = () => {
                           ))}
                         </div>
                       </TableCell>
-                      <TableCell className="text-right font-serif font-black text-2xl text-amber-700 italic drop-shadow-sm">
-                        ₹{note.overallPrice.toLocaleString()}
+                      <TableCell className="text-right">
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="font-serif font-black text-2xl text-amber-700 italic drop-shadow-sm">
+                            ₹{note.overallPrice.toLocaleString()}
+                          </span>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => generateCreditReceipt(note)}
+                            className="h-7 text-[9px] font-bold border-primary/20 hover:bg-primary hover:text-white"
+                          >
+                            <Printer className="w-3 h-3 mr-1" /> Print Voucher
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -318,4 +477,4 @@ const AdminCreditNotes = () => {
   );
 };
 
-export default AdminCreditNotes;
+export default CreditNotes;
