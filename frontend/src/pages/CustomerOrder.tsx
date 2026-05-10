@@ -200,7 +200,7 @@ export default function OrderManagementPage() {
   const fetchOrders = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("http://localhost:3000/api/gold/order/all", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/order/all", {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -255,7 +255,7 @@ export default function OrderManagementPage() {
 
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://localhost:3000/api/gold/order", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/order", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -290,7 +290,7 @@ export default function OrderManagementPage() {
     if (!viewingOrder) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:3000/api/gold/order/issue`, {
+      const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/gold/order/issue`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ orderId: viewingOrder.id })
