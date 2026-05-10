@@ -45,6 +45,8 @@ export async function POST(req: Request) {
       makingCharge, 
       dateGiven,
       notes,
+      totalAmount,
+      balanceAmount
     } = body;
 
     if (!orderIds || orderIds.length === 0) {
@@ -98,7 +100,9 @@ export async function POST(req: Request) {
           dateGiven: new Date(dateGiven),
           notes,
           status: "PENDING",
+          totalAmount: parseFloat(totalAmount) || 0,
           createdBy: decoded.id,
+          balanceAmount: parseFloat(balanceAmount) || 0
         },
       });
 

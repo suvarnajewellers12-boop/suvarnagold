@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import nodemailer from 'nodemailer';
 import { verifyToken } from "@/lib/auth";
 
+export const maxDuration = 60; 
+export const dynamic = 'force-dynamic';
+
 // Comprehensive CORS headers for local development
 const corsHeaders = (origin: string | null) => ({
   "Access-Control-Allow-Origin": origin || "http://localhost:8080",
@@ -17,6 +20,15 @@ export async function OPTIONS(req: Request) {
     headers: corsHeaders(origin),
   });
 }
+
+// Add this at the top of your API route file
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb', // Increases the limit to 10 Megabytes
+    },
+  },
+};
 
 export async function POST(req: Request) {
   const origin = req.headers.get("origin");

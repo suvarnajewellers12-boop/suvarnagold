@@ -23,9 +23,6 @@ import { cn } from "@/lib/utils";
 export default function GoldJobWorkPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-  // ---------------------------------------------------------------------------
-  // 1. STATES
-  // ---------------------------------------------------------------------------
   const [jobWorks, setJobWorks] = useState<any[]>([]);
   const [unassignedOrders, setUnassignedOrders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -40,6 +37,7 @@ export default function GoldJobWorkPage() {
     productType: "",
     makingCharge: "",
     advancePaid: "",
+    totalAmount: "", 
     dateGiven: new Date().toISOString().split("T")[0],
     notes: ""
   });
@@ -50,9 +48,17 @@ export default function GoldJobWorkPage() {
     compNotes: ""
   });
 
-  // ---------------------------------------------------------------------------
-  // 2. RECEIPT GENERATOR (Dual Mode)
-  // ---------------------------------------------------------------------------
+  // Calculate Balance for dispatch form
+  const jobTotals = useMemo(() => {
+    const total = Math.max(0, Number(form.totalAmount) || 0);
+    const advance = Math.max(0, Number(form.advancePaid) || 0);
+    const balance = Math.max(0, total - advance);
+    const weight = unassignedOrders
+      .filter(o => selectedOrderIds.includes(o.orderId))
+      .reduce((sum, o) => sum + (Number(o.netWeight) || 0), 0);
+    return { total, advance, balance, weight };
+  }, [form, selectedOrderIds, unassignedOrders]);
+
   const handleJobReceipt = async (job: any, mode: "download" | "print", type: "ASSIGNMENT" | "SETTLEMENT" = "ASSIGNMENT") => {
     try {
       const [templateBytes, fontBytes] = await Promise.all([
@@ -79,48 +85,53 @@ export default function GoldJobWorkPage() {
         page.drawText(String(text || ""), { x: rightX - textWidth, y: height - yOffset, size, font: customFont, color });
       };
 
-      // Header UI
+      // Header
       const topY = 165;
       draw("SUVARNA JEWELLERS", 40, topY, 16, goldColor);
-      draw(type === "ASSIGNMENT" ? "JOB WORK DISPATCH SLIP" : "JOB WORK SETTLEMENT INVOICE", 40, topY + 18, 10, grey);
+      draw(type === "ASSIGNMENT" ? "MANUFACTURING DISPATCH SLIP" : "MANUFACTURING FINAL SETTLEMENT", 40, topY + 18, 10, grey);
       drawRight(`JOB ID: ${job.id.substring(0, 8).toUpperCase()}`, 555, topY, 12, black);
-      drawRight(`Date: ${format(new Date(type === "ASSIGNMENT" ? job.dateGiven : (job.dateReceived || new Date())), "dd-MM-yyyy")}`, 555, topY + 15, 10, grey);
+      drawRight(`Date: ${format(new Date(), "dd-MM-yyyy")}`, 555, topY + 15, 10, grey);
 
-      // Info Section
-      draw("WORKER INFORMATION", 40, topY + 50, 9, goldColor);
-      draw(`Worker: ${job.workerName}`, 40, topY + 65, 12, black);
-      draw(`Product: ${job.productType}`, 40, topY + 80, 11, grey);
+      // Worker Info
+      draw("WORKER DETAILS", 40, topY + 55, 9, goldColor);
+      draw(`Worker: ${job.workerName}`, 40, topY + 70, 12, black);
+      draw(`Product: ${job.productType}`, 40, topY + 83, 10, grey);
 
-      // Orders Table
+      // Table
       const tableY = 320;
-      draw("ORDER ID", 40, tableY, 10, grey);
-      draw("ITEM NAME", 160, tableY, 10, grey);
-      draw("CUSTOMER", 320, tableY, 10, grey);
-      drawRight("NET WT SENT", 555, tableY, 10, grey);
+      draw("ORDER ID", 40, tableY, 9, grey);
+      draw("ITEM", 150, tableY, 9, grey);
+      drawRight("NET WT SENT", 555, tableY, 9, grey);
 
-      let currentY = tableY + 30;
+      let currentY = tableY + 25;
       job.assignedOrders?.forEach((order: any) => {
         draw(order.orderId, 40, currentY, 10, black);
-        draw(order.itemName, 160, currentY, 10, black);
-        draw(order.customerName, 320, currentY, 10, black);
+        draw(order.itemName, 150, currentY, 10, black);
         drawRight(`${order.netWeight}g`, 555, currentY, 10, black);
-        currentY += 20;
+        currentY += 18;
       });
 
-      // Footer Accounting
-      const payY = height - 160;
-      draw("GOLD & LABOR ACCOUNTING", 40, payY, 9, goldColor);
-      draw(`Gold Sent: ${Number(job.totalGrams).toFixed(3)}g`, 40, payY + 20, 10, black);
+      // Accounting Logic (Fixing the Balance Issue)
+      const footerY = height - 170;
+      const totalLabor = Number(job.totalAmount) || 0;
+      const advancePaid = Number(job.advancePaid) || 0;
+      const currentBalance = totalLabor - advancePaid;
+
+      draw("GOLD ACCOUNTING", 40, footerY, 9, goldColor);
+      draw(`Gold Sent: ${Number(job.totalGrams).toFixed(3)}g`, 40, footerY + 18, 10, black);
+
+      drawRight("FINANCIAL SUMMARY", 555, footerY, 9, goldColor);
+      drawRight(`Total Labor Value: ₹${totalLabor.toLocaleString()}`, 555, footerY + 18, 11, black);
+      drawRight(`Advance Paid: ₹${advancePaid.toLocaleString()}`, 555, footerY + 33, 10, rgb(0, 0.5, 0));
       
       if (type === "SETTLEMENT") {
-        draw(`Returned: ${Number(job.returnedGoldGrams).toFixed(3)}g`, 40, payY + 35, 10, black);
-        draw(`Wastage: ${Number(job.wastageGrams).toFixed(3)}g`, 40, payY + 50, 10, rgb(0.8, 0, 0));
+        draw(`Returned Gold: ${Number(job.returnedGoldGrams).toFixed(3)}g`, 40, footerY + 33, 10, black);
+        draw(`Wastage: ${Number(job.wastageGrams).toFixed(3)}g`, 40, footerY + 48, 10, black);
+        drawRight(`Settlement Paid: ₹${currentBalance.toLocaleString()}`, 555, footerY + 48, 10, black);
+        drawRight(`FINAL BALANCE: ₹0.00`, 555, footerY + 70, 16, goldColor);
+      } else {
+        drawRight(`Balance on Return: ₹${currentBalance.toLocaleString()}`, 555, footerY + 70, 15, goldColor);
       }
-
-      const balance = (Number(job.makingCharge) || 0) - (Number(job.advancePaid) || 0);
-      drawRight(`Making Charge: ₹${job.makingCharge?.toLocaleString()}`, 555, payY + 20, 11, black);
-      drawRight(`Advance Paid: ₹${job.advancePaid?.toLocaleString()}`, 555, payY + 38, 11, rgb(0, 0.4, 0));
-      drawRight(`${type === "SETTLEMENT" ? "FINAL SETTLED" : "BALANCE ON RETURN"}: ₹${balance.toLocaleString()}`, 555, payY + 65, 15, goldColor);
 
       const pdfBytes = await pdfDoc.save();
       const blob = new Blob([pdfBytes], { type: "application/pdf" });
@@ -129,7 +140,7 @@ export default function GoldJobWorkPage() {
       if (mode === "download") {
         const link = document.createElement("a");
         link.href = pdfUrl;
-        link.download = `JobWork_${job.workerName}_${type}.pdf`;
+        link.download = `Job_${job.workerName}_${type}.pdf`;
         link.click();
       } else {
         const printWindow = window.open(pdfUrl);
@@ -138,13 +149,10 @@ export default function GoldJobWorkPage() {
     } catch (err) { console.error(err); }
   };
 
-  // ---------------------------------------------------------------------------
-  // 3. API ACTIONS
-  // ---------------------------------------------------------------------------
   const fetchJobWorks = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/jobwork/all", {
+      const res = await fetch("http://localhost:3000/api/gold/jobwork/all", {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -155,7 +163,7 @@ export default function GoldJobWorkPage() {
 
   const fetchUnassignedOrders = async () => {
     try {
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/order/all", {
+      const res = await fetch("http://localhost:3000/api/gold/order/all", {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -164,30 +172,26 @@ export default function GoldJobWorkPage() {
     } catch (err) { console.error(err); }
   };
 
-  useEffect(() => {
-    fetchJobWorks();
-    fetchUnassignedOrders();
-  }, []);
-
-  const totalWeightPreview = useMemo(() => {
-    return unassignedOrders
-      .filter(o => selectedOrderIds.includes(o.orderId))
-      .reduce((sum, o) => sum + (Number(o.netWeight) || 0), 0);
-  }, [selectedOrderIds, unassignedOrders]);
+  useEffect(() => { fetchJobWorks(); fetchUnassignedOrders(); }, []);
 
   const handleDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedOrderIds.length === 0) return alert("Select at least one order");
+    if (selectedOrderIds.length === 0) return alert("Select Orders");
     setIsSubmitting(true);
     try {
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/jobwork", {
+      const res = await fetch("http://localhost:3000/api/gold/jobwork", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...form, orderIds: selectedOrderIds })
+        body: JSON.stringify({ 
+          ...form, 
+          orderIds: selectedOrderIds,
+          totalAmount: jobTotals.total,
+          balanceAmount: jobTotals.balance 
+        })
       });
       if (res.ok) {
-        setToastMessage("Job Dispatched Successfully!"); setShowToast(true);
-        setForm({ workerName: "", productType: "", makingCharge: "", advancePaid: "", dateGiven: new Date().toISOString().split("T")[0], notes: "" });
+        setToastMessage("Job Dispatched!"); setShowToast(true);
+        setForm({ workerName: "", productType: "", makingCharge: "", advancePaid: "", totalAmount: "", dateGiven: new Date().toISOString().split("T")[0], notes: "" });
         setSelectedOrderIds([]); fetchJobWorks(); fetchUnassignedOrders();
       }
     } catch (err) { console.error(err); }
@@ -198,32 +202,32 @@ export default function GoldJobWorkPage() {
     if (!selectedJob) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/jobwork/completed", {
+      const res = await fetch("http://localhost:3000/api/gold/jobwork/completed", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ id: selectedJob.id, ...completionData })
+        body: JSON.stringify({ 
+          id: selectedJob.id, 
+          ...completionData,
+          balanceAmount: 0,
+          totalPaid: selectedJob.totalAmount
+        })
       });
       if (res.ok) {
-        setToastMessage("Manufacturing Completed & Inventory Synced!");
-        setShowToast(true); setSelectedJob(null); fetchJobWorks();
+        setToastMessage("Job Completed & Balance Settled!"); setShowToast(true);
+        setSelectedJob(null); fetchJobWorks();
       }
     } catch (err) { console.error(err); }
     finally { setIsSubmitting(false); }
   };
 
-  // ---------------------------------------------------------------------------
-  // 4. MAIN UI RENDER
-  // ---------------------------------------------------------------------------
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-[#FCFBF7] font-sans">
         <DashboardSidebar />
-
         <main className="flex-1 flex flex-col h-screen overflow-hidden text-left">
           <header className="bg-white border-b border-gold/10 px-10 py-8 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-4xl font-serif font-bold text-slate-900 tracking-tight">Manufacturing Vault</h1>
-              <p className="text-sm text-slate-500 italic mt-1">Track factory processing & worker settlements</p>
             </div>
             <Button variant="outline" size="icon" onClick={() => { fetchJobWorks(); fetchUnassignedOrders(); }} className="h-14 w-14 rounded-2xl border-gold/20 text-gold">
               <RefreshCw className={cn("w-5 h-5", isLoading && "animate-spin")} />
@@ -233,10 +237,6 @@ export default function GoldJobWorkPage() {
           <div className="flex-1 flex flex-col lg:flex-row p-10 gap-10 overflow-hidden">
             {/* LEFT: JOB REGISTRY */}
             <div className="flex-1 flex flex-col overflow-hidden space-y-6">
-               <div className="flex items-center gap-3">
-                  <ClipboardList className="w-6 h-6 text-gold" />
-                  <h2 className="text-xl font-serif font-bold text-slate-800">Assignments Ledger</h2>
-               </div>
                <LuxuryCard className="flex-1 overflow-hidden flex flex-col p-0 border-gold/5 bg-white shadow-xl rounded-[2.5rem]">
                   <div className="flex-1 overflow-y-auto p-8 space-y-4 custom-scrollbar">
                     {jobWorks.map((job) => (
@@ -247,17 +247,12 @@ export default function GoldJobWorkPage() {
                           </div>
                           <div>
                             <p className="font-serif font-bold text-slate-800 text-lg uppercase tracking-tight">{job.workerName}</p>
-                            <div className="flex gap-3 mt-1">
-                               <span className="text-[10px] font-bold text-gold uppercase bg-gold/5 px-2 py-0.5 rounded">{job.productType}</span>
-                               <span className="text-[10px] font-bold text-slate-400">• {job.assignedOrders?.length || 0} Orders Linked</span>
-                            </div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{job.assignedOrders?.length || 0} Orders Linked</p>
                           </div>
                         </div>
                         <div className="text-right">
                           <p className="text-lg font-bold text-slate-900 font-serif">{Number(job.totalGrams).toFixed(3)}g</p>
-                          <span className={cn("inline-block px-3 py-1 rounded-full font-bold text-[9px] uppercase mt-2 border", job.status === "COMPLETED" ? "border-emerald-100 text-emerald-600 bg-emerald-50" : "border-amber-100 text-amber-600 bg-amber-50")}>
-                            {job.status}
-                          </span>
+                          <span className={cn("inline-block px-3 py-1 rounded-full font-bold text-[9px] uppercase mt-2 border", job.status === "COMPLETED" ? "border-emerald-100 text-emerald-600 bg-emerald-50" : "border-amber-100 text-amber-600 bg-amber-50")}>{job.status}</span>
                         </div>
                       </div>
                     ))}
@@ -268,45 +263,30 @@ export default function GoldJobWorkPage() {
             {/* RIGHT: DISPATCH FORM */}
             <div className="w-full lg:w-[480px] shrink-0 h-full pb-6">
               <LuxuryCard className="h-full flex flex-col border-gold/10 shadow-2xl bg-white p-0 overflow-hidden rounded-[2.5rem]">
-                <div className="p-10 pb-6 text-left">
-                  <div className="flex items-center gap-4 mb-3">
-                    <div className="p-3 bg-slate-900 rounded-2xl shadow-xl"><Factory className="w-7 h-7 text-gold" /></div>
-                    <h2 className="text-2xl font-serif font-bold text-slate-900 tracking-tight">New Assignment</h2>
-                  </div>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Dispatch Gold into Production</p>
-                </div>
                 <GoldDivider />
                 <form onSubmit={handleDispatch} className="flex-1 flex flex-col overflow-hidden">
                    <div className="flex-1 overflow-y-auto px-10 py-6 space-y-6 custom-scrollbar text-left">
                       <div className="space-y-2">
-                        <label className="text-[11px] font-bold uppercase tracking-widest text-gold ml-1">Allocate Linked Orders</label>
+                        <label className="text-[11px] font-bold uppercase tracking-widest text-gold ml-1">Allocate Articles</label>
                         <div className="space-y-2 max-h-48 overflow-y-auto border border-gold/10 rounded-2xl p-4 bg-slate-50/50">
                           {unassignedOrders.map(order => (
                             <label key={order.id} className="flex items-center gap-4 p-3 bg-white rounded-xl cursor-pointer hover:border-gold/40 border border-transparent transition-all shadow-sm">
                               <input type="checkbox" className="accent-gold h-5 w-5" checked={selectedOrderIds.includes(order.orderId)} onChange={(e) => e.target.checked ? setSelectedOrderIds(p => [...p, order.orderId]) : setSelectedOrderIds(p => p.filter(id => id !== order.orderId))} />
-                              <div className="flex-1">
-                                <p className="text-xs font-bold text-slate-800">{order.orderId} • {order.itemName}</p>
-                                <p className="text-[10px] text-slate-400 uppercase font-bold">{order.customerName} • {order.netWeight}g</p>
-                              </div>
+                              <div className="flex-1"><p className="text-xs font-bold text-slate-800">{order.orderId} • {order.itemName}</p><p className="text-[10px] text-slate-400 uppercase font-bold">{order.customerName} • {order.netWeight}g</p></div>
                             </label>
                           ))}
                         </div>
                       </div>
-                      <div className="space-y-2"><label className="text-[11px] font-bold uppercase text-slate-400">Worker Name</label><Input placeholder="Full Legal Name" className="h-12 rounded-xl" value={form.workerName} onChange={(e) => setForm(p => ({...p, workerName: e.target.value}))} required /></div>
+                      <Input placeholder="Worker Name" className="h-12 rounded-xl" value={form.workerName} onChange={(e) => setForm(p => ({...p, workerName: e.target.value}))} required />
                       <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2"><label className="text-[11px] font-bold uppercase text-slate-400">Product Category</label><Input placeholder="e.g. Earrings" className="h-12 rounded-xl" value={form.productType} onChange={(e) => setForm(p => ({...p, productType: e.target.value}))} /></div>
-                        <div className="space-y-2"><label className="text-[11px] font-bold uppercase text-slate-400">Dispatch Date</label><Input type="date" className="h-12 rounded-xl" value={form.dateGiven} onChange={(e) => setForm(p => ({...p, dateGiven: e.target.value}))} /></div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2"><label className="text-[11px] font-bold uppercase text-slate-400">Labor Charge (₹)</label><Input type="number" placeholder="₹ Total" className="h-12 rounded-xl" value={form.makingCharge} onChange={(e) => setForm(p => ({...p, makingCharge: e.target.value}))} /></div>
-                        <div className="space-y-2"><label className="text-[11px] font-bold uppercase text-slate-400">Advance Paid (₹)</label><Input type="number" placeholder="₹ 0.00" className="h-12 rounded-xl" value={form.advancePaid} onChange={(e) => setForm(p => ({...p, advancePaid: e.target.value}))} /></div>
+                        <Input type="number" min="0" placeholder="Total Labor (₹)" className="h-12 rounded-xl font-bold" value={form.totalAmount} onChange={(e) => setForm(p => ({...p, totalAmount: e.target.value}))} />
+                        <Input type="number" min="0" placeholder="Advance Paid (₹)" className="h-12 rounded-xl font-bold border-emerald-100 text-emerald-600" value={form.advancePaid} onChange={(e) => setForm(p => ({...p, advancePaid: e.target.value}))} />
                       </div>
                       <div className="p-6 bg-slate-900 rounded-[2rem] flex justify-between items-center shadow-2xl">
-                         <div className="text-left"><p className="text-[10px] uppercase text-gold font-bold tracking-widest">Total Weight Sent</p><p className="text-xs text-slate-400 mt-1 italic">{selectedOrderIds.length} Linked Items</p></div>
-                         <p className="text-3xl font-serif font-bold text-white tracking-tighter">{totalWeightPreview.toFixed(3)}g</p>
+                         <div className="text-left"><p className="text-[10px] uppercase text-gold font-bold tracking-[0.2em]">Balance to Pay</p><p className="text-3xl font-serif font-bold text-white tracking-tighter">₹{jobTotals.balance.toLocaleString()}</p></div>
                       </div>
                    </div>
-                   <div className="p-10 pt-4 bg-slate-50/50 border-t border-gold/5"><Button type="submit" disabled={isSubmitting || selectedOrderIds.length === 0} className="w-full h-16 bg-slate-900 text-gold text-xl font-serif font-bold rounded-[1.5rem] hover:bg-black transition-all shadow-2xl">{isSubmitting ? <Loader2 className="animate-spin" /> : "Authorize Dispatch"}</Button></div>
+                   <div className="p-10 pt-4"><Button type="submit" disabled={isSubmitting || selectedOrderIds.length === 0} className="w-full h-18 bg-gold text-slate-900 text-xl font-serif font-bold rounded-[1.5rem] hover:bg-white transition-all shadow-2xl">Authorize Dispatch</Button></div>
                 </form>
               </LuxuryCard>
             </div>
@@ -316,51 +296,40 @@ export default function GoldJobWorkPage() {
 
       {/* VIEW & SETTLE DIALOG */}
       <Dialog open={!!selectedJob} onOpenChange={() => setSelectedJob(null)}>
-        <DialogContent className="max-w-4xl rounded-[2.5rem] p-0 overflow-hidden border-gold/20 shadow-2xl bg-white text-left">
-          <DialogHeader className="p-10 bg-slate-900 text-white flex flex-row justify-between items-center">
-             <div className="flex items-center gap-5">
-                <div className="p-4 bg-white/10 rounded-2xl shadow-xl"><Hammer className="w-9 h-9 text-gold" /></div>
-                <div><DialogTitle className="text-3xl font-serif font-bold text-gold tracking-tight">{selectedJob?.workerName}</DialogTitle><p className="text-slate-400 text-[10px] uppercase tracking-[0.2em] font-bold">Assignment Ref: {selectedJob?.id.substring(0,8)}</p></div>
+        <DialogContent className="max-w-4xl rounded-[3rem] p-0 border-gold/20 shadow-2xl bg-white text-left outline-none">
+          <DialogHeader className="p-12 bg-slate-900 text-white flex flex-row justify-between items-center relative">
+             <div className="flex items-center gap-5 relative z-10 text-left">
+                <div><DialogTitle className="text-4xl font-serif font-bold text-gold tracking-tight">{selectedJob?.workerName}</DialogTitle></div>
              </div>
-             <div className="flex gap-4">
-                <Button onClick={() => handleJobReceipt(selectedJob, "print", "ASSIGNMENT")} variant="outline" className="border-white/20 text-white h-12 rounded-xl transition-all"><Printer className="w-4 h-4 mr-2" /> Dispatch Slip</Button>
-                {selectedJob?.status === "COMPLETED" && (<Button onClick={() => handleJobReceipt(selectedJob, "print", "SETTLEMENT")} className="bg-gold text-slate-900 h-12 rounded-xl font-bold transition-all"><Download className="w-4 h-4 mr-2" /> Final Settlement</Button>)}
+             <div className="flex gap-4 relative z-10">
+                <Button onClick={() => handleJobReceipt(selectedJob, "print", "ASSIGNMENT")} variant="outline" className="border-white/20 text-white h-12 rounded-xl transition-all">Dispatch Slip</Button>
+                {/* Fixed the button visibility condition here */}
+                {selectedJob?.status === "COMPLETED" && (
+                  <Button onClick={() => handleJobReceipt(selectedJob, "print", "SETTLEMENT")} className="bg-emerald-600 text-white h-12 rounded-xl font-bold transition-all shadow-lg">Settlement Invoice</Button>
+                )}
              </div>
           </DialogHeader>
 
-          <div className="p-12 space-y-10 bg-white">
+          <div className="p-12 space-y-12 bg-white">
             <section className="grid grid-cols-4 gap-8">
                <div className="space-y-1.5"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Weight Sent</p><p className="text-2xl font-bold font-serif">{Number(selectedJob?.totalGrams).toFixed(3)}g</p></div>
-               <div className="space-y-1.5 border-x border-slate-100 px-8"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Labor Cost</p><p className="text-2xl font-bold font-serif text-slate-900">₹{selectedJob?.makingCharge?.toLocaleString()}</p></div>
-               <div className="space-y-1.5 border-r border-slate-100 pr-8"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Returned Gold</p><p className="text-2xl font-bold font-serif text-emerald-600">{selectedJob?.returnedGoldGrams ? `${Number(selectedJob.returnedGoldGrams).toFixed(3)}g` : "Pending"}</p></div>
-               <div className="space-y-1.5"><p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest">Wastage</p><p className="text-2xl font-bold font-serif text-rose-500">{selectedJob?.wastageGrams ? `${Number(selectedJob.wastageGrams).toFixed(3)}g` : "Pending"}</p></div>
-            </section>
-
-            <section className="bg-slate-50/50 p-8 rounded-[2.5rem] border border-gold/10">
-               <p className="text-[11px] font-bold uppercase text-gold mb-5 tracking-widest flex items-center gap-2"><PackageCheck className="w-4 h-4"/> Production Manifest</p>
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  {selectedJob?.assignedOrders?.map((o: any) => (
-                    <div key={o.id} className="p-5 bg-white border border-slate-100 rounded-[1.5rem] flex justify-between items-center shadow-sm">
-                       <div><p className="text-sm font-bold text-slate-900">{o.orderId}</p><p className="text-[10px] text-slate-500 uppercase font-bold tracking-tight">{o.customerName} • {o.itemName}</p></div>
-                       <div className="text-right"><p className="text-sm font-serif font-bold text-gold">{o.netWeight}g</p><span className="text-[8px] font-bold bg-slate-900 text-white px-2 py-0.5 rounded-full">{o.purity}K</span></div>
-                    </div>
-                  ))}
-               </div>
+               <div className="space-y-1.5 border-x border-slate-100 px-8"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Labor</p><p className="text-2xl font-bold font-serif text-slate-900">₹{selectedJob?.totalAmount?.toLocaleString()}</p></div>
+               <div className="space-y-1.5 border-r border-slate-100 pr-8"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Returned Metal</p><p className="text-2xl font-bold font-serif text-emerald-600">{selectedJob?.returnedGoldGrams ? `${Number(selectedJob.returnedGoldGrams).toFixed(3)}g` : "Pending"}</p></div>
+               <div className="space-y-1.5"><p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest">Process Waste</p><p className="text-2xl font-bold font-serif text-rose-500">{selectedJob?.wastageGrams ? `${Number(selectedJob.wastageGrams).toFixed(3)}g` : "Pending"}</p></div>
             </section>
 
             {selectedJob?.status === "PENDING" ? (
-              <div className="pt-10 border-t border-gold/10 space-y-8 animate-in fade-in slide-in-from-bottom-4">
-                 <h3 className="text-lg font-serif font-bold text-slate-900 flex items-center gap-3"><CheckCircle2 className="w-6 h-6 text-emerald-500"/> Material Return Verification</h3>
+              <div className="pt-10 border-t border-gold/10 space-y-8 animate-in slide-in-from-bottom-4 duration-500">
                  <div className="grid grid-cols-2 gap-8 text-left">
-                    <div className="space-y-2.5"><label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Actual Weight Received (g)</label><Input type="number" placeholder="Precision 0.000" className="h-14 rounded-2xl border-gold/10 text-lg font-bold" value={completionData.returnedGoldGrams} onChange={(e) => setCompletionData(d => ({...d, returnedGoldGrams: e.target.value}))}/></div>
-                    <div className="space-y-2.5"><label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Process Wastage (g)</label><Input type="number" placeholder="Precision 0.000" className="h-14 rounded-2xl border-gold/10 text-lg font-bold" value={completionData.wastageGrams} onChange={(e) => setCompletionData(d => ({...d, wastageGrams: e.target.value}))}/></div>
+                    <div className="space-y-2.5"><label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Actual Weight Received (g)</label><Input type="number" min="0" placeholder="0.000" className="h-14 rounded-2xl border-gold/10 text-lg font-bold" value={completionData.returnedGoldGrams} onChange={(e) => setCompletionData(d => ({...d, returnedGoldGrams: e.target.value}))}/></div>
+                    <div className="space-y-2.5"><label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Verified Wastage (g)</label><Input type="number" min="0" placeholder="0.000" className="h-14 rounded-2xl border-gold/10 text-lg font-bold" value={completionData.wastageGrams} onChange={(e) => setCompletionData(d => ({...d, wastageGrams: e.target.value}))}/></div>
                  </div>
-                 <Button onClick={handleCompleteJob} disabled={isSubmitting} className="w-full h-20 bg-slate-900 text-gold text-xl font-serif font-bold rounded-[2rem] shadow-2xl hover:bg-black transition-all active:scale-95">{isSubmitting ? <Loader2 className="animate-spin w-8 h-8" /> : "Verify Return & Close Manufacturing Job"}</Button>
+                 <Button onClick={handleCompleteJob} disabled={isSubmitting} className="w-full h-24 bg-slate-900 text-gold text-2xl font-serif font-bold rounded-[2.5rem] shadow-2xl hover:bg-black transition-all active:scale-95">Verify Return & Settle Account</Button>
               </div>
             ) : (
-              <div className="p-10 bg-emerald-50 border-2 border-emerald-100 rounded-[3rem] flex items-center gap-8 text-emerald-700 shadow-inner">
-                 <div className="p-5 bg-white rounded-3xl shadow-xl animate-bounce"><CheckCircle2 className="w-12 h-12"/></div>
-                 <div className="text-left"><p className="font-serif font-bold text-3xl leading-tight">Job Finalized</p><p className="text-xs font-bold uppercase tracking-widest opacity-60 mt-2">Accounting Complete • Stock Received • Orders Synced</p></div>
+              <div className="p-12 bg-emerald-50 border-2 border-emerald-100 rounded-[3.5rem] flex items-center gap-10 text-emerald-700 shadow-inner">
+                 <div className="p-6 bg-white rounded-[2rem] shadow-xl"><CheckCircle2 className="w-14 h-14"/></div>
+                 <div className="text-left"><p className="font-serif font-bold text-4xl leading-tight tracking-tight">Financials Audited</p><p className="text-sm font-bold uppercase tracking-[0.3em] opacity-60 mt-3">Balance Settled • Stock Received • Records Closed</p></div>
               </div>
             )}
           </div>

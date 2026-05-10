@@ -410,7 +410,7 @@ const EstimationTerminal = () => {
                       </div>
 
                       <input
-                        type="range" min="0" max="5" step="0.5"
+                        type="range" min="0" max="10" step="0.5"
                         value={discountPercent}
                         onChange={(e) => setDiscountPercent(parseFloat(e.target.value))}
                         className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-gold"
@@ -444,7 +444,7 @@ const EstimationTerminal = () => {
       {/* --- REFINED PRINT ARCHITECTURE --- */}
       {/* FINAL PRECISION PRINT VIEW - Suvarna Jewellers */}
       <div className="hidden print:block bg-white text-black w-full min-h-screen p-4 font-noto">
-        <style jsx global>{`
+  <style jsx global>{`
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wdth,wght@62.5..100,100..900&display=swap');
     
     .font-noto {
@@ -454,134 +454,135 @@ const EstimationTerminal = () => {
     @media print {
       body {
         -webkit-print-color-adjust: exact;
+        color: #000 !important;
       }
       @page {
-        margin: 0;
+        margin: 10mm; /* Added slight margin to prevent edge clipping */
         size: auto;
       }
     }
   `}</style>
 
-        {/* Outer Border Container */}
-        <div className="w-full border-[5px] border-black p-4 mx-auto bg-white">
+  {/* Outer Border Container */}
+  <div className="w-full border-[3px] border-black p-4 mx-auto bg-white">
 
-          {/* Header Section */}
-          <div className="text-center border-b-[2px] border-black pb-2 mb-3">
-            <div className="flex justify-center mb-1">
-              <img src="/logo.png" alt="Suvarna Logo" className="h-12 w-auto object-contain" />
-            </div>
+    {/* Header Section */}
+    <div className="text-center border-b-[2px] border-black pb-2 mb-3">
+      <div className="flex justify-center mb-2">
+        <img src="/logo.png" alt="Suvarna Logo" className="h-14 w-auto object-contain" />
+      </div>
 
-            <h1 className="text-2xl font-[900] uppercase tracking-tight text-black leading-tight">
-              Suvarna Jewellers
-            </h1>
-            <p className="text-[8px] font-[700] italic tracking-[0.1em] uppercase opacity-80">
-              The Benchmark of Pure Gold
-            </p>
+      <h1 className="text-3xl font-[900] uppercase tracking-tight text-black leading-tight">
+        Suvarna Jewellers
+      </h1>
+      <p className="text-[10px] font-black italic tracking-[0.1em] uppercase text-black">
+        The Benchmark of Pure Gold
+      </p>
 
-            {/* Updated Metadata Section: Date and Live Rates */}
-            <div className="flex justify-between mt-3 text-[7px] font-[900] uppercase tracking-tighter px-1 border-t border-black/10 pt-2">
-              <div className="text-left">
-                <p className="text-[8px] mb-1">DATE: {new Date().toLocaleDateString()}</p>
-              </div>
-              <div className="flex gap-4 text-right">
-                <p>24K: ₹{liveRates?.gold24?.toLocaleString() || '0'}</p>
-                <p>22K: ₹{liveRates?.gold22?.toLocaleString() || '0'}</p>
-                <p>18K: ₹{liveRates?.gold18?.toLocaleString() || '0'}</p>
-                <p>SILVER: ₹{liveRates?.silver?.toLocaleString() || '0'}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Table Section - ENFORCED COLUMN SPACING */}
-          <div className="px-0.5">
-            <table className="w-full text-left border-collapse table-fixed">
-              <thead>
-                <tr className="border-b-[1.5px] border-black uppercase text-[7px] leading-none">
-                  <th className="py-2 font-[900] w-[40%]">ORNAMENTS DESCRIPTION</th>
-                  <th className="text-center font-[900] w-[18%]">WEIGHT DETAILS</th>
-                  <th className="text-center font-[900] w-[10%]">VA%</th>
-                  <th className="text-right font-[900] w-[32%]">AMOUNT (INR)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {estimateCart.map((item) => {
-                  const det = calculateItemPricing(item);
-                  return (
-                    <tr key={item.tempId} className="border-b border-black/10">
-                      <td className="py-2 pr-1">
-                        <p className="font-[900] text-[11px] uppercase leading-tight truncate">{item.name}</p>
-                        <p className="text-[6px] font-[700] mt-0.5 opacity-70">
-                          SKU: {item.sku} | {item.carats} | HUID: {item.huid || "N/A"}
-                        </p>
-                      </td>
-                      <td className="text-center align-middle">
-                        <p className="text-[9px] font-[800] leading-none">G: {item.grams}g</p>
-                        <p className="text-[6px] font-[600] mt-0.5 text-slate-500 italic">S.Wt: {item.stoneWeight || 0}g</p>
-                      </td>
-                      <td className="text-center font-[800] text-[9px] align-middle">{item.va}%</td>
-                      <td className="text-right align-middle">
-                        <p className="font-[900] text-[13px] tabular-nums leading-none">₹{det.total.toLocaleString()}</p>
-                        <p className="text-[6px] font-[600] mt-0.5 text-slate-500 italic">S.Cost: ₹{(item.stoneCost || 0).toLocaleString()}</p>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Calculation Section */}
-          <div className="mt-3 flex justify-end px-1">
-            <div className="w-[220px] space-y-1 pt-1">
-              <div className="flex justify-between text-[9px] font-[700]">
-                <span>SUBTOTAL:</span>
-                <span className="font-[900]">₹{manifestTotals.subtotal.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-[9px] font-[700]">
-                <span>GST (3.0%):</span>
-                <span className="font-[900]">₹{Math.round(taxAmount).toLocaleString()}</span>
-              </div>
-
-              {discountPercent > 0 && (
-                <div className="flex justify-between text-[9px] font-[800] italic text-slate-800">
-                  <span>LESS: DISCOUNT ({discountPercent}%):</span>
-                  <span>- ₹{Math.round(discountVal).toLocaleString()}</span>
-                </div>
-              )}
-
-              <div className="flex justify-between border-t-[1.5px] border-black pt-1.5 font-[900] text-xl mt-1">
-                <span className="uppercase text-xs">NET TOTAL:</span>
-                <span className="tabular-nums font-black">₹{Math.round(netPayable).toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* CUSTOMER INFORMATION SECTION */}
-          <div className="mt-6 border-t-[1px] border-dashed border-black pt-3 px-2">
-            <h4 className="text-[7px] font-[900] uppercase tracking-widest mb-2 underline">Customer Information</h4>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="border-b border-black/20 pb-1">
-                <p className="text-[6px] font-[600] text-slate-400 uppercase">Customer Name:</p>
-                <div className="h-3"></div>
-              </div>
-              <div className="border-b border-black/20 pb-1">
-                <p className="text-[6px] font-[600] text-slate-400 uppercase">Phone Number:</p>
-                <div className="h-3"></div>
-              </div>
-            </div>
-          </div>
-
-          {/* FOOTER */}
-          <div className="mt-6 text-center pb-1">
-            <p className="text-[6px] font-[800] uppercase tracking-[0.2em] opacity-40">
-              Thank You for Shopping with Suvarna Jewellers
-            </p>
-            <p className="text-[5px] font-[600] mt-0.5 opacity-30 italic">
-              * Computer Generated Estimation - Suvarna POS Terminal only valid for today *
-            </p>
-          </div>
+      {/* Updated Metadata Section: High Contrast */}
+      <div className="flex justify-between mt-4 text-[9px] font-black uppercase tracking-tight px-1 border-t-2 border-black pt-2">
+        <div className="text-left">
+          <p>DATE: {new Date().toLocaleDateString('en-IN')}</p>
+        </div>
+        <div className="flex gap-4 text-right">
+          <p>24K: {liveRates?.gold24?.toLocaleString() || '0'}</p>
+          <p>22K: {liveRates?.gold22?.toLocaleString() || '0'}</p>
+          <p>18K: {liveRates?.gold18?.toLocaleString() || '0'}</p>
+          <p>SILVER: {liveRates?.silver?.toLocaleString() || '0'}</p>
         </div>
       </div>
+    </div>
+
+    {/* Table Section */}
+    <div className="px-0.5">
+      <table className="w-full text-left border-collapse table-fixed">
+        <thead>
+          <tr className="border-b-2 border-black uppercase text-[9px] leading-none">
+            <th className="py-3 font-black w-[40%]">ORNAMENTS DESCRIPTION</th>
+            <th className="text-center font-black w-[20%]">WEIGHT DETAILS</th>
+            <th className="text-center font-black w-[10%]">VA%</th>
+            <th className="text-right font-black w-[30%]">AMOUNT (INR)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {estimateCart.map((item) => {
+            const det = calculateItemPricing(item);
+            return (
+              <tr key={item.tempId} className="border-b-2 border-black">
+                <td className="py-3 pr-1">
+                  <p className="font-black text-[12px] uppercase leading-tight">{item.name}</p>
+                  <p className="text-[8px] font-bold mt-1 text-black">
+                    SKU: {item.sku} | {item.carats} | HUID: {item.huid || "N/A"}
+                  </p>
+                </td>
+                <td className="text-center align-middle">
+                  <p className="text-[11px] font-black">G: {item.grams}g</p>
+                  <p className="text-[8px] font-bold mt-0.5 text-black">S.Wt: {item.stoneWeight || 0}g</p>
+                </td>
+                <td className="text-center font-black text-[11px] align-middle">{item.va}%</td>
+                <td className="text-right align-middle">
+                  <p className="font-black text-[14px] tabular-nums">₹{det.total.toLocaleString()}</p>
+                  <p className="text-[8px] font-bold mt-0.5 text-black">S.Cost: ₹{(item.stoneCost || 0).toLocaleString()}</p>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+
+    {/* Calculation Section */}
+    <div className="mt-4 flex justify-end px-1">
+      <div className="w-[240px] space-y-1.5 pt-1">
+        <div className="flex justify-between text-[10px] font-bold">
+          <span>SUBTOTAL:</span>
+          <span className="font-black text-[11px]">₹{manifestTotals.subtotal.toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between text-[10px] font-bold">
+          <span>GST (3.0%):</span>
+          <span className="font-black text-[11px]">₹{Math.round(taxAmount).toLocaleString()}</span>
+        </div>
+
+        {discountPercent > 0 && (
+          <div className="flex justify-between text-[10px] font-black italic">
+            <span>LESS: DISCOUNT ({discountPercent}%):</span>
+            <span>- ₹{Math.round(discountVal).toLocaleString()}</span>
+          </div>
+        )}
+
+        <div className="flex justify-between border-t-2 border-black pt-2 font-black text-2xl mt-2">
+          <span className="uppercase text-sm">NET TOTAL:</span>
+          <span className="tabular-nums">₹{Math.round(netPayable).toLocaleString()}</span>
+        </div>
+      </div>
+    </div>
+
+    {/* CUSTOMER INFORMATION SECTION */}
+    <div className="mt-8 border-t-2 border-dashed border-black pt-4 px-2">
+      <h4 className="text-[10px] font-black uppercase tracking-widest mb-3 underline">Customer Information</h4>
+      <div className="grid grid-cols-2 gap-8">
+        <div className="border-b-2 border-black pb-1">
+          <p className="text-[8px] font-black text-black uppercase">Customer Name:</p>
+          <div className="h-4"></div>
+        </div>
+        <div className="border-b-2 border-black pb-1">
+          <p className="text-[8px] font-black text-black uppercase">Phone Number:</p>
+          <div className="h-4"></div>
+        </div>
+      </div>
+    </div>
+
+    {/* FOOTER */}
+    <div className="mt-8 text-center pb-2">
+      <p className="text-[9px] font-black uppercase tracking-[0.1em] text-black">
+        Thank You for Shopping with Suvarna Jewellers
+      </p>
+      <p className="text-[8px] font-bold mt-1 text-black italic">
+        * Computer Generated Estimation - Valid only for 4 hours *
+      </p>
+    </div>
+  </div>
+</div>
 
       <SuccessToast
         message={toastMessage}

@@ -46,11 +46,13 @@ model GoldPurchase {
 
 model GoldJobWork {
   id                String    @id @default(uuid())
-  workerName        String?   // Added ? to allow nulls for existing rows
-  totalGrams        Float?    // Added ? to allow nulls for existing rows
+  workerName        String?
+  totalGrams        Float?
   productType       String?
   advancePaid       Float     @default(0)
-  makingCharge      Float?
+  makingCharge      Float?    // This is the "Rate" or "Total Labor"
+  totalAmount       Float?    @default(0) // Total bill for the worker
+  balanceAmount     Float?    @default(0) // Remaining to pay the worker
   status            String    @default("PENDING")
   dateGiven         DateTime  @default(now())
   dateReceived      DateTime?
@@ -59,9 +61,8 @@ model GoldJobWork {
   notes             String?
   createdBy         String
   createdAt         DateTime  @default(now())
-  totalPaid         Float? @default(0)
+  totalPaid         Float?    @default(0)
   
-  // The relation field for orders
   assignedOrders    Order[]   
 }
 

@@ -18,38 +18,58 @@ export async function PATCH(req: Request) {
   try {
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
-      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders() });
+      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { 
+        status: 401, 
+        headers: corsHeaders() 
+      });
     }
 
     const token = authHeader.split(" ")[1];
     const decoded: any = verifyToken(token);
 
     if (!decoded || decoded.role !== "SUPER_ADMIN") {
-      return new NextResponse(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: corsHeaders() });
+      return new NextResponse(JSON.stringify({ error: "Forbidden" }), { 
+        status: 403, 
+        headers: corsHeaders() 
+      });
     }
 
     const body = await req.json();
-    const { id, returnedGoldGrams, wastageGrams, notes } = body;
+    const { 
+      id, 
+      returnedGoldGrams, 
+      wastageGrams, 
+      compNotes,
+      // Financials passed from frontend to ensure balance becomes 0
+      balanceAmount, 
+    
+    } = body;
 
     if (!id) {
-      return new NextResponse(JSON.stringify({ error: "Job ID is required" }), { status: 400, headers: corsHeaders() });
+      return new NextResponse(JSON.stringify({ error: "Job ID is required" }), { 
+        status: 400, 
+        headers: corsHeaders() 
+      });
     }
 
     // 🔥 TRANSACTION: Update Job and all linked Orders
-    const updatedJob = await prisma.$transaction(async (tx) => {
-      // 1. Update the GoldJobWork status
+    const result = await prisma.$transaction(async (tx) => {
+      
+      // 1. Update the GoldJobWork: Set balance to 0 and update weight metrics
       const job = await tx.goldJobWork.update({
         where: { id: id },
         data: {
           status: "COMPLETED",
           dateReceived: new Date(),
-          returnedGoldGrams: parseFloat(returnedGoldGrams) || null,
-          wastageGrams: parseFloat(wastageGrams) || null,
-          notes: notes ? `Completion Notes: ${notes}` : undefined
+          returnedGoldGrams: parseFloat(returnedGoldGrams) || 0,
+          wastageGrams: parseFloat(wastageGrams) || 0,
+          // 🔥 Financial Settlement
+          balanceAmount: parseFloat(balanceAmount) || 0, // Frontend sends 0
+          notes: compNotes ? `Completion Notes: ${compNotes}` : undefined
         }
       });
 
-      // 2. Update all Orders linked to this specific JobWork ID
+      // 2. Update all Orders linked to this specific JobWork ID to COMPLETED
       await tx.order.updateMany({
         where: { jobWorkId: id },
         data: {
@@ -61,7 +81,11 @@ export async function PATCH(req: Request) {
     });
 
     return new NextResponse(
-      JSON.stringify({ success: true, message: "Job and linked orders marked as completed", job: updatedJob }),
+      JSON.stringify({ 
+        success: true, 
+        message: "Job finalized and balance settled to 0", 
+        job: result 
+      }),
       { status: 200, headers: corsHeaders() }
     );
 
