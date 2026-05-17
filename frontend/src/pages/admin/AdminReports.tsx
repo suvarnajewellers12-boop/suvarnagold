@@ -47,7 +47,7 @@ const Reports = () => {
     const fetchAdminDetails = async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await fetch("http://localhost:3000/api/admin/all", {
+        const res = await fetch("https://suvarnagold-16e5.vercel.app/api/admin/all", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
@@ -82,7 +82,7 @@ const Reports = () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:3000/api/admin/reports", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/admin/reports", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();

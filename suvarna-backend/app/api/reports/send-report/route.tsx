@@ -6,18 +6,17 @@ export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 // Comprehensive CORS headers for local development
-const corsHeaders = (origin: string | null) => ({
-  "Access-Control-Allow-Origin": origin || "http://localhost:8080",
+const corsHeaders = () => ({
+  "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
   "Access-Control-Allow-Credentials": "true",
 });
 
 export async function OPTIONS(req: Request) {
-  const origin = req.headers.get("origin");
   return new NextResponse(null, {
     status: 204,
-    headers: corsHeaders(origin),
+    headers: corsHeaders(),
   });
 }
 
@@ -31,13 +30,13 @@ export const config = {
 };
 
 export async function POST(req: Request) {
-  const origin = req.headers.get("origin");
+  // const origin = req.headers.get("origin");
   
   try {
     // 1. Authorize the TechSpire session
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders(origin) });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders() });
     }
 
     const token = authHeader.split(" ")[1];
@@ -66,9 +65,9 @@ export async function POST(req: Request) {
       }],
     });
 
-    return NextResponse.json({ success: true }, { status: 200, headers: corsHeaders(origin) });
+    return NextResponse.json({ success: true }, { status: 200, headers: corsHeaders() });
 
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders(origin) });
+    return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders() });
   }
 }

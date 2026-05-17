@@ -361,6 +361,7 @@ export default function StaffManagement() {
                                         <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Salary (₹)</label>
                                         <Input
                                             type="number"
+                                            min="0"
                                             placeholder="Salary"
                                             className="h-12 border-gold/10"
                                             value={form.monthlySalary}

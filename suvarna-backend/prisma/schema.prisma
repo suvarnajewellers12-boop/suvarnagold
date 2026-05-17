@@ -251,6 +251,9 @@ model Coupon {
   description      String?
   type             String          @default("WEIGHT")
   value            Float           @default(0)
+  isPreClosed      Boolean         @default(false)
+  preClosedAt      DateTime?
+  invoiceNumber    String?
   customer         Customer        @relation(fields: [customerId], references: [id])
   customerScheme   CustomerScheme? @relation(fields: [customerSchemeId], references: [id])
   scheme           Scheme?         @relation(fields: [schemeId], references: [id])

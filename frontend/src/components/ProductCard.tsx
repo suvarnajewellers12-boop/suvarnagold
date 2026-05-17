@@ -257,22 +257,22 @@ export const ProductCard = ({
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Grams</label>
-                  <Input type="number" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.grams} onChange={(e) => setEditedProduct({ ...editedProduct, grams: Number(e.target.value) })} />
+                  <Input type="number" min="0" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.grams} onChange={(e) => setEditedProduct({ ...editedProduct, grams: Number(e.target.value) })} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Stone Wt</label>
-                  <Input type="number" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.stoneWeight} onChange={(e) => setEditedProduct({ ...editedProduct, stoneWeight: Number(e.target.value) })} />
+                  <Input type="number" min="0" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.stoneWeight} onChange={(e) => setEditedProduct({ ...editedProduct, stoneWeight: Number(e.target.value) })} />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                  <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">VA %</label>
-                  <Input type="number" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.va} onChange={(e) => setEditedProduct({ ...editedProduct, va: Number(e.target.value) })} />
+                  <Input type="number" min="0" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.va} onChange={(e) => setEditedProduct({ ...editedProduct, va: Number(e.target.value) })} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Stone Cost</label>
-                  <Input type="number" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.stoneCost} onChange={(e) => setEditedProduct({ ...editedProduct, stoneCost: Number(e.target.value) })} />
+                  <Input type="number" min="0" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.stoneCost} onChange={(e) => setEditedProduct({ ...editedProduct, stoneCost: Number(e.target.value) })} />
                 </div>
               </div>
 

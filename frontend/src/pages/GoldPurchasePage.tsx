@@ -235,15 +235,15 @@ export default function GoldPurchasePage() {
                         </select>
                       </div>
                       <div className="space-y-1.5"><label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Weight (g)</label>
-                        <Input type="number" placeholder="0.00" className="h-11 border-gold/10" value={form.grams} onChange={(e) => handleChange("grams", e.target.value)} required />
+                        <Input type="number" min="0" placeholder="0.00" className="h-11 border-gold/10" value={form.grams} onChange={(e) => handleChange("grams", e.target.value)} required />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1.5"><label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Rate</label>
-                        <Input type="number" placeholder="₹ / g" className="h-11 border-gold/10" value={form.pricePerGram} onChange={(e) => handleChange("pricePerGram", e.target.value)} required />
+                        <Input type="number" min="0" placeholder="₹ / g" className="h-11 border-gold/10" value={form.pricePerGram} onChange={(e) => handleChange("pricePerGram", e.target.value)} required />
                       </div>
                       <div className="space-y-1.5"><label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Total</label>
-                        <Input type="number" placeholder="Total ₹" className="h-11 border-gold/10 font-bold" value={form.totalAmount} onChange={(e) => handleChange("totalAmount", e.target.value)} required />
+                        <Input type="number" min="0" placeholder="Total ₹" className="h-11 border-gold/10 font-bold" value={form.totalAmount} onChange={(e) => handleChange("totalAmount", e.target.value)} required />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">

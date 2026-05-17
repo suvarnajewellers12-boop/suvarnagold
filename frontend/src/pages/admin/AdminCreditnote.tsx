@@ -410,6 +410,7 @@ const CreditNotes = () => {
                         value={overallCost} 
                         onChange={e => setOverallCost(e.target.value)} 
                         type="number" 
+                        min="0"
                         placeholder="0.00" 
                         className="h-16 rounded-2xl font-serif font-bold text-3xl text-center pl-10 text-primary border-primary/20 shadow-inner focus-visible:ring-primary" 
                      />
@@ -437,7 +438,7 @@ const CreditNotes = () => {
                     </div>
                     <div className="col-span-2 space-y-1.5">
                       <label className="text-[9px] font-bold text-muted-foreground uppercase ml-1">Weight (g)</label>
-                      <Input value={p.grams} onChange={e => updateProductField(index, "grams", e.target.value)} type="number" placeholder="0.00" className="h-10 text-xs rounded-xl" />
+                      <Input value={p.grams} onChange={e => updateProductField(index, "grams", e.target.value)} type="number" min="0" placeholder="0.00" className="h-10 text-xs rounded-xl" />
                     </div>
                     <div className="col-span-2 space-y-1.5">
                       <label className="text-[9px] font-bold text-muted-foreground uppercase ml-1">Carats</label>
@@ -445,7 +446,7 @@ const CreditNotes = () => {
                     </div>
                     <div className="col-span-3 space-y-1.5">
                       <label className="text-[9px] font-bold text-muted-foreground uppercase ml-1">Stone Wt (opt)</label>
-                      <Input value={p.stoneWeight} onChange={e => updateProductField(index, "stoneWeight", e.target.value)} type="number" placeholder="0.0" className="h-10 text-xs rounded-xl" />
+                      <Input value={p.stoneWeight} onChange={e => updateProductField(index, "stoneWeight", e.target.value)} type="number" min="0" placeholder="0.0" className="h-10 text-xs rounded-xl" />
                     </div>
                     <div className="col-span-1 flex items-end justify-center pb-2">
                       <button onClick={() => handleRemoveProductRow(index)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all">

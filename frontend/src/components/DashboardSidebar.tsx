@@ -9,7 +9,8 @@ import {
   Settings,
   LogOut,
   Store,
-  Plus
+  Plus,
+  Ticket
 } from "lucide-react";
 import {
   Sidebar,
@@ -38,7 +39,8 @@ const menuItems = [
   { title: "Admin Management", url: "/dashboard/admins", icon: Users },
   { title: "Photos", url: "/dashboard/photos", icon: Package },
   { title: "Credit Notes", url: "/dashboard/credit-notes", icon: FileText },
-    {title:"Customer Orders", url:"/dashboard/customer-orders", icon: Store},
+  { title: "Customer Orders", url: "/dashboard/customer-orders", icon: Store },
+  { title: "Coupons", url: "/dashboard/coupons", icon: Ticket },
 
   { title: "Upload", url: "/dashboard/upload", icon: Package }
 ];

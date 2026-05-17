@@ -474,11 +474,11 @@ const Products = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Metal Wt (g)</label>
-                    <Input type="number" placeholder="0.000" value={formData.grams} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, grams: e.target.value })} />
+                    <Input type="number" min="0" placeholder="0.000" value={formData.grams} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, grams: e.target.value })} />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Stone Wt (g)</label>
-                    <Input type="number" placeholder="0.000" value={formData.stoneWeight} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, stoneWeight: e.target.value })} />
+                    <Input type="number" min="0" placeholder="0.000" value={formData.stoneWeight} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, stoneWeight: e.target.value })} />
                   </div>
                 </div>
 
@@ -486,11 +486,11 @@ const Products = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">VA %</label>
-                    <Input type="number" placeholder="0%" value={formData.va} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, va: e.target.value })} />
+                    <Input type="number" min="0" placeholder="0%" value={formData.va} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, va: e.target.value })} />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Stone Cost</label>
-                    <Input type="number" placeholder="₹0" value={formData.stoneCost} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, stoneCost: e.target.value })} />
+                    <Input type="number" min="0" placeholder="₹0" value={formData.stoneCost} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, stoneCost: e.target.value })} />
                   </div>
                 </div>
 

@@ -216,7 +216,7 @@ const AdminSchemesView = () => {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Duration (Mo)</label>
-                        <Input name="durationMonths" type="number" placeholder="12" value={form.durationMonths} onChange={handleChange} className="h-12 rounded-xl border-gold/10" />
+                        <Input name="durationMonths" type="number" min="0" placeholder="12" value={form.durationMonths} onChange={handleChange} className="h-12 rounded-xl border-gold/10" />
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Coupon Code</label>
@@ -228,7 +228,7 @@ const AdminSchemesView = () => {
                       <label className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground ml-1">Monthly Amount</label>
                       <div className="relative">
                         <IndianRupee className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gold/60" />
-                        <Input name="monthlyAmount" type="number" placeholder="0.00" className="h-12 pl-10 rounded-xl border-gold/10" value={form.monthlyAmount} onChange={handleChange} />
+                        <Input name="monthlyAmount" type="number" min="0" placeholder="0.00" className="h-12 pl-10 rounded-xl border-gold/10" value={form.monthlyAmount} onChange={handleChange} />
                       </div>
                     </div>
 
@@ -236,7 +236,7 @@ const AdminSchemesView = () => {
                       <label className="text-[10px] uppercase font-bold tracking-widest text-gold ml-1">Maturity Value</label>
                       <div className="relative flex items-center">
                         <IndianRupee className="w-5 h-5 text-amber-600 mr-1" />
-                        <Input name="maturityAmount" type="number" placeholder="0.00" className="h-12 border-none bg-transparent focus-visible:ring-0 font-bold text-amber-700 text-2xl p-0" value={form.maturityAmount} onChange={handleChange} />
+                        <Input name="maturityAmount" type="number" min="0" placeholder="0.00" className="h-12 border-none bg-transparent focus-visible:ring-0 font-bold text-amber-700 text-2xl p-0" value={form.maturityAmount} onChange={handleChange} />
                       </div>
                     </div>
                   </div>

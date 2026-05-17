@@ -142,6 +142,8 @@ export async function GET(
 
           value: coupon.totalCashValue,
 
+          isPreClosed: coupon.isPreClosed,
+
         }
 
         : {
@@ -149,6 +151,8 @@ export async function GET(
           type: "WEIGHT",
 
           value: coupon.totalWeightGrams,
+
+          isPreClosed: coupon.isPreClosed,
 
         };
 

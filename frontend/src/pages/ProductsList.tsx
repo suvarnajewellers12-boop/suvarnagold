@@ -235,6 +235,7 @@ function EditModal({
             <label className="text-[10px] font-bold uppercase text-zinc-400 ml-1">Weight (g)</label>
             <input
               type="number"
+              min="0"
               className="w-full border rounded-xl p-3 bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-yellow-500 transition-all"
               value={weight}
               onChange={(e) => setWeight(e.target.value)}
@@ -443,6 +444,7 @@ export default function ProductPage() {
                   <div>
                     <input
                       type="number"
+                      min="0"
                       placeholder="Weight (g)"
                       value={weight}
                       onChange={(e) => setWeight(e.target.value)}

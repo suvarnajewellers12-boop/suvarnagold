@@ -267,7 +267,7 @@ const exportToPDF = () => {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Tenure (Mo.)</label>
-                      <Input name="durationMonths" type="number" value={form.durationMonths} onChange={handleChange} placeholder="11" className="h-11 rounded-xl bg-slate-50/50" />
+                      <Input name="durationMonths" type="number" min="0" value={form.durationMonths} onChange={handleChange} placeholder="11" className="h-11 rounded-xl bg-slate-50/50" />
                     </div>
                     {form.category === "Category-A" ? (
                       <div className="space-y-1.5">
@@ -286,7 +286,7 @@ const exportToPDF = () => {
                     <label className="text-[10px] uppercase font-bold text-muted-foreground ml-1">Monthly Installment</label>
                     <div className="relative">
                       <IndianRupee className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gold/40" />
-                      <Input name="monthlyAmount" type="number" value={form.monthlyAmount} onChange={handleChange} placeholder="5000" className="h-11 pl-10 rounded-xl bg-slate-50/50 font-bold" />
+                      <Input name="monthlyAmount" type="number" min="0" value={form.monthlyAmount} onChange={handleChange} placeholder="5000" className="h-11 pl-10 rounded-xl bg-slate-50/50 font-bold" />
                     </div>
                   </div>
 

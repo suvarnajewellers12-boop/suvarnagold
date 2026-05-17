@@ -65,6 +65,7 @@ export async function POST(req: Request) {
           branchName: admin.branchName,
           state: admin.state,
           role: admin.role,
+                        
         },
       })
     );

@@ -165,7 +165,8 @@ const Reports = () => {
             // 1. Search Filter (Customer Name or Phone)
             const matchesSearch =
                 item.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                item.phone.includes(searchQuery);
+                item.phone.includes(searchQuery) ||
+                item.invoice.includes(searchQuery);
             if (!matchesSearch) return false;
 
             // 2. Time Filtering
@@ -254,6 +255,7 @@ const Reports = () => {
                         "Payment Status": p.paymentStatus,
                         "Stone Weight": p.stoneWeight,
                         "Stone Cost": p.stoneCost,
+
                     });
                 });
             });
@@ -509,7 +511,7 @@ const Reports = () => {
 
             // ── Totals block (last page only) ─────────────────────────────────────
             const stampTotals = (page: any, afterY: number) => {
-                const { draw, drawR } = makePen(page);
+                const { draw, drawR, hLine } = makePen(page);
 
                 const LABEL_X = 258;
                 const VALUE_X = col.price;
@@ -529,17 +531,19 @@ const Reports = () => {
                 };
 
                 totRow("Subtotal:", `₹${purchase.subtotal.toLocaleString()}`);
+
+
+                if (purchase.discount > 0)
+                    totRow("Manager Discount:", `-₹${purchase.discount.toLocaleString()}`, 8.5, grey, red);
+                // if (purchase.exchangeDiscount > 0)
+                //     totRow("Exchange Discount:", `-₹${purchase.exchangeDiscount.toLocaleString()}`, 8.5, grey, red);
+
                 if (purchase.cgst > 0)
                     totRow("CGST (1.5%):", `₹${purchase.cgst.toLocaleString()}`);
                 if (purchase.sgst > 0)
                     totRow("SGST (1.5%):", `₹${purchase.sgst.toLocaleString()}`);
                 if (purchase.couponDiscount > 0)
-                    totRow("Coupon Discount:", `-₹${purchase.couponDiscount.toLocaleString()}`, 8.5, grey, red);
-                if (purchase.discount > 0)
-                    totRow("Manager Discount:", `-₹${purchase.discount.toLocaleString()}`, 8.5, grey, red);
-                if (purchase.exchangeDiscount > 0)
-                    totRow("Exchange Discount:", `-₹${purchase.exchangeDiscount.toLocaleString()}`, 8.5, grey, red);
-
+                    totRow("Coupon Redeemed:", `-₹${purchase.couponDiscount.toLocaleString()}`, 8.5, grey, red);
                 if (tY > SAFE_BOTTOM - 35) return;
                 tY += 4;
 
@@ -573,7 +577,50 @@ const Reports = () => {
                     size: 12, font: customFont, color: gold,
                 });
 
-                tY += boxH + 16;
+                tY += boxH + 10;
+
+                // ── Payment Mode section ──────────────────────────────────────────
+                const hasPayments =
+                    purchase.payments.cash > 0 ||
+                    purchase.payments.upi > 0 ||
+                    purchase.payments.card > 0 ||
+                    purchase.payments.cheque > 0 ||
+                    purchase.exchangeDiscount > 0;
+
+                if (hasPayments && tY <= SAFE_BOTTOM - 20) {
+                    // Section divider line
+                    hLine(tY);
+                    tY += 10;
+
+                    draw("PAYMENT MODE", col.name, tY, 8, gold);
+                    tY += 13;
+
+                    const PAY_VAL_X = 220;
+
+                    const payRow = (label: string, amount: number) => {
+                        if (tY > SAFE_BOTTOM - 10) return;
+                        draw(label, col.name + 6, tY, 8, grey);
+                        drawR(`₹${Math.round(amount).toLocaleString()}`, PAY_VAL_X, tY, 8, black);
+                        tY += 12;
+                    };
+
+                    if (purchase.payments.cash > 0)
+                        payRow("Cash", purchase.payments.cash);
+                    if (purchase.payments.cheque > 0)
+                        payRow("Cheque", purchase.payments.cheque);
+                    if (purchase.payments.upi > 0)
+                        payRow("UPI", purchase.payments.upi);
+                    if (purchase.exchangeDiscount > 0) {
+                        const exchLabel = purchase.exchangeName
+                            ? `Exchange (${purchase.exchangeName}${purchase.exchangeGrams ? ` | ${purchase.exchangeGrams}g` : ""})`
+                            : "Exchange";
+                        payRow(exchLabel, purchase.exchangeDiscount);
+                    }
+                    if (purchase.payments.card > 0)
+                        payRow("Debit / Credit Card", purchase.payments.card);
+
+                    tY += 6;
+                }
 
                 // ── Footer ────────────────────────────────────────────────────────
                 if (tY <= SAFE_BOTTOM - 28) {
@@ -632,7 +679,7 @@ const Reports = () => {
                         const base64String = (reader.result as string).split(",")[1];
                         resolve(base64String);
                     };
-                    reader.readAsDataURL(new Blob([emailBytes]));
+                    reader.readAsDataURL(new Blob([emailBytes.buffer as ArrayBuffer]));
                 });
 
                 fetch("https://suvarnagold-16e5.vercel.app/api/reports/send-report", {
@@ -662,7 +709,7 @@ const Reports = () => {
             });
 
             const printBytes = await printDoc.save();
-            const blob = new Blob([printBytes], { type: "application/pdf" });
+            const blob = new Blob([printBytes.buffer as ArrayBuffer], { type: "application/pdf" });
             const pdfUrl = URL.createObjectURL(blob);
 
             if (mode === "download") {
@@ -990,6 +1037,15 @@ const Reports = () => {
                                         {selectedCustomer.payments.cheque > 0 && (
                                             <><span className="text-muted-foreground">Cheque / Draft</span><span className="text-right font-bold">₹{selectedCustomer.payments.cheque.toLocaleString()}</span></>
                                         )}
+                                        {selectedCustomer.exchangeDiscount > 0 && (
+                                            <>
+                                                <span className="text-muted-foreground">
+                                                    Exchange{selectedCustomer.exchangeName ? ` — ${selectedCustomer.exchangeName}` : ""}
+                                                    {selectedCustomer.exchangeGrams ? ` (${selectedCustomer.exchangeGrams}g)` : ""}
+                                                </span>
+                                                <span className="text-right font-bold text-red-600">-₹{selectedCustomer.exchangeDiscount.toLocaleString()}</span>
+                                            </>
+                                        )}
                                     </div>
                                     <div className="pt-3 border-t border-primary/20 flex justify-between items-end">
                                         <span className="text-xs font-bold uppercase text-primary tracking-widest">Total Amount</span>
@@ -998,10 +1054,10 @@ const Reports = () => {
                                 </div>
 
                                 <div className="flex gap-3 pt-4">
-                                    <Button variant="gold" className="flex-1 h-12 font-bold shadow-lg rounded-xl transition-all hover:scale-[1.02]" onClick={() => handleReceiptAction(selectedCustomer, "download")}>
+                                    <Button variant="gold" className="flex-1 h-12 font-bold shadow-lg rounded-xl transition-all hover:scale-[1.02]" onClick={() => handleReceiptAction(selectedCustomer, liveRates, "download")}>
                                         <Download className="w-4 h-4 mr-2" /> Save PDF
                                     </Button>
-                                    <Button variant="outline" className="flex-1 h-12 font-bold border-primary/20 text-primary rounded-xl transition-all hover:bg-primary/5" onClick={() => handleReceiptAction(selectedCustomer, "print")}>
+                                    <Button variant="outline" className="flex-1 h-12 font-bold border-primary/20 text-primary rounded-xl transition-all hover:bg-primary/5" onClick={() => handleReceiptAction(selectedCustomer, liveRates, "print")}>
                                         <Printer className="w-4 h-4 mr-2" /> Print Receipt
                                     </Button>
                                 </div>

@@ -40,6 +40,7 @@ import AdminSettings from "./pages/admin/AdminSettings";
 import AdminCustomerManagement from "./pages/admin/AdminCustomer";
 import StaffManagement from "./pages/staff";
 import ProductsList from "./pages/ProductsList";
+import CouponManagement from "./pages/CouponManagement";
 import AdminCreateScheme from "./pages/admin/AdminCreateSchemes";
 import AdminProdyctList from "./pages/admin/AdminProductList";
 import AdminProductList from "./pages/admin/AdminProductList";
@@ -177,6 +178,7 @@ const App = () => (
             <Route path="/dashboard/staff" element={<StaffManagement />} />
             <Route path="/dashboard/jobwork" element={<GoldJobWorkPage />} />
             <Route path="/dashboard/gold-purchase" element={<GoldPurchasePage />} />
+            <Route path="/dashboard/coupons" element={<CouponManagement />} />
 
             {/* Admin Routes */}
             <Route path="/admin" element={<AdminDashboard />} />

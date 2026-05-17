@@ -5,9 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "prisma:seed": "ts-node prisma/seed.ts"
+    "start": "next start",       
+    "lint": "next lint"
   },
   "dependencies": {
     "@prisma/client": "^6.19.2",

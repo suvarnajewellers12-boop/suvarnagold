@@ -391,7 +391,7 @@ const BillingPOS = () => {
     }
     setIsFinalizing(true);
     try {
-      const response = await fetch("http://localhost:3000/api/payment/verify", {
+      const response = await fetch("https://suvarnagold-16e5.vercel.app/api/payment/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -757,12 +757,13 @@ const BillingPOS = () => {
                           <div className="space-y-4 animate-in fade-in slide-in-from-top-3">
                             <div className="grid grid-cols-2 gap-3">
                               <Input placeholder="Description" value={exchangeData.name} onChange={(e) => setExchangeData({ ...exchangeData, name: e.target.value })} className="h-11 rounded-xl text-xs font-bold" />
-                              <Input type="number" placeholder="Net Wt (g)" value={exchangeData.grams || ""} onChange={(e) => setExchangeData({ ...exchangeData, grams: Number(e.target.value) })} className="h-11 rounded-xl text-xs font-bold" />
+                              <Input type="number" min="0" placeholder="Net Wt (g)" value={exchangeData.grams || ""} onChange={(e) => setExchangeData({ ...exchangeData, grams: Number(e.target.value) })} className="h-11 rounded-xl text-xs font-bold" />
                             </div>
                             <div className="relative">
                               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-600 font-bold">₹</span>
                               <Input
                                 type="number"
+                                min="0"
                                 placeholder="Approved Exchange Value"
                                 className="h-12 pl-10 rounded-xl font-black text-lg bg-white border-amber-200"
                                 value={exchangeData.discount || ""}
@@ -879,6 +880,7 @@ const BillingPOS = () => {
                                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gold font-bold text-xs">₹</span>
                                   <Input
                                     type="number"
+                                    min="0"
                                     className="h-12 pl-7 text-right font-black text-base rounded-xl border-gold/20"
                                     value={paymentAmounts[method as keyof typeof paymentAmounts] || ""}
                                     onChange={(e) => setPaymentAmounts({ ...paymentAmounts, [method]: Number(e.target.value) })}

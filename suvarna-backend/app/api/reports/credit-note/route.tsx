@@ -69,7 +69,8 @@ export async function POST(req: Request) {
               grams: Number(p.grams || 0),
               carats: String(p.carats || ""),
               stoneWeight: Number(p.stoneWeight || 0),
-              overallCost: Number(overallCost) // Mapping the same overall cost to each entry for record keeping
+              overallCost: Number(overallCost)
+               // Mapping the same overall cost to each entry for record keeping
             }))
           }
         },

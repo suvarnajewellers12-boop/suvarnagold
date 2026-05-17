@@ -41,8 +41,17 @@ export async function POST(req: Request) {
       purchaseData,
       paymentBreakdown // This contains { cash, upi, card, cheque }
     } = body;
-    const invoiceNumber = `SUVJ-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    // 1. Prepare the Purchase Payload with Multi-Modal logic
+    const now = new Date();
+
+    // Format: DDMMYY
+    const d = String(now.getDate()).padStart(2, '0');
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const y = String(now.getFullYear()).slice(-2);
+
+    // Format: Random 3-digit number (000-999)
+    const r = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+
+    const invoiceNumber = `SJ-${d}${m}${y}-${r}`;    // 1. Prepare the Purchase Payload with Multi-Modal logic
     const purchasePayload: any = {
       customerName: purchaseData.customerName,
       phoneNumber: purchaseData.phoneNumber,
@@ -53,7 +62,7 @@ export async function POST(req: Request) {
       totalAmount: purchaseData.totalAmount,
       cgstAmount: purchaseData.cgstAmount,
       sgstAmount: purchaseData.sgstAmount,
-      discountAmount: purchaseData.discountAmount||0,
+      discountAmount: purchaseData.discountAmount || 0,
       jewelleryexchangediscount: purchaseData.jewelleryexchangediscount || 0,
       excahngejewellrygrams: purchaseData.excahngejewellrygrams || null,
       excahngejewellryname: purchaseData.excahngejewellryname || null,
@@ -81,7 +90,7 @@ export async function POST(req: Request) {
 
     // 3. Database Transaction
     const purchase = await prisma.$transaction(async (tx) => {
-      
+
       // Create the main Purchase record
       const createdPurchase = await tx.purchase.create({
         data: purchasePayload,
@@ -120,6 +129,7 @@ export async function POST(req: Request) {
       JSON.stringify({
         success: true,
         purchaseId: purchase.id,
+        invoiceNumber,
         message: "Manual POS purchase completed successfully"
       }),
       { status: 200, headers: corsHeaders() }
