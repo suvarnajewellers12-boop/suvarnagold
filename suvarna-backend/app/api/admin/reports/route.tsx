@@ -87,7 +87,7 @@ export async function GET(req: Request) {
     const rows = purchases.flatMap((purchase) => {
       const createdBy = purchase.admin?.username || purchase.superAdmin?.username || "SYSTEM";
 
-      return purchase.items.map((item) => ({
+      return purchase.items.map((item: any) => ({
         id: purchase.id,
         invoice: purchase.invoice,
         customerName: purchase.customerName,

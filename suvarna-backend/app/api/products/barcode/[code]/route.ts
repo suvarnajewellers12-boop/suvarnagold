@@ -69,7 +69,7 @@ export async function GET(
         netWeight: product.netWeight,
         stoneWeight: product.stoneWeight,
         grams: product.grams,
-        huid: product.huid,
+        itemCode: product.itemCode,
       },
       { headers: corsHeaders }
     );

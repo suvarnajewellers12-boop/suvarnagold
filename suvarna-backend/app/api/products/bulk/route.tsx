@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import * as XLSX from "xlsx";
 import { v4 as uuidv4 } from "uuid";
 import { verifyToken } from "@/lib/auth";
-import { createDecompressor } from "zlib";
+// import { createDecompressor } from "zlib";
 import { promisify } from "util";
 
 // ✅ CORS HEADERS

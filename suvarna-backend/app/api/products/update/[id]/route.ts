@@ -48,8 +48,8 @@ export async function PUT(
       grams, 
       stoneWeight, 
       netWeight, 
-      quantity, 
-      huid,
+      
+      itemCode,
       va
     } = body;
 
@@ -61,13 +61,12 @@ export async function PUT(
         carats,
         category,
         bodyPart,
-        huid,
+        itemCode,
         va,
         // 🔹 Ensure numbers are parsed correctly
         grams: grams !== undefined ? parseFloat(grams) : undefined,
         stoneWeight: stoneWeight !== undefined ? parseFloat(stoneWeight) : undefined,
         netWeight: netWeight !== undefined ? parseFloat(netWeight) : undefined,
-        quantity: quantity !== undefined ? parseInt(quantity) : undefined,
       },
     });
 
