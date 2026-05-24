@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { format } from "date-fns";
+import { useAuth } from "@/hooks/useAuth";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
@@ -21,7 +22,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 
 export default function GoldJobWorkPage() {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const { token, isAuthChecking } = useAuth();
 
   const [jobWorks, setJobWorks] = useState<any[]>([]);
   const [unassignedOrders, setUnassignedOrders] = useState<any[]>([]);
@@ -219,6 +220,10 @@ export default function GoldJobWorkPage() {
     } catch (err) { console.error(err); }
     finally { setIsSubmitting(false); }
   };
+
+  // Show loading screen while checking authentication
+  
+  
 
   return (
     <SidebarProvider>

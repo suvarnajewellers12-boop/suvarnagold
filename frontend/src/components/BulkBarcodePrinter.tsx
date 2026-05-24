@@ -16,7 +16,7 @@ interface Product {
   stoneWeight: number;
   netWeight: number;
   grams: number;
-  huid?: string;
+  itemCode?: string;
 }
 
 interface BulkBarcodePrinterProps {
@@ -85,9 +85,10 @@ REFERENCE 0,0
 `;
 
         // --- Left Side: Product Details ---
+        const netWeightFormatted = Number(item.netWeight).toFixed(3);
         fullTspl += `TEXT ${textX},${startY},"1",0,1,1,"G: ${item.grams}"\n`;
         fullTspl += `TEXT ${textX},${startY + lineSpacing},"1",0,1,1,"SW: ${item.stoneWeight}"\n`;
-        fullTspl += `TEXT ${textX},${startY + (lineSpacing * 2)},"1",0,1,1,"NW: ${item.netWeight}        ${item.huid || ''}  ${item.sku || ''}"\n`;
+        fullTspl += `TEXT ${textX},${startY + (lineSpacing * 2)},"1",0,1,1,"NW: ${netWeightFormatted}        ${item.itemCode || ''}  ${item.sku || ''}"\n`;
 
         // --- Right Side: Barcode ---
         // Narrow/Wide set to 1,1 to keep it compact
@@ -121,7 +122,7 @@ REFERENCE 0,0
     <div className="fixed bottom-8 right-8 z-[100] w-96 bg-white rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.2)] border-2 border-amber-100 overflow-hidden animate-in slide-in-from-bottom-10 duration-500">
       {/* Header */}
       <div className="bg-gradient-to-r from-amber-700 to-amber-500 p-5 text-white flex justify-between items-center">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-1">
           <div className="bg-white/20 p-2 rounded-xl backdrop-blur-md">
             <Printer className="w-5 h-5" />
           </div>

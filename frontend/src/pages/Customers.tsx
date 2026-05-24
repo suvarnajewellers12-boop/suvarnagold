@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Plus, X, Phone, UserCircle,
   ShieldCheck, LayoutGrid, Check, ChevronsUpDown,
@@ -60,7 +61,7 @@ const CustomerSkeleton = () => (
 );
 
 const SuperadminCustomerManagement = () => {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const { token, isAuthChecking, isAuthenticated } = useAuth();
 
   const [customers, setCustomers] = useState<any[]>([]);
   const [schemes, setSchemes] = useState<any[]>([]);
@@ -237,6 +238,9 @@ const SuperadminCustomerManagement = () => {
       }
     } finally { setIsCreating(false); }
   };
+
+  // Show loading screen while checking authentication or if not authenticated
+  
 
   return (
     <SidebarProvider>

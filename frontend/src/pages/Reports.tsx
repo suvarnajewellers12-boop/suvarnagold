@@ -12,11 +12,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { useAuth } from "@/hooks/useAuth";
 import {
     Download, Phone, RefreshCcw, Printer, Hash,
     BadgePercent, Landmark, FileSpreadsheet, FileText,
     Repeat, Banknote, CreditCard, Smartphone, ScrollText,
-    MapPin, Mail, Calendar, Filter, Search, X
+    MapPin, Mail, Calendar, Filter, Search, X, Loader2
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,7 @@ const STORE_INFO = {
 };
 
 const Reports = () => {
+    const { isAuthChecking, isAuthenticated } = useAuth();
     const [showToast, setShowToast] = useState(false);
     const [toastMessage, setToastMessage] = useState("");
     const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year" | "custom">("month");
@@ -728,6 +730,11 @@ const Reports = () => {
             console.error("PDF Generation Error", error);
         }
     };
+
+    // Show loading screen while checking authentication
+    // 
+    
+
     return (
         <SidebarProvider>
             <div className="min-h-screen flex w-full bg-background overflow-hidden">

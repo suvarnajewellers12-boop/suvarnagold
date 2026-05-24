@@ -7,6 +7,7 @@ import { LuxuryCard } from "@/components/LuxuryCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Dialog,
   DialogContent,
@@ -88,6 +89,7 @@ const fmt = (d: string | null) =>
   d ? format(new Date(d), "dd MMM yyyy") : "—";
 
 export default function CouponManagement() {
+  const { isAuthChecking, isAuthenticated } = useAuth();
   const [coupons, setCoupons] = useState<CouponRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -201,6 +203,9 @@ export default function CouponManagement() {
     }),
     [coupons]
   );
+
+  // Show loading screen while checking authentication
+  
 
   return (
     <SidebarProvider>

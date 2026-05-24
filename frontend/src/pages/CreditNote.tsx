@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Plus, Search, RefreshCcw, Trash2,
   Landmark, Calendar, Loader2, ScrollText, Package, Printer, FileClock
@@ -21,6 +22,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 
 const CreditNotes = () => {
+  const { isAuthChecking, isAuthenticated } = useAuth();
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -394,6 +396,9 @@ const CreditNotes = () => {
     );
   });
 }, [searchQuery, creditNotes]);
+
+  // Show loading screen while checking authentication
+  
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background overflow-hidden font-sans">

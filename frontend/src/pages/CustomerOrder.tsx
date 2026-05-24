@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect } from "react";
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { format } from "date-fns";
+import { useAuth } from "@/hooks/useAuth";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
@@ -25,7 +26,7 @@ import { cn } from "@/lib/utils";
 // MAIN COMPONENT: ORDER MANAGEMENT PAGE
 // =============================================================================
 export default function OrderManagementPage() {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const { token, isAuthChecking } = useAuth();
 
   // ---------------------------------------------------------------------------
   // 1. COMPONENT STATES
@@ -308,6 +309,9 @@ export default function OrderManagementPage() {
   // ---------------------------------------------------------------------------
   // 4. RENDERING UI
   // ---------------------------------------------------------------------------
+  // Show loading screen while checking authentication
+  
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-[#FCFBF7] font-sans">

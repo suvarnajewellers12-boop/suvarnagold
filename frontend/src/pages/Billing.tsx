@@ -483,6 +483,8 @@ const BillingPOS = () => {
     ).slice(0, 5);
   }, [search, inventory]);
 
+  // Show loading screen while checking authentication or if not authenticated
+  
   return (
     <SidebarProvider>
       <div className="min-h-screen flex bg-[#FCFBF7] w-full overflow-hidden print:bg-white selection:bg-gold/30">

@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import { GoldDivider } from "@/components/GoldDivider";
 import { Badge } from "@/components/ui/badge";
 import { SuccessToast } from "@/components/SuccessToast";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Calculator, Search, Plus, Trash2,
   Printer, PackageSearch, X, Info, Banknote, Percent,
-  ScanLine, ShoppingCart, RefreshCcw, Layers, Zap, Star
+  ScanLine, ShoppingCart, RefreshCcw, Layers, Zap, Star, Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +25,7 @@ import { cn } from "@/lib/utils";
  */
 
 const EstimationTerminal = () => {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const { token, isAuthChecking } = useAuth();
 
   // --- CORE STATE ---
   const [inventory, setInventory] = useState([]);
@@ -198,6 +199,9 @@ const EstimationTerminal = () => {
   const removeManifestItem = (uid) => {
     setEstimateCart(prev => prev.filter(i => i.tempId !== uid));
   };
+
+  // Show loading screen while checking authentication
+  
 
   return (
     <SidebarProvider>

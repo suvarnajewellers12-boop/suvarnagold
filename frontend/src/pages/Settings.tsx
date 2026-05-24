@@ -3,8 +3,11 @@ import { useAccessibility } from "@/components/context/AccessibilityContext";
 import { useSpeech } from "@/hooks/useSpeech";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { useAuth } from "@/hooks/useAuth";
+import { Loader2 } from "lucide-react";
 
 const Settings = () => {
+  const { isAuthChecking, isAuthenticated } = useAuth();
   const { isEnabled, toggleAccessibility } = useAccessibility();
   const { speak, stop } = useSpeech();
 
@@ -25,6 +28,9 @@ const Settings = () => {
       speak("You opened settings page.");
     }
   }, [isEnabled, speak]);
+
+  // Show loading screen while checking authentication
+  
 
   return (
     <SidebarProvider>

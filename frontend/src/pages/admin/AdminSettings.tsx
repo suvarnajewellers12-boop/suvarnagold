@@ -1,14 +1,18 @@
+"use client";
+
 import { useState } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AdminSidebar } from "@/components/AdminSidebar";
+import { useAuth } from "@/hooks/useAuth";
 import { LuxuryCard } from "@/components/LuxuryCard";
 import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { User, Lock, Bell, Save } from "lucide-react";
+import { User, Lock, Bell, Save, Loader2 } from "lucide-react";
 
 const AdminSettings = () => {
+  const { isAuthChecking, isAuthenticated } = useAuth();
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
@@ -16,6 +20,8 @@ const AdminSettings = () => {
     setToastMessage("Settings saved successfully!");
     setShowToast(true);
   };
+
+  // Show loading screen while checking authentication or if not authenticated
 
   return (
     <SidebarProvider>

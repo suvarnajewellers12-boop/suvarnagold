@@ -7,6 +7,7 @@ import { LuxuryCard } from "@/components/LuxuryCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { SuccessToast } from "@/components/SuccessToast";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +24,7 @@ import {
   LayoutGrid,
   Plus,
   X,
-  Loader2,
+  
   CheckCircle2,
   Clock,
   ShieldCheck,
@@ -31,7 +32,8 @@ import {
   Download,
   FileText,
   Table as TableIcon,
-  Ticket
+  Ticket,
+  Loader2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import jsPDF from "jspdf";
@@ -65,7 +67,7 @@ const SchemeSkeleton = () => (
 );
 
 const SuperAdminCreateScheme = () => {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const { token, isAuthChecking, isAuthenticated } = useAuth();
 
   // Form State
   const [form, setForm] = useState({
@@ -92,6 +94,7 @@ const SuperAdminCreateScheme = () => {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isCouponDialogOpen, setIsCouponDialogOpen] = useState(false);
   const [selectedCoupon, setSelectedCoupon] = useState<any>(null);
+  const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
 
   // ================= FETCH LOGIC =================
   const fetchLiveRate = async () => {
@@ -198,6 +201,12 @@ const exportToPDF = () => {
       setShowToast(true);
       return;
     }
+    // Open confirmation dialog instead of creating directly
+    setIsConfirmDialogOpen(true);
+  };
+
+  const confirmCreateScheme = async () => {
+    const isCatB = form.category === "Category-B";
     try {
       setLoading(true);
       const res = await fetch("https://suvarnagold-16e5.vercel.app/api/schemes/create", {
@@ -210,11 +219,14 @@ const exportToPDF = () => {
         setShowToast(true);
         setForm({ name: "", category: "Category-A", durationMonths: "", monthlyAmount: "", maturityMonths: "" });
         setShowCreateBox(false);
+        setIsConfirmDialogOpen(false);
         fetchSchemes(true);
       }
     } catch (error) { setToastMessage("Creation Failed"); setShowToast(true); }
     finally { setLoading(false); }
   };
+
+  // Show loading screen while checking authentication or if not authenticated
 
   return (
     <SidebarProvider>
@@ -411,6 +423,86 @@ const exportToPDF = () => {
                <div className="text-right"><span className="text-[10px] font-black text-muted-foreground uppercase block mb-1">Issued</span><p className="text-xs font-bold">{new Date(selectedCoupon?.createdAt).toLocaleDateString()}</p></div>
             </div>
             <Button variant="outline" className="w-full h-12 rounded-2xl border-gold/20 text-gold uppercase font-bold text-[10px] tracking-widest" onClick={() => setIsCouponDialogOpen(false)}>Return to Registry</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ================= SCHEME CREATION CONFIRMATION DIALOG ================= */}
+      <Dialog open={isConfirmDialogOpen} onOpenChange={setIsConfirmDialogOpen}>
+        <DialogContent className="max-w-md rounded-[2.5rem] border-gold/20 bg-white p-0 overflow-hidden shadow-2xl">
+          <div className="bg-gradient-to-br from-gold to-amber-600 p-8 text-white text-center relative overflow-hidden">
+            <ShieldCheck className="w-16 h-16 mx-auto mb-4" />
+            <h3 className="text-2xl font-serif font-bold uppercase tracking-tight">Confirm Creation</h3>
+            <p className="text-[11px] uppercase font-bold tracking-[0.2em] opacity-90 mt-2">Authorize New Portfolio</p>
+          </div>
+          
+          <div className="p-8 space-y-6">
+            {/* Scheme Details */}
+            <div className="space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
+              <div className="flex items-start justify-between pb-4 border-b border-slate-200">
+                <div>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Portfolio Name</p>
+                  <p className="text-lg font-serif font-bold text-slate-900">{form.name}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[8px] font-bold text-muted-foreground uppercase mb-1.5">Category</p>
+                  <Badge variant="outline" className="border-gold/30 bg-gold/5 text-gold font-bold">
+                    {form.category === "Category-A" ? "VALUE BASED" : "WEIGHT BASED"}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-[8px] font-bold text-muted-foreground uppercase mb-1.5">Tenure</p>
+                  <p className="font-bold text-slate-900">{form.durationMonths} Months</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[8px] font-bold text-muted-foreground uppercase mb-1.5">Monthly Installment</p>
+                  <p className="font-bold text-emerald-600">₹{Number(form.monthlyAmount).toLocaleString()}</p>
+                </div>
+                {form.category === "Category-A" && (
+                  <div>
+                    <p className="text-[8px] font-bold text-muted-foreground uppercase mb-1.5">Bonus Months</p>
+                    <p className="font-bold text-slate-900">{form.maturityMonths} Months</p>
+                  </div>
+                )}
+                {form.category === "Category-B" && (
+                  <div>
+                    <p className="text-[8px] font-bold text-muted-foreground uppercase mb-1.5">Gold Rate</p>
+                    <p className="font-bold text-gold">₹{Number(liveGoldRate).toLocaleString()}/g</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Confirmation Message */}
+            <div className="text-center py-3 bg-amber-50 border border-amber-200 rounded-xl">
+              <p className="text-sm font-bold text-amber-900">Are you sure you want to create this portfolio?</p>
+              <p className="text-[9px] text-amber-700 mt-1 uppercase font-bold">This action cannot be undone</p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 pt-4">
+              <Button 
+                variant="outline" 
+                className="flex-1 h-12 rounded-xl border-2 border-slate-300 text-slate-700 hover:bg-slate-100 uppercase font-bold text-xs tracking-wider"
+                onClick={() => setIsConfirmDialogOpen(false)}
+              >
+                No, Cancel
+              </Button>
+              <Button 
+                className="flex-1 h-12 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-lg shadow-green-200 uppercase font-bold text-xs tracking-wider flex items-center justify-center gap-2"
+                onClick={confirmCreateScheme}
+                disabled={loading}
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                {loading ? "Creating..." : "Yes, Authorize"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

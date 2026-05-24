@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
-import { Trash2, Edit3, Plus, Image as ImageIcon, X } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { Trash2, Edit3, Plus, Image as ImageIcon, X, Loader2 } from "lucide-react";
 
 type Product = {
   id: string;
@@ -306,6 +307,7 @@ function EditModal({
 
 /* ─── Main Page ─────────────────────────────────────────────────── */
 export default function ProductPage() {
+  const { isAuthChecking, isAuthenticated, currentUser } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(!isCacheValid()); // ✅ skip loading if cache is warm
   const [editTarget, setEditTarget] = useState<Product | null>(null);
@@ -403,6 +405,9 @@ export default function ProductPage() {
     productCache.timestamp = Date.now();  // refresh TTL
     setProducts(updated);                 // update UI instantly
   }, [products]);
+
+  // Show loading screen while checking authentication
+  
 
   return (
     <SidebarProvider>

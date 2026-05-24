@@ -8,11 +8,12 @@ import { Link } from "react-router-dom";
 import { GoldDivider } from "@/components/GoldDivider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { TrendingUp, Settings2, Unlock, Lock, Receipt } from "lucide-react";
+import { TrendingUp, Settings2, Unlock, Lock, Receipt, Loader2 } from "lucide-react";
 import { AccessibleInput } from "@/components/AccessibleInput";
 import { LuxuryCard } from "@/components/LuxuryCard";
 
 export default function Dashboard() {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const { speak } = useSpeech();
   const { isEnabled } = useAccessibility();
   const [rates, setRates] = useState({ gold24: 0, gold22: 0, gold18: 0, silver: 0 });
@@ -65,6 +66,7 @@ export default function Dashboard() {
     return () => clearTimeout(timer);
   }, [isEnabled, displayRates, isManual, speak]);
 
+  
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">

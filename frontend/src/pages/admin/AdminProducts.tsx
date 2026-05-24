@@ -3,12 +3,13 @@
 import { useState, useEffect } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AdminSidebar } from "@/components/AdminSidebar";
+import { useAuth } from "@/hooks/useAuth";
 import { ProductCard } from "@/components/ProductCard";
 import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PackageOpen, RefreshCw, Search, Filter } from "lucide-react";
+import { PackageOpen, RefreshCw, Search, Filter, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ================= CACHE CONFIGURATION =================
@@ -35,7 +36,7 @@ const ProductSkeleton = () => (
 );
 
 const AdminProducts = () => {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const { currentUser, token } = useAuth();
 
   const [products, setProducts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -55,7 +56,13 @@ const AdminProducts = () => {
 
     setIsLoading(true);
     try {
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/products/all", {
+      // Build URL with branch filter if user is ADMIN
+      let apiUrl = "https://suvarnagold-16e5.vercel.app/api/products/all";
+      if (currentUser && currentUser.branchName) {
+        apiUrl += `?branch=${encodeURIComponent(currentUser.branchName)}`;
+      }
+
+      const res = await fetch(apiUrl, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -72,7 +79,7 @@ const AdminProducts = () => {
 
   useEffect(() => {
     fetchProducts();
-  }, []);
+  }, [currentUser]);
 
   // ================= SHOW BARCODE (With Barcode Cache) =================
   const handleShowBarcode = async (sku: string, productId: string) => {
@@ -105,6 +112,8 @@ const AdminProducts = () => {
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
       p.id.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+
 
   return (
     <SidebarProvider>

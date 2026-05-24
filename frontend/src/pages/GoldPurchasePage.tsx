@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
+import { useAuth } from "@/hooks/useAuth";
 import { 
   Coins, Landmark, Loader2, Calendar, 
   Receipt, Scale, RefreshCw, History, 
@@ -39,7 +40,7 @@ const PurchaseSkeleton = () => (
 );
 
 export default function GoldPurchasePage() {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const { token, isAuthChecking, currentUser } = useAuth();
 
   // States
   const [purchases, setPurchases] = useState<any[]>([]);
@@ -129,6 +130,8 @@ export default function GoldPurchasePage() {
     }
   };
 
+  // Show loading screen while checking authentication
+  
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-[#FCFBF7] font-sans">

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { AdminSidebar } from "@/components/AdminSidebar"; 
+import { AdminSidebar } from "@/components/AdminSidebar";
+import { useAuth } from "@/hooks/useAuth";
 import { LuxuryCard } from "@/components/LuxuryCard";
 import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
@@ -53,6 +54,7 @@ const SchemeSkeleton = () => (
 );
 
 const AdminSchemesView = () => {
+  const { isAuthChecking, isAuthenticated } = useAuth();
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
   const [schemes, setSchemes] = useState<any[]>([]);
@@ -144,6 +146,9 @@ const AdminSchemesView = () => {
   const filteredSchemes = schemes.filter(s => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Show loading screen while checking authentication or if not authenticated
+ 
 
   return (
     <SidebarProvider>

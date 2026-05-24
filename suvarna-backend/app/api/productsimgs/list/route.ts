@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { verifyToken } from "@/lib/auth";
 
 // 🔹 CORS helper (fully open)
 function corsHeaders() {
@@ -18,8 +19,22 @@ export async function OPTIONS() {
   });
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    // 🔐 Authentication check (but no branch filtering - productImgs doesn't have branchName yet)
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      return new NextResponse(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: corsHeaders() }
+      );
+    }
+
+    const token = authHeader.split(" ")[1];
+    verifyToken(token); // Just verify the token is valid
+
+    // For now, return all product images (productImgs table doesn't have branchName field)
+    // TODO: Add branchName to ProductImgs schema and implement branch filtering
     const products = await prisma.productImgs.findMany({
       orderBy: { createdAt: "desc" },
     });

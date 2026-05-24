@@ -1,10 +1,12 @@
+import { useEffect } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
 import { GoldDivider } from "@/components/GoldDivider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Store as StoreIcon, Search, MapPin, Phone, Clock } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { Store as StoreIcon, Search, MapPin, Phone, Clock, Loader2 } from "lucide-react";
 
 const stores = [
   { id: 1, name: "Mumbai Central", address: "123 Gold Street, Mumbai", phone: "+91 98765 43210", hours: "10 AM - 9 PM", status: "open" },
@@ -14,6 +16,11 @@ const stores = [
 ];
 
 const Store = () => {
+  const { isAuthChecking, isAuthenticated, currentUser } = useAuth();
+
+  // Show loading screen while checking authentication
+  
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">

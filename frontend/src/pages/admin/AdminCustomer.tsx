@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import{AdminSidebar} from "@/components/AdminSidebar";
+import { useAuth } from "@/hooks/useAuth";
 import { LuxuryCard } from "@/components/LuxuryCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,7 @@ const CustomerSkeleton = () => (
 );
 
 const AdminCustomerManagement = () => {
+  const { isAuthChecking, isAuthenticated } = useAuth();
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
   const [customers, setCustomers] = useState<any[]>([]);
@@ -237,6 +239,9 @@ const AdminCustomerManagement = () => {
       }
     } finally { setIsCreating(false); }
   };
+
+  // Show loading screen while checking authentication or if not authenticated
+
 
   return (
     <SidebarProvider>

@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";import { Button } from "@/components/ui/
 import { Input } from "@/components/ui/input";
 import { AccessibleInput } from "@/components/AccessibleInput";
 import { useSpeech } from "@/hooks/useSpeech";
+import { useAuth } from "@/hooks/useAuth";
 import { useAccessibility } from "../../components/context/AccessibilityContext";
 import {
   Package,
@@ -17,9 +18,11 @@ import {
   Settings2,
   Unlock,
   Lock,
+  Loader2,
 } from "lucide-react";
 
 const AdminDashboard = () => {
+  const { isAuthChecking, isAuthenticated } = useAuth();
   const { speak } = useSpeech();
   const { isEnabled } = useAccessibility();
   const [rates, setRates] = useState({ gold24: 0, gold22: 0, gold18: 0, silver: 0 });
@@ -69,6 +72,9 @@ const AdminDashboard = () => {
     }, 800);
     return () => clearTimeout(timer);
   }, [isEnabled, displayRates, isManual, speak]);
+
+  // Show loading screen while checking authentication or if not authenticated
+  
 
   return (
     <SidebarProvider>

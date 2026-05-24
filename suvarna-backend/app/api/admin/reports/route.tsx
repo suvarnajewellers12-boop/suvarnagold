@@ -15,10 +15,13 @@ export async function OPTIONS() {
 }
 
 export async function GET(req: Request) {
+  console.log("[ADMIN REPORTS] Request received");
+  
   try {
     // 1. Auth & Verification
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
+      console.log("[ADMIN REPORTS] No auth header");
       return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { 
         status: 401, headers: corsHeaders() 
       });
@@ -26,6 +29,7 @@ export async function GET(req: Request) {
 
     const token = authHeader.split(" ")[1];
     const decoded: any = verifyToken(token);
+    console.log("[ADMIN REPORTS] Verified user - Role:", decoded.role, "ID:", decoded.id);
 
     if (decoded.role !== "ADMIN" && decoded.role !== "SUPER_ADMIN") {
       return new NextResponse(JSON.stringify({ error: "Forbidden" }), { 
@@ -33,34 +37,53 @@ export async function GET(req: Request) {
       });
     }
 
-    // 2. Calculate Today's Range (IST Focus)
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    let purchases: any[] = [];
 
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
-
-    // 3. Fetch Data with Date Filter
-    const purchases = await prisma.purchase.findMany({
-      where: {
-        purchasedAt: {
-          gte: startOfToday,
-          lte: endOfToday,
-        },
-      },
-      include: {
-        admin: { select: { username: true } },
-        superAdmin: { select: { username: true } },
-        items: {
-          include: {
-            product: true, // Simplified include for clarity, adjust as needed
+    // 2. Fetch purchases based on role
+    if (decoded.role === "ADMIN") {
+      console.log("[ADMIN REPORTS] ADMIN user - fetching all purchases from Admin.purchases");
+      
+      // Fetch admin with ALL their purchases (no date filter)
+      const admin = await prisma.admin.findUnique({
+        where: { id: decoded.id },
+        include: {
+          purchases: {
+            include: {
+              items: {
+                include: {
+                  product: true,
+                },
+              },
+            },
+            orderBy: { purchasedAt: "desc" },
           },
         },
-      },
-      orderBy: { purchasedAt: "desc" },
-    });
+      });
 
-    // 4. Flatten Items into Rows (As per your inspiration)
+      purchases = admin?.purchases || [];
+      console.log("[ADMIN REPORTS] Found purchases for admin:", purchases.length);
+      
+    } else {
+      console.log("[ADMIN REPORTS] SUPER_ADMIN user - fetching all purchases");
+      
+      // For SUPER_ADMIN, fetch all purchases
+      purchases = await prisma.purchase.findMany({
+        include: {
+          admin: { select: { username: true } },
+          superAdmin: { select: { username: true } },
+          items: {
+            include: {
+              product: true,
+            },
+          },
+        },
+        orderBy: { purchasedAt: "desc" },
+      });
+      
+      console.log("[ADMIN REPORTS] Found total purchases:", purchases.length);
+    }
+
+    // 3. Flatten Items into Rows
     const rows = purchases.flatMap((purchase) => {
       const createdBy = purchase.admin?.username || purchase.superAdmin?.username || "SYSTEM";
 
@@ -72,7 +95,7 @@ export async function GET(req: Request) {
         Address: purchase.Address || "N/A",
         emailid: purchase.emailid || "N/A",
         
-        // Payment split for the "Settlement Method" badges in your table
+        // Payment split
         payments: {
           cash: purchase.cashAmount || 0,
           upi: purchase.upiAmount || 0,
@@ -97,7 +120,7 @@ export async function GET(req: Request) {
         grossWt: item.product.grams,
         netWt: item.product.netWeight,
         va: item.product.va,
-        huid: item.product.huid || "N/A",
+        itemCode: item.product.itemCode || "N/A",
         sku: item.product.sku || "N/A",
         itemCost: item.cost,
         
@@ -107,15 +130,18 @@ export async function GET(req: Request) {
       }));
     });
 
+    console.log("[ADMIN REPORTS] Final rows count:", rows.length);
+
     return new NextResponse(
       JSON.stringify({ purchases: rows }),
       { status: 200, headers: corsHeaders() }
     );
 
   } catch (error) {
-    console.error("TODAYS_PURCHASE_ERROR:", error);
+    console.error("[ADMIN REPORTS] ERROR:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return new NextResponse(
-      JSON.stringify({ error: "Server error" }),
+      JSON.stringify({ error: "Server error", details: errorMessage }),
       { status: 500, headers: corsHeaders() }
     );
   }

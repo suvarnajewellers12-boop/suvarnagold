@@ -79,6 +79,10 @@ const Products = () => {
   // NEW: Bulk Printing Queue State
   const [printQueue, setPrintQueue] = useState<any[]>([]);
 
+  // NEW: Pagination State for Performance
+  const [displayCount, setDisplayCount] = useState(50);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   const [filters, setFilters] = useState({
     metal: "all",
     bodyPart: "all",
@@ -133,7 +137,26 @@ const Products = () => {
       return [...prev, product];
     });
   };
-
+  // Select entire row of products (for grid layout: 4 columns on large screens)
+  const selectRowProducts = (productIndex: number, columnsPerRow: number = 4) => {
+    const rowStartIndex = Math.floor(productIndex / columnsPerRow) * columnsPerRow;
+    const rowEndIndex = Math.min(rowStartIndex + columnsPerRow, displayedProducts.length);
+    const rowProducts = displayedProducts.slice(rowStartIndex, rowEndIndex);
+    
+    setPrintQueue(prev => {
+      const newQueue = [...prev];
+      rowProducts.forEach(product => {
+        const exists = newQueue.find(item => item.id === product.id);
+        if (!exists) {
+          newQueue.push(product);
+        }
+      });
+      return newQueue;
+    });
+    
+    setToastMessage(`Added ${rowProducts.length} items from row to batch`);
+    setShowToast(true);
+  };
   const selectAllFiltered = () => {
     setPrintQueue(filteredProducts);
     setToastMessage(`Added ${filteredProducts.length} items to print queue`);
@@ -270,6 +293,11 @@ const Products = () => {
     fetchBranches();
   }, []);
 
+  // Reset display count when filters change
+  useEffect(() => {
+    setDisplayCount(50);
+  }, [filters]);
+
   // ---------------------------------------------------------------------------
   // 6. CREATION LOGIC
   // ---------------------------------------------------------------------------
@@ -301,6 +329,7 @@ const Products = () => {
           manufactureDate: currentDate,
           branchName: formData.branchName,
           metalType: formData.type,
+          itemCode: formData.huid ? formData.huid.toUpperCase() : "" // Use HUID as item code if provided
         }),
       });
       if (res.ok) {
@@ -349,9 +378,26 @@ const Products = () => {
 
   const resetFilters = () => setFilters({ metal: "all", bodyPart: "all", category: "all", branch: "all" });
 
+  // Pagination: Show only the first `displayCount` products
+  const displayedProducts = useMemo(() => {
+    return filteredProducts.slice(0, displayCount);
+  }, [filteredProducts, displayCount]);
+
+  const hasMoreProducts = filteredProducts.length > displayCount;
+
+  // Load More Handler with Loading State
+  const handleLoadMore = async () => {
+    setIsLoadingMore(true);
+    // Simulate loading delay for better UX feedback
+    await new Promise(resolve => setTimeout(resolve, 300));
+    setDisplayCount(prev => prev + 50);
+    setIsLoadingMore(false);
+  };
+
   // ---------------------------------------------------------------------------
   // 8. RENDER LOGIC
   // ---------------------------------------------------------------------------
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-[#fdfcf9] font-sans">
@@ -552,10 +598,14 @@ const Products = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={selectAllFiltered}
+                  onClick={() => {
+                    setPrintQueue(displayedProducts);
+                    setToastMessage(`Added ${displayedProducts.length} visible items to print queue`);
+                    setShowToast(true);
+                  }}
                   className="rounded-xl border-2 border-amber-200 bg-amber-50/50 hover:bg-amber-100 text-amber-900 font-black uppercase text-[10px] tracking-widest transition-all"
                 >
-                  <CheckSquare className="w-4 h-4 mr-2" /> Select Visible
+                  <CheckSquare className="w-4 h-4 mr-2" /> Select Visible ({displayedProducts.length})
                 </Button>
               )}
 
@@ -671,30 +721,73 @@ const Products = () => {
             </div>
 
             {/* INVENTORY DISPLAY GRID */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-10">
-              {isLoading ? (
-                Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)
-              ) : filteredProducts.length > 0 ? (
-                filteredProducts.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    onUpdated={() => fetchProducts(true)}
-                    showToast={setToastMessage}
-                    // Selection logic for bulk printing
-                    isSelected={!!printQueue.find(item => item.id === product.id)}
-                    onToggle={toggleSelection}
-                  />
-                ))
-              ) : (
-                <div className="col-span-full py-40 text-center space-y-6 bg-white/50 rounded-[3rem] border-4 border-dashed border-amber-100/50">
-                  <div className="text-amber-200 flex justify-center"><PackageSearch size={80} className="animate-bounce" /></div>
-                  <div className="space-y-2">
-                    <h3 className="text-2xl font-serif font-black text-amber-900 italic">No Artifacts Uncovered</h3>
-                    <p className="text-muted-foreground font-serif text-lg opacity-60">Adjust your criteria to reveal hidden treasures from the registry.</p>
+            <div>
+              <div className="mb-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+                <p className="text-sm font-bold text-amber-700">
+                  Showing <span className="text-amber-900 font-black">{displayedProducts.length}</span> of <span className="text-amber-900 font-black">{filteredProducts.length}</span> products
+                </p>
+                
+                {/* Selected Products Count */}
+                {printQueue.length > 0 && (
+                  <div className="bg-gradient-to-r from-emerald-50 to-green-50 border-2 border-emerald-200 rounded-2xl px-8 py-3 shadow-lg shadow-emerald-100">
+                    <div className="text-center">
+                      <p className="text-[10px] font-black text-emerald-700 uppercase tracking-wider">Selected Items</p>
+                      <p className="text-3xl font-mono font-black text-emerald-900">{printQueue.length}</p>
+                    </div>
                   </div>
-                  <Button variant="gold" size="lg" className="h-14 px-10 rounded-2xl shadow-xl shadow-amber-200" onClick={resetFilters}>
-                    Restore Full Registry View
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-10">
+                {isLoading ? (
+                  Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)
+                ) : filteredProducts.length > 0 ? (
+                  displayedProducts.map((product, index) => (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      onUpdated={() => fetchProducts(true)}
+                      showToast={setToastMessage}
+                      // Selection logic for bulk printing
+                      isSelected={!!printQueue.find(item => item.id === product.id)}
+                      onToggle={toggleSelection}
+                      // Row selection props
+                      productIndex={index}
+                      onSelectRow={selectRowProducts}
+                    />
+                  ))
+                ) : (
+                  <div className="col-span-full py-40 text-center space-y-6 bg-white/50 rounded-[3rem] border-4 border-dashed border-amber-100/50">
+                    <div className="text-amber-200 flex justify-center"><PackageSearch size={80} className="animate-bounce" /></div>
+                    <div className="space-y-2">
+                      <h3 className="text-2xl font-serif font-black text-amber-900 italic">No Artifacts Uncovered</h3>
+                      <p className="text-muted-foreground font-serif text-lg opacity-60">Adjust your criteria to reveal hidden treasures from the registry.</p>
+                    </div>
+                    <Button variant="gold" size="lg" className="h-14 px-10 rounded-2xl shadow-xl shadow-amber-200" onClick={resetFilters}>
+                      Restore Full Registry View
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* LOAD MORE BUTTON */}
+              {hasMoreProducts && (
+                <div className="flex justify-center mt-16 pb-8">
+                  <Button
+                    onClick={handleLoadMore}
+                    disabled={isLoadingMore}
+                    className="h-14 px-12 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-lg shadow-amber-200 font-black uppercase tracking-widest text-sm transition-all hover:scale-105 disabled:opacity-70 disabled:cursor-wait"
+                  >
+                    {isLoadingMore ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        Load More Products ({filteredProducts.length - displayCount} remaining)
+                      </>
+                    )}
                   </Button>
                 </div>
               )}

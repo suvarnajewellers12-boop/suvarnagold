@@ -22,7 +22,7 @@ interface Product {
   metalType: "gold" | "silver" | "other";
   grams: number;
   carats: string;
-  huid?: string;
+  itemCode?: string;
   stoneWeight: number;
   netWeight: number;
   category: string;
@@ -41,6 +41,9 @@ interface ProductCardProps {
   // Selection Props for Bulk Printing
   isSelected: boolean;
   onToggle: (product: Product) => void;
+  // Row Selection Props
+  productIndex?: number;
+  onSelectRow?: (index: number, columnsPerRow?: number) => void;
 }
 
 export const ProductCard = ({
@@ -49,7 +52,9 @@ export const ProductCard = ({
   showToast,
   onShowQR,
   isSelected,
-  onToggle
+  onToggle,
+  productIndex = 0,
+  onSelectRow
 }: ProductCardProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedProduct, setEditedProduct] = useState(product);
@@ -78,7 +83,7 @@ export const ProductCard = ({
             grams: editedProduct.grams,
             stoneWeight: editedProduct.stoneWeight,
             netWeight: editedProduct.netWeight,
-            huid: editedProduct.huid,
+            itemCode: editedProduct.itemCode,
             category: editedProduct.category,
             bodyPart: editedProduct.bodyPart,
             carats: editedProduct.carats,
@@ -114,16 +119,53 @@ export const ProductCard = ({
       isSelected && "scale-[0.98]"
     )}>
       
-      {/* SELECTION OVERLAY (Only visible on Front) */}
+      {/* ROW SELECTION CHECKBOX (Top Left) */}
+      {!isEditing && onSelectRow && (
+        <div 
+          onClick={() => onSelectRow(productIndex, 4)}
+          className="absolute top-0 left-0 z-40 cursor-pointer"
+        >
+          <div className={cn(
+            "px-4 py-2 rounded-br-2xl border-r-2 border-b-2 flex items-center gap-2 transition-all shadow-md",
+            "bg-blue-500 border-blue-600 hover:bg-blue-600 shadow-lg shadow-blue-200"
+          )}>
+            <div className="w-4 h-4 rounded-sm border-2 border-white flex items-center justify-center bg-transparent">
+              <div className="w-2 h-2 bg-white rounded-xs" />
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-wider text-white">
+              Row
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* INDIVIDUAL SELECTION CHECKBOX (Bottom Right) */}
       {!isEditing && (
         <div 
           onClick={() => onToggle(product)}
-          className={cn(
-            "absolute top-4 left-4 z-30 w-6 h-6 rounded-full border-2 cursor-pointer flex items-center justify-center transition-all",
-            isSelected ? "bg-amber-600 border-amber-600 shadow-lg" : "bg-white/80 border-amber-200 hover:border-amber-500"
-          )}
+          className="absolute bottom-0 right-0 z-40 cursor-pointer"
         >
-          {isSelected && <Check className="w-4 h-4 text-white stroke-[4px]" />}
+          <div className={cn(
+            "px-4 py-2 rounded-tl-2xl border-l-2 border-t-2 flex items-center gap-2 transition-all shadow-md",
+            isSelected 
+              ? "bg-emerald-500 border-emerald-600 shadow-lg shadow-emerald-300" 
+              : "bg-white border-amber-200 hover:border-amber-400 hover:shadow-lg"
+          )}>
+            <span className={cn(
+              "text-[11px] font-black uppercase tracking-wider transition-all",
+              isSelected ? "text-white" : "text-amber-700"
+            )}>
+              {isSelected ? "✓ Selected" : "Select"}
+            </span>
+            <div className={cn(
+              "w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all",
+              isSelected 
+                ? "bg-white border-white" 
+                : "bg-transparent border-amber-400 hover:border-emerald-500"
+            )}>
+              {isSelected && <Check className="w-4 h-4 text-emerald-600 stroke-[3px]" />}
+            </div>
+          </div>
         </div>
       )}
 
@@ -189,7 +231,7 @@ export const ProductCard = ({
                 <Fingerprint className="w-3.5 h-3.5 text-amber-500" />
                 <div>
                   <p className="text-[9px] uppercase text-muted-foreground font-bold">HUID</p>
-                  <p className="text-sm font-semibold">{product.huid || "N/A"}</p>
+                  <p className="text-sm font-semibold">{product.itemCode || "N/A"}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 border-l border-amber-50 pl-2">
@@ -204,7 +246,7 @@ export const ProductCard = ({
             <div className="mt-auto pt-4 flex items-end justify-between border-t border-amber-100">
               <div className="bg-amber-50 px-3 py-2 rounded-2xl border border-amber-200/50">
                 <p className="text-[9px] font-bold text-amber-600 uppercase">Total Net Weight</p>
-                <p className="text-xl font-mono font-black text-amber-900">{product.netWeight}g</p>
+                <p className="text-xl font-mono font-black text-amber-900">{Number(product.netWeight).toFixed(3)}g</p>
               </div>
               <Button variant="gold" size="icon" className="rounded-2xl shadow-lg shadow-amber-200" disabled={isLoadingQR} onClick={async () => {
                 setIsLoadingQR(true);
@@ -278,7 +320,7 @@ export const ProductCard = ({
 
               <div className="space-y-1">
                 <label className="text-[8px] text-white/40 uppercase font-bold ml-1">HUID Tag</label>
-                <Input className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.huid || ""} onChange={(e) => setEditedProduct({ ...editedProduct, huid: e.target.value })} />
+                <Input className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.itemCode || ""} onChange={(e) => setEditedProduct({ ...editedProduct, itemCode: e.target.value })} />
               </div>
 
               <div className="bg-amber-400/10 p-2 rounded-lg border border-amber-400/20">

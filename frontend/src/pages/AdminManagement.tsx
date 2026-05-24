@@ -9,6 +9,7 @@ import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea"; // Ensure you have this component
+import { useAuth } from "@/hooks/useAuth";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +38,7 @@ const AdminSkeleton = () => (
 );
 
 const AdminManagement = () => {
+  const { isAuthChecking, isAuthenticated } = useAuth();
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -191,6 +193,8 @@ const AdminManagement = () => {
       (admin.email && admin.email.toLowerCase().includes(searchQuery.toLowerCase()))
     );
   }, [admins, searchQuery]);
+
+  // Show loading screen while checking authentication
 
   return (
     <SidebarProvider>

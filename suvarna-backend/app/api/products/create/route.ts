@@ -39,27 +39,20 @@ export async function POST(req: Request) {
       grams,
       carats,
       manufactureDate,
-      quantity,
-      huid,
+      itemCode,
       stoneWeight,
+      grossWeight,
       netWeight,
       category,
       bodyPart,
       branchName,
       stoneCost,
-      va // 👈 NEW FIELD FROM FRONTEND
+      va
     } = body;
-
-    console.log("Creating product with data:", stoneCost);
-
-    const qty = parseInt(quantity) || 0;
-    if (qty <= 0) {
-      return new NextResponse(JSON.stringify({ error: "Invalid quantity" }), { status: 400, headers: corsHeaders() });
-    }
 
     // --- ROBUST SKU GENERATION ---
     const year = new Date().getFullYear().toString().slice(-2); // "26"
-    
+
     const lastProduct = await prisma.product.findFirst({
       where: {
         sku: { startsWith: `SV${year}` },
@@ -72,45 +65,39 @@ export async function POST(req: Request) {
     if (lastProduct?.sku) {
       const lastSequenceStr = lastProduct.sku.substring(4);
       const lastSequenceNum = parseInt(lastSequenceStr);
-      
+
       if (!isNaN(lastSequenceNum)) {
         startNumber = lastSequenceNum + 1;
       }
     }
 
-    const createdItems = [];
+    const sequence = String(startNumber).padStart(5, "0");
+    const sku = `SV${year}${sequence}`;
 
-    // 🔥 Loop for creating multiple items
-    for (let i = 0; i < qty; i++) {
-      const sequence = String(startNumber + i).padStart(5, "0");
-      const sku = `SV${year}${sequence}`;
-
-      const product = await prisma.product.create({
-        data: {
-          sku,
-          name,
-          metalType,
-          grams: parseFloat(grams) || 0,
-          carats: carats || null,
-          manufactureDate: new Date(manufactureDate),
-          uniqueCode: uuidv4(),
-          isSold: false,
-          huid: huid || null,
-          stoneWeight: parseFloat(stoneWeight) || 0,
-          netWeight: parseFloat(netWeight) || 0,
-          category: category || "Other",
-          bodyPart: bodyPart || "Other",
-          branchName: branchName || "Main",
-          stoneCost: parseFloat(stoneCost) || 0,
-          va: parseFloat(va) || 0, // 👈 SAVING VA TO DB
-        },
-      });
-
-      createdItems.push({ id: product.id, sku: product.sku });
-    }
+    const product = await prisma.product.create({
+      data: {
+        sku,
+        name,
+        metalType,
+        grams: parseFloat(grams) || 0,
+        carats: carats || null,
+        manufactureDate: new Date(manufactureDate),
+        uniqueCode: uuidv4(),
+        isSold: false,
+        itemCode: itemCode || null,
+        stoneWeight: parseFloat(stoneWeight) || 0,
+        grossWeight: parseFloat(grossWeight) || 0,
+        netWeight: parseFloat(netWeight) || 0,
+        category: category || "Other",
+        bodyPart: bodyPart || "Other",
+        branchName: branchName || "Main",
+        stoneCost: parseFloat(stoneCost) || 0,
+        va: parseFloat(va) || 0,
+      },
+    });
 
     return new NextResponse(
-      JSON.stringify({ message: `${qty} products created`, items: createdItems }),
+      JSON.stringify({ message: "Product created successfully", item: { id: product.id, sku: product.sku } }),
       { status: 201, headers: corsHeaders() }
     );
 

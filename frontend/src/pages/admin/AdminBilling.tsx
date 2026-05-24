@@ -20,10 +20,12 @@ import { cn } from "@/lib/utils";
 
 /**
  * SUVARNA LUXURY BILLING & POS SYSTEM 
- * Version: 2.5.0 (Enterprise Gold Edition - Multi-Metal Logic)
+ * Version: 2.6.0 (Enterprise Gold Edition - Multi-Metal Logic)
  * Enhanced Coupon Logic: 
  * - Cash: Universal Metal Application + Tax-only fallback
  * - Gold Wallet: 22K Restriction + VA Optimization
+ * - GST calculated on post-discount taxable amount
+ * - Old Gold Exchange is a Payment Mode, NOT a price deduction
  */
 
 const BillingPOS = () => {
@@ -174,7 +176,9 @@ const BillingPOS = () => {
   };
 
   // ==========================================
-  // 4. AGGREGATE CALCULATION (ENHANCED COUPON LOGIC)
+  // 4. AGGREGATE CALCULATION
+  // GST is calculated AFTER coupon + manager discount deductions
+  // Old Gold Exchange is a PAYMENT MODE — NOT subtracted from price
   // ==========================================
 
   const subtotal = useMemo(() => {
@@ -184,20 +188,16 @@ const BillingPOS = () => {
   const couponAdjustments = useMemo(() => {
     if (!couponData || cart.length === 0 || !liveRates) return { goldCredit: 0, vaCredit: 0, cashCredit: 0 };
 
-    // CASE A: CASH VOUCHER (Universal Application)
     if (couponData.type === "CASH") {
-      // If coupon > subtotal, we cap at subtotal so user only pays taxes
       const appliedCash = Math.min(couponData.value, subtotal);
       return { goldCredit: 0, vaCredit: 0, cashCredit: appliedCash };
     }
 
-    // CASE B: WEIGHT/GOLD WALLET VOUCHER (22K Restricted)
     const gold22Rate = parseFloat(String(liveRates.gold22 || "0").replace(/[^\d.-]/g, ''));
     let remainingGrams = couponData.value;
     let totalGoldSaved = 0;
     let totalVaSaved = 0;
 
-    // Prioritize 22K items with highest VA to maximize customer benefit
     const eligible22K = cart
       .filter(item => checkIs22K(item))
       .sort((a, b) => parseFloat(b.va) - parseFloat(a.va));
@@ -207,61 +207,64 @@ const BillingPOS = () => {
       const weightUsed = Math.min(item.grams, remainingGrams);
       const goldVal = weightUsed * gold22Rate;
       totalGoldSaved += goldVal;
-      // VA is calculated ONLY on the 22K portion used
-      totalVaSaved += goldVal * (parseFloat(item.va || 0) / 100);
+      // Pre-closed coupons: VA benefit is blocked — only weight/gold credit applies
+      if (!couponData.isPreClosed) {
+        totalVaSaved += goldVal * (parseFloat(item.va || 0) / 100);
+      }
       remainingGrams -= weightUsed;
     });
 
-    // Note: Per user instruction, remaining weight from Gold Wallet is NOT applied to non-22K items
     return { goldCredit: totalGoldSaved, vaCredit: totalVaSaved, cashCredit: 0 };
   }, [couponData, cart, liveRates, subtotal, checkIs22K]);
 
-  const cgst = subtotal * 0.015;
-  const sgst = subtotal * 0.015;
+  // Manager discount reduces the GST base
   const managerWaiver = isOtpVerified ? (subtotal * (managerDiscountPercent / 100)) : 0;
-  const exchangeDiscountValue = isExchangeApplied ? exchangeData.discount : 0;
 
   const goldCartWeight = cart.filter(i => !checkIsSilver(i)).reduce((acc, i) => acc + Number(i.grams || 0), 0);
 
-  // Logic to determine overall discount including universal cash voucher
-  const totalDeductions = (
-    managerWaiver +
-    exchangeDiscountValue +
+  // GST base = subtotal minus manager discount ONLY
+  // Coupon discount is applied AFTER GST — it does NOT reduce the taxable base
+  const gstBase = Math.max(0, subtotal - managerWaiver);
+
+  const cgst = gstBase * 0.015;
+  const sgst = gstBase * 0.015;
+
+  // Total coupon savings (applied after GST)
+  const totalCouponDiscount = (
     couponAdjustments.goldCredit +
     couponAdjustments.vaCredit +
     couponAdjustments.cashCredit
   );
 
-  const total = Math.max(0, Math.round((subtotal + cgst + sgst) - totalDeductions));
+  // For display: all deductions combined
+  const totalDeductions = managerWaiver + totalCouponDiscount;
+
+  // Final payable = GST base + GST - coupon discount
+  const total = Math.max(0, Math.round(gstBase + cgst + sgst - totalCouponDiscount));
+
+  // Exchange value as payment contribution
+  const exchangePaymentValue = isExchangeApplied ? (exchangeData.discount || 0) : 0;
 
   // ==========================================
-  // 5. INTELLIGENT PAYMENT SPLITTING
+  // 5. PAYMENT METHODS
   // ==========================================
 
   const handleMethodToggle = (method: string, isChecked: boolean) => {
     const updatedMethods = { ...paymentMethods, [method]: isChecked };
     setPaymentMethods(updatedMethods);
-    const activeMethods = Object.keys(updatedMethods).filter(k => updatedMethods[k as keyof typeof paymentMethods]);
-    const methodCount = activeMethods.length;
-
-    if (methodCount === 0) {
-      setPaymentAmounts({ cash: 0, upi: 0, card: 0, cheque: 0 });
-    } else if (methodCount === 1) {
-      const newAmounts = { cash: 0, upi: 0, card: 0, cheque: 0 };
-      newAmounts[activeMethods[0] as keyof typeof paymentAmounts] = total;
-      setPaymentAmounts(newAmounts);
-    } else {
-      const splitValue = Math.floor(total / methodCount);
-      const remainder = total % methodCount;
-      const newAmounts = { cash: 0, upi: 0, card: 0, cheque: 0 };
-      activeMethods.forEach((m, idx) => {
-        newAmounts[m as keyof typeof paymentAmounts] = splitValue + (idx === 0 ? remainder : 0);
-      });
-      setPaymentAmounts(newAmounts);
+    if (!isChecked) {
+      setPaymentAmounts(prev => ({ ...prev, [method]: 0 }));
     }
   };
 
-  const totalPaidSoFar = Object.values(paymentAmounts).reduce((a, b) => a + b, 0);
+  // Total paid = all active payment method amounts + exchange value (as payment mode)
+  const totalPaidSoFar = Math.round(
+    Object.entries(paymentMethods)
+      .filter(([, active]) => active)
+      .reduce((sum, [method]) => sum + (paymentAmounts[method as keyof typeof paymentAmounts] || 0), 0)
+    + exchangePaymentValue
+  );
+
   const remainingToPay = Math.round(total - totalPaidSoFar);
 
   // ==========================================
@@ -330,7 +333,6 @@ const BillingPOS = () => {
       const data = await res.json();
 
       if (res.ok) {
-        // FRONTEND CHECK: If coupon is weight-based (Gold Wallet), cart must have 22K
         if (data.type === "WEIGHT") {
           const has22K = cart.some(item => checkIs22K(item));
           if (!has22K) {
@@ -372,7 +374,8 @@ const BillingPOS = () => {
     setOtpLoading(true);
     try {
       const res = await fetch("https://suvarnagold-16e5.vercel.app/api/otp/verify", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ otp }),
       });
       if ((await res.json()).success) {
@@ -380,7 +383,9 @@ const BillingPOS = () => {
         setToastMessage("Authorization Confirmed");
         setShowToast(true);
       }
-    } finally { setOtpLoading(false); }
+    } finally {
+      setOtpLoading(false);
+    }
   };
 
   const handleCheckout = async () => {
@@ -403,12 +408,12 @@ const BillingPOS = () => {
             totalAmount: subtotal,
             cgstAmount: cgst,
             sgstAmount: sgst,
-            jewelleryexchangediscount: exchangeDiscountValue || 0,
+            jewelleryexchangediscount: exchangePaymentValue || 0,
             excahngejewellryname: isExchangeApplied ? exchangeData.name : null,
             excahngejewellrygrams: isExchangeApplied ? exchangeData.grams : null,
             discountAmount: managerWaiver || 0,
             finalAmount: total,
-            couponDiscount: (couponAdjustments.goldCredit + couponAdjustments.vaCredit + couponAdjustments.cashCredit) || 0,
+            couponDiscount: totalCouponDiscount || 0,
             items: cart.map(item => ({
               productId: item.id,
               name: item.name,
@@ -421,7 +426,8 @@ const BillingPOS = () => {
             cash: paymentAmounts.cash,
             upi: paymentAmounts.upi,
             card: paymentAmounts.card,
-            cheque: paymentAmounts.cheque
+            cheque: paymentAmounts.cheque,
+            oldGoldExchange: exchangePaymentValue
           }
         }),
       });
@@ -431,13 +437,16 @@ const BillingPOS = () => {
         if (couponData) {
           await fetch(`https://suvarnagold-16e5.vercel.app/api/payment/coupon/${couponCode}/used`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${token}` }
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ invoiceNumber: data.invoiceNumber || null }),
           });
         }
         setToastMessage("Purchase Completed Successfully.");
         setShowToast(true);
         performHardReset();
-        setTimeout(() => { window.location.href = "admin/reports"; }, 2000);
+        setTimeout(() => {
+          window.location.href = "/admin/reports";
+        }, 2000);
       } else {
         throw new Error(data.error || "Verification failed on server side.");
       }
@@ -454,7 +463,7 @@ const BillingPOS = () => {
       try {
         const [r, p] = await Promise.all([
           fetch("https://suvarnagold-16e5.vercel.app/api/rates"),
-          fetch("https://suvarnagold-16e5.vercel.app/api/products/all", { headers: { Authorization: `Bearer ${token}` } })
+          fetch("http://suvarnagold-16e5.vercel.app/api/products/all", { headers: { Authorization: `Bearer ${token}` } })
         ]);
         setLiveRates(await r.json());
         const prodJson = await p.json();
@@ -474,6 +483,9 @@ const BillingPOS = () => {
     ).slice(0, 5);
   }, [search, inventory]);
 
+  // Show loading screen while checking authentication or if not authenticated
+  
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex bg-[#FCFBF7] w-full overflow-hidden print:bg-white selection:bg-gold/30">
@@ -489,8 +501,8 @@ const BillingPOS = () => {
                 <div className="bg-gold p-2 rounded-lg">
                   <Landmark className="text-white" size={24} />
                 </div>
-                <h1 className="text-xl font-serif font-black text-slate-900 tracking-tighter">
-                  SUVARNA <span className="text-gold font-sans font-medium text-xs tracking-[0.3em] block">ENTERPRISE POS</span>
+                <h1 className="text-xl font-Book Antiqua font-black text-slate-900 tracking-tighter">
+                  SUVARNA <span className="text-gold font-Book Antiqua font-medium text-xs tracking-[0.3em] block">ENTERPRISE POS</span>
                 </h1>
               </div>
 
@@ -540,12 +552,12 @@ const BillingPOS = () => {
             <div className="flex items-center gap-4">
               <div className="flex flex-col items-end mr-4">
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Live Gold 22K</p>
-                <p className="text-sm font-serif font-black text-emerald-600">₹{liveRates?.gold22 || "0.00"}</p>
+                <p className="text-sm font-Book Antiqua font-black text-emerald-600">₹{liveRates?.gold22 || "0.00"}</p>
               </div>
               <div className="flex items-center gap-2 px-6 py-2.5 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-full text-[11px] font-black uppercase tracking-[0.2em]">
                 <ScanLine size={16} className="animate-pulse" /> Live
               </div>
-              <Button onClick={() => window.location.href = "/dashboard/reports"} variant="ghost" className="h-11 rounded-full px-6 text-slate-600 hover:text-gold font-bold">
+              <Button onClick={() => window.location.href = "/admin/reports"} variant="ghost" className="h-11 rounded-full px-6 text-slate-600 hover:text-gold font-bold">
                 <LayoutDashboard className="mr-2" size={18} /> Analytics
               </Button>
             </div>
@@ -560,7 +572,7 @@ const BillingPOS = () => {
                     <div className="w-10 h-10 rounded-full bg-gold/10 flex items-center justify-center">
                       <ShoppingCart className="text-gold" size={20} />
                     </div>
-                    <h2 className="text-xl font-serif font-black text-slate-800">Secured Checkout Vault</h2>
+                    <h2 className="text-xl font-Book Antiqua font-black text-slate-800">Secured Checkout Vault</h2>
                   </div>
                   <Badge className="bg-slate-900 text-gold rounded-xl px-4 py-1.5 text-[11px] font-black">
                     {cart.length} ITEMS
@@ -573,13 +585,13 @@ const BillingPOS = () => {
                       <div className="p-10 rounded-full bg-slate-50 border-2 border-dashed border-gold/20">
                         <Banknote size={80} className="text-gold" />
                       </div>
-                      <p className="text-lg font-serif italic text-slate-500">Inventory Vault Standby</p>
+                      <p className="text-lg font-Book Antiqua italic text-slate-500">Inventory Vault Standby</p>
                     </div>
                   ) : (
                     cart.map((item) => (
                       <div key={item.id} className="group relative flex justify-between items-center p-6 rounded-[2.5rem] border-2 border-gold/5 bg-white hover:border-gold/30 hover:shadow-xl transition-all duration-300">
                         <div className="flex items-center gap-8">
-                          <div className="h-16 w-16 rounded-2xl bg-slate-50 flex items-center justify-center text-gold font-serif text-2xl font-black border-2 border-gold/10 group-hover:bg-gold group-hover:text-white transition-all shadow-inner">
+                          <div className="h-16 w-16 rounded-2xl bg-slate-50 flex items-center justify-center text-gold font-Book Antiqua text-2xl font-black border-2 border-gold/10 group-hover:bg-gold group-hover:text-white transition-all shadow-inner">
                             {item.name.charAt(0)}
                           </div>
                           <div className="space-y-2">
@@ -590,13 +602,13 @@ const BillingPOS = () => {
                                 <span className="flex items-center gap-1"><Scale size={12} className="text-gold/50" /> {item.grams} Grams</span>
                                 <span className="text-gold bg-gold/5 px-2 py-0.5 rounded border border-gold/10">VA: {item.va}%</span>
                               </div>
-                              <div className="text-gold italic font-serif leading-relaxed drop-shadow-sm">{getItemCalculationDetail(item)}</div>
+                              <div className="text-gold italic font-Book Antiqua leading-relaxed drop-shadow-sm">{getItemCalculationDetail(item)}</div>
                             </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-6">
                           <div className="text-right">
-                            <p className="text-xl font-black text-slate-900 italic tracking-tighter">₹{(getDynamicPrice(item) * item.quantity+item.stoneCost).toLocaleString()}</p>
+                            <p className="text-xl font-black text-slate-900 italic tracking-tighter">₹{(getDynamicPrice(item) * item.quantity + item.stoneCost).toLocaleString()}</p>
                             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Base Item Cost</p>
                           </div>
                           <Button onClick={() => removeItem(item.id)} variant="ghost" size="icon" className="h-12 w-12 rounded-full text-slate-200 hover:text-red-500 transition-all print:hidden">
@@ -625,7 +637,7 @@ const BillingPOS = () => {
                   <div className="flex-1 flex flex-col min-h-0 animate-in slide-in-from-right duration-500">
                     <div className="flex items-center gap-4 border-b-2 border-gold/10 pb-5 mb-8">
                       <ReceiptText className="text-gold" size={24} />
-                      <h3 className="font-serif font-black text-xl text-slate-800 tracking-tight">Price Settlement</h3>
+                      <h3 className="font-Book Antiqua font-black text-xl text-slate-800 tracking-tight">Price Settlement</h3>
                     </div>
 
                     <div className="flex-1 overflow-y-auto custom-scrollbar space-y-8 pr-2">
@@ -636,7 +648,6 @@ const BillingPOS = () => {
                             Administrative Bypass
                           </label>
 
-                          {/* RESEND TRIGGER: Only visible if OTP was sent but not yet verified */}
                           {isOtpSent && !isOtpVerified && (
                             <button
                               onClick={handleRequestOTP}
@@ -663,7 +674,7 @@ const BillingPOS = () => {
                               value={otp}
                               onChange={(e) => setOtp(e.target.value)}
                               disabled={isOtpVerified}
-                              className="h-14 pl-12 rounded-2xl text-center font-serif font-black text-lg tracking-[0.6em] border-2 border-gold/10 focus-visible:ring-gold bg-white"
+                              className="h-14 pl-12 rounded-2xl text-center font-Book Antiqua font-black text-lg tracking-[0.6em] border-2 border-gold/10 focus-visible:ring-gold bg-white"
                             />
                           </div>
 
@@ -692,6 +703,7 @@ const BillingPOS = () => {
                               <Percent className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600" size={16} />
                               <Input
                                 type="number"
+                                min="0"
                                 placeholder="SPECIAL DISCOUNT %"
                                 value={managerDiscountPercent || ""}
                                 onChange={(e) => setManagerDiscountPercent(Number(e.target.value))}
@@ -728,48 +740,15 @@ const BillingPOS = () => {
                           )}
                         </div>
                         {couponData && (
-                          <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl">
-                            <p className="text-[10px] font-black text-blue-700 text-center uppercase tracking-tighter italic">
+                          <div className={`p-3 border rounded-xl space-y-1 ${couponData.isPreClosed ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-100'}`}>
+                            <p className={`text-[10px] font-black text-center uppercase tracking-tighter italic ${couponData.isPreClosed ? 'text-red-700' : 'text-blue-700'}`}>
                               Voucher Type: {couponData.type} - {couponData.type === 'CASH' ? 'Applicable Globally' : '22K Gold Specific'}
                             </p>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* EXCHANGE MODULE */}
-                      <div className={cn(
-                        "p-6 rounded-[2rem] border-2 transition-all duration-500",
-                        isExchangeApplied ? "bg-amber-50/50 border-amber-200" : "bg-slate-50 border-gold/5"
-                      )}>
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-2">
-                            <RefreshCcw className={cn("text-amber-600", isExchangeApplied && "animate-spin-slow")} size={18} />
-                            <span className="text-[11px] font-black uppercase text-slate-700">Old Gold Exchange</span>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={isExchangeApplied}
-                            onChange={(e) => setIsExchangeApplied(e.target.checked)}
-                            className="accent-gold h-5 w-5 cursor-pointer rounded"
-                          />
-                        </div>
-                        {isExchangeApplied && (
-                          <div className="space-y-4 animate-in fade-in slide-in-from-top-3">
-                            <div className="grid grid-cols-2 gap-3">
-                              <Input placeholder="Description" value={exchangeData.name} onChange={(e) => setExchangeData({ ...exchangeData, name: e.target.value })} className="h-11 rounded-xl text-xs font-bold" />
-                              <Input type="number" min="0" placeholder="Net Wt (g)" value={exchangeData.grams || ""} onChange={(e) => setExchangeData({ ...exchangeData, grams: Number(e.target.value) })} className="h-11 rounded-xl text-xs font-bold" />
-                            </div>
-                            <div className="relative">
-                              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-600 font-bold">₹</span>
-                              <Input
-                                type="number"
-                                min="0"
-                                placeholder="Approved Exchange Value"
-                                className="h-12 pl-10 rounded-xl font-black text-lg bg-white border-amber-200"
-                                value={exchangeData.discount || ""}
-                                onChange={(e) => setExchangeData({ ...exchangeData, discount: Number(e.target.value) })}
-                              />
-                            </div>
+                            {couponData.isPreClosed && (
+                              <p className="text-[10px] font-black text-red-600 text-center uppercase tracking-tighter">
+                                ⚠ Pre-Closed — VA benefit blocked
+                              </p>
+                            )}
                           </div>
                         )}
                       </div>
@@ -780,12 +759,8 @@ const BillingPOS = () => {
                           <span>Jewelry Value</span>
                           <span className="text-slate-900">₹{subtotal.toLocaleString()}</span>
                         </div>
-                        <div className="flex justify-between text-[12px] font-black text-slate-400 uppercase">
-                          <span>Tax (GST 3%)</span>
-                          <span>₹{(cgst + sgst).toLocaleString()}</span>
-                        </div>
 
-                        {/* Deductions breakdown */}
+                        {/* Deductions breakdown — shown BEFORE GST to clarify taxable base */}
                         <div className="space-y-3">
                           {couponAdjustments.cashCredit > 0 && (
                             <div className="flex justify-between text-[11px] font-black text-emerald-600 uppercase bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100">
@@ -805,8 +780,24 @@ const BillingPOS = () => {
                               <span>-₹{couponAdjustments.vaCredit.toLocaleString()}</span>
                             </div>
                           )}
-                          {managerWaiver > 0 && <div className="flex justify-between text-[12px] font-black text-emerald-600 uppercase"><span>Manager Waiver</span><span>-₹{managerWaiver.toLocaleString()}</span></div>}
-                          {exchangeDiscountValue > 0 && <div className="flex justify-between text-[12px] font-black text-amber-600 uppercase"><span>Exchange Value</span><span>-₹{exchangeDiscountValue.toLocaleString()}</span></div>}
+                          {managerWaiver > 0 && (
+                            <div className="flex justify-between text-[12px] font-black text-emerald-600 uppercase">
+                              <span>Manager Waiver</span>
+                              <span>-₹{managerWaiver.toLocaleString()}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* GST on subtotal minus manager discount (coupon does NOT reduce GST base) */}
+                        <div className="flex justify-between text-[12px] font-black text-slate-400 uppercase">
+                          <span className="flex flex-col">
+                            <span>Tax (GST 3%)</span>
+                            {managerWaiver > 0 && (
+                              <span className="text-[9px] text-slate-300 normal-case font-medium tracking-normal">
+                                </span>
+                            )}
+                          </span>
+                          <span>₹{Math.round(cgst + sgst).toLocaleString()}</span>
                         </div>
                       </div>
                     </div>
@@ -814,7 +805,7 @@ const BillingPOS = () => {
                     <div className="pt-8 mt-4 border-t-4 border-gold/10">
                       <div className="flex justify-between items-center mb-6 px-2">
                         <span className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Net Payable</span>
-                        <p className="text-4xl font-serif font-black text-slate-900 italic tracking-tighter">₹{total.toLocaleString()}</p>
+                        <p className="text-4xl font-Book Antiqua font-black text-slate-900 tracking-tighter">₹{total.toLocaleString()}</p>
                       </div>
                       <Button
                         disabled={cart.length === 0}
@@ -889,7 +880,94 @@ const BillingPOS = () => {
                               )}
                             </div>
                           ))}
+
+                          {/* OLD GOLD EXCHANGE AS PAYMENT METHOD */}
+                          <div
+                            className={cn(
+                              "col-span-2 p-5 rounded-3xl border-4 transition-all duration-300",
+                              isExchangeApplied
+                                ? "border-amber-400 bg-amber-50/60 shadow-lg"
+                                : "opacity-40 bg-slate-100 border-transparent"
+                            )}
+                          >
+                            <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isExchangeApplied}
+                                  onChange={(e) => setIsExchangeApplied(e.target.checked)}
+                                  className="accent-gold h-5 w-5 cursor-pointer rounded"
+                                />
+                                <RefreshCcw className={cn("text-amber-600", isExchangeApplied && "animate-spin-slow")} size={14} />
+                                <span className="text-[10px] font-black uppercase tracking-tighter">Old Gold Exchange</span>
+                              </div>
+                              {/* Show exchange value as payment contribution when entered */}
+                              {isExchangeApplied && exchangePaymentValue > 0 && (
+                                <span className="text-[10px] font-black text-amber-700 bg-amber-100 px-3 py-1 rounded-full">
+                                  ₹{exchangePaymentValue.toLocaleString()} credited
+                                </span>
+                              )}
+                            </div>
+                            {isExchangeApplied && (
+                              <div className="space-y-4 animate-in fade-in slide-in-from-top-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                  <Input
+                                    placeholder="Description"
+                                    value={exchangeData.name}
+                                    onChange={(e) => setExchangeData({ ...exchangeData, name: e.target.value })}
+                                    className="h-11 rounded-xl text-xs font-bold"
+                                  />
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder="Net Wt (g)"
+                                    value={exchangeData.grams || ""}
+                                    onChange={(e) => setExchangeData({ ...exchangeData, grams: Number(e.target.value) })}
+                                    className="h-11 rounded-xl text-xs font-bold"
+                                  />
+                                </div>
+                                <div className="relative">
+                                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-600 font-bold">₹</span>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder="Approved Exchange Value"
+                                    className="h-12 pl-10 rounded-xl font-black text-lg bg-white border-amber-200"
+                                    value={exchangeData.discount || ""}
+                                    onChange={(e) => setExchangeData({ ...exchangeData, discount: Number(e.target.value) })}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
+
+                        {/* PAYMENT SUMMARY BREAKDOWN */}
+                        {(Object.values(paymentMethods).some(Boolean) || (isExchangeApplied && exchangePaymentValue > 0)) && (
+                          <div className="space-y-2 pt-4 border-t-2 border-gold/10">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Payment Breakdown</p>
+                            {Object.entries(paymentMethods).map(([method, active]) =>
+                              active && paymentAmounts[method as keyof typeof paymentAmounts] > 0 ? (
+                                <div key={method} className="flex justify-between text-[11px] font-black text-slate-600 uppercase bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
+                                  <span className="flex items-center gap-2">
+                                    <CreditCard size={10} className="text-gold" /> {method}
+                                  </span>
+                                  <span>₹{paymentAmounts[method as keyof typeof paymentAmounts].toLocaleString()}</span>
+                                </div>
+                              ) : null
+                            )}
+                            {isExchangeApplied && exchangePaymentValue > 0 && (
+                              <div className="flex justify-between text-[11px] font-black text-amber-700 uppercase bg-amber-50 px-4 py-2 rounded-xl border border-amber-100">
+                                <span className="flex items-center gap-2">
+                                  <RefreshCcw size={10} className="text-amber-600" />
+                                  Old Gold Exchange
+                                  {exchangeData.name && <span className="text-amber-500 normal-case font-medium">({exchangeData.name})</span>}
+                                </span>
+                                <span>₹{exchangePaymentValue.toLocaleString()}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -939,7 +1017,7 @@ const BillingPOS = () => {
       <div className="fixed bottom-10 left-1/2 -translate-x-1/2 pointer-events-none print:hidden">
         <div className="bg-slate-900/80 backdrop-blur-md text-gold px-6 py-2 rounded-full flex items-center gap-3 border border-gold/20 shadow-2xl">
           <ScanLine size={14} className="animate-pulse" />
-          <span className="text-[9px] font-black uppercase tracking-[0.3em]">Scanner Core Optimized - V2.5.0</span>
+          <span className="text-[9px] font-black uppercase tracking-[0.3em]">Scanner Core Optimized - V2.6.0</span>
         </div>
       </div>
     </SidebarProvider>

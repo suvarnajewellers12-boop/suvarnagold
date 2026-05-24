@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AdminSidebar } from "@/components/AdminSidebar";
+import { useAuth } from "@/hooks/useAuth";
 
-import { Trash2, Edit3, Plus, Image as ImageIcon, X } from "lucide-react";
+import { Trash2, Edit3, Plus, Image as ImageIcon, X, Loader2 } from "lucide-react";
 
 type Product = {
   id: string;
@@ -404,6 +405,8 @@ export default function ProductPage() {
     productCache.timestamp = Date.now();  // refresh TTL
     setProducts(updated);                 // update UI instantly
   }, [products]);
+
+  // Show loading screen while checking authentication or if not authenticated
 
   return (
     <SidebarProvider>

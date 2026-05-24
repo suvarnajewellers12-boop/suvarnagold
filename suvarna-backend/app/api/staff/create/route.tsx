@@ -59,6 +59,11 @@ export async function POST(req: Request) {
       gender,
       phoneNumber,
       aadharNumber,
+      panCardNumber,
+      nomineeName,
+      nomineeRelation,
+      nomineePhoneNumber,
+      nomineeAddress,
     } = body;
 
     if (
@@ -67,10 +72,14 @@ export async function POST(req: Request) {
       !monthlySalary ||
       !gender ||
       !phoneNumber ||
-      !aadharNumber
+      !aadharNumber ||
+      !nomineeName ||
+      !nomineeRelation ||
+      !nomineePhoneNumber ||
+      !nomineeAddress
     ) {
       return new NextResponse(
-        JSON.stringify({ error: "All fields are required" }),
+        JSON.stringify({ error: "All required fields are missing" }),
         { status: 400, headers: corsHeaders() }
       );
     }
@@ -81,13 +90,15 @@ export async function POST(req: Request) {
         OR: [
           { phoneNumber },
           { aadharNumber },
+          { nomineePhoneNumber },
+          ...(panCardNumber ? [{ panCardNumber }] : []),
         ],
       },
     });
 
     if (existing) {
       return new NextResponse(
-        JSON.stringify({ error: "Phone or Aadhar already exists" }),
+        JSON.stringify({ error: "Phone, Aadhar, Nominee Phone, or Pan Card already exists" }),
         { status: 400, headers: corsHeaders() }
       );
     }
@@ -100,6 +111,11 @@ export async function POST(req: Request) {
         gender,
         phoneNumber,
         aadharNumber,
+        panCardNumber: panCardNumber || null,
+        nomineeName,
+        nomineeRelation,
+        nomineePhoneNumber,
+        nomineeAddress,
         createdBy: decoded.id, // SuperAdmin ID
       },
     });

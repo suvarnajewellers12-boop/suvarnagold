@@ -105,15 +105,20 @@ model Order {
   jobWork          GoldJobWork?  @relation(fields: [jobWorkId], references: [id])
 }
 model Staff {
-  id            String   @id @default(uuid())
-  fullName      String
-  dateOfJoining DateTime
-  monthlySalary Float
-  gender        String
-  phoneNumber   String   @unique
-  aadharNumber  String   @unique
-  createdAt     DateTime @default(now())
-  createdBy     String
+  id                  String   @id @default(uuid())
+  fullName            String
+  dateOfJoining       DateTime
+  monthlySalary       Float
+  gender              String
+  phoneNumber         String   @unique
+  aadharNumber        String   @unique
+  panCardNumber       String?  @unique
+  nomineeName         String
+  nomineeRelation     String
+  nomineePhoneNumber  String   @unique
+  nomineeAddress      String
+  createdAt           DateTime @default(now())
+  createdBy           String
 }
 
 model Product {
@@ -124,10 +129,10 @@ model Product {
   category        String         @default("others")
   bodyPart        String         @default("others")
   grams           Float
+  grossWeight     Float          
   stoneWeight     Float          @default(0)
   netWeight       Float          @default(0)
-  quantity        Int            @default(1)
-  huid            String?
+  itemCode        String?
   uniqueCode      String         @unique
   sku             String         @unique
   isSold          Boolean        @default(false)

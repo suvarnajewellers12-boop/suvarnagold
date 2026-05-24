@@ -30,13 +30,39 @@ export async function GET(req: Request) {
     }
 
     const token = authHeader.split(" ")[1];
-    verifyToken(token);
+    const decoded: any = verifyToken(token);
+
+    // Get branch filter from query parameters
+    const { searchParams } = new URL(req.url);
+    const branchFilter = searchParams.get("branch");
+
+    // Build the where clause for product filtering
+    const whereClause: any = {
+      isSold: false,
+    };
+
+    // If user is ADMIN, filter by their branch (or use branchFilter if provided)
+    // If user is SUPER_ADMIN, show all (unless branchFilter is explicitly provided)
+    if (decoded.role === "ADMIN" && branchFilter) {
+      whereClause.branchName = branchFilter;
+    } else if (decoded.role === "ADMIN" && !branchFilter) {
+      // For ADMIN without explicit branch filter, fetch user's branch from token
+      const admin = await prisma.admin.findUnique({
+        where: { id: decoded.id },
+        select: { branchName: true },
+      });
+      if (admin) {
+        whereClause.branchName = admin.branchName;
+      }
+    } else if (decoded.role === "SUPER_ADMIN" && branchFilter) {
+      // SUPER_ADMIN can request specific branch
+      whereClause.branchName = branchFilter;
+    }
+    // If SUPER_ADMIN without filter, return all (whereClause only has isSold: false)
 
     // ✅ Explicitly fetch the new fields
 const products = await prisma.product.findMany({
-  where: {
-    isSold: false,
-  },
+  where: whereClause,
   select: {
     id: true,
     sku: true,
@@ -46,10 +72,9 @@ const products = await prisma.product.findMany({
     carats: true,
     category: true,
     bodyPart: true,
-    huid: true,
+    itemCode: true,
     stoneWeight: true,
     netWeight: true,
-    quantity: true,
     isSold: true,
     manufactureDate: true,
     createdAt: true,
