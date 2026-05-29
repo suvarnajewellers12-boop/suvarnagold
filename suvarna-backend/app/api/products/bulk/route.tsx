@@ -164,30 +164,7 @@ export async function POST(req: Request) {
       }
     });
 
-    // ✅ VALIDATE FOR DUPLICATE ITEM CODES IN DATABASE
-    const allItemCodesToCheck = Array.from(new Set([
-      ...Array.from(generatedItemCodes),
-      ...Array.from(itemCodesFromExcel)
-    ]));
-
-    const existingCodes = await prisma.product.findMany({
-      where: { itemCode: { in: allItemCodesToCheck } },
-      select: { itemCode: true },
-    });
-
-    const existingCodeSet = new Set(existingCodes.map(p => p.itemCode));
-    const duplicateCodesInDb = allItemCodesToCheck.filter(code => existingCodeSet.has(code));
-
-    if (duplicateCodesInDb.length > 0) {
-      return new NextResponse(
-        JSON.stringify({
-          error: "Duplicate item codes found",
-          details: [`Item codes already exist in database: ${duplicateCodesInDb.join(", ")}`],
-          total_errors: duplicateCodesInDb.length
-        }),
-        { status: 400, headers: corsHeaders() }
-      );
-    }
+    // ⚠️ NOTE: Duplicate verification block has been removed to allow existing itemCodes.
 
     // 🚀 BULK CREATE
     const productsToInsert = data.map((row, index) => {
@@ -198,7 +175,7 @@ export async function POST(req: Request) {
         name: row.name?.trim() || "Unknown",
         metalType: row.metalType?.trim() || "Gold",
         grams: parseFloat(row.grams) || 0,
-        carats: row.carats?.trim() || "24K",
+        carats: String(row.carats || "24K").trim(),
         manufactureDate: row.manufactureDate instanceof Date
           ? row.manufactureDate
           : new Date(row.manufactureDate),
@@ -212,13 +189,13 @@ export async function POST(req: Request) {
         bodyPart: row.bodyPart?.trim() || "Other",
         branchName: row.branchName?.trim() || "Main",
         stoneCost: parseFloat(row.stoneCost) || 0,
-        va: parseFloat(row.va) || 2.5,
+        va: parseFloat(row.va) ||0,
       };
     });
 
     await prisma.product.createMany({
       data: productsToInsert,
-      skipDuplicates: true,
+      skipDuplicates: true, // ⚠️ If itemCode is unique in schema, duplicates will be silently skipped here.
     });
 
     return new NextResponse(

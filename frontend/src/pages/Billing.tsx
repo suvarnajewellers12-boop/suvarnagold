@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 
 const BillingPOS = () => {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const ADMIN_DISCOUNT_LIMIT = 10;
 
   // ==========================================
   // 1. PERSISTENT STATES & DATA INIT
@@ -92,6 +93,7 @@ const BillingPOS = () => {
     setIsOtpVerified(false);
     setIsOtpSent(false);
     setOtp("");
+    setResendCountdown(0);
     setIsExchangeApplied(false);
     setExchangeData({ name: "", grams: 0, discount: 0 });
     setPaymentMethods({ cash: false, upi: false, card: false, cheque: false });
@@ -110,6 +112,16 @@ const BillingPOS = () => {
     sessionStorage.setItem("pos_exchange_active", JSON.stringify(isExchangeApplied));
     sessionStorage.setItem("pos_exchange_data", JSON.stringify(exchangeData));
   }, [cart, customer, couponData, couponCode, managerDiscountPercent, isOtpVerified, isExchangeApplied, exchangeData]);
+
+  useEffect(() => {
+    if (resendCountdown <= 0) return;
+
+    const timer = window.setTimeout(() => {
+      setResendCountdown((value) => value - 1);
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [resendCountdown]);
 
   // ==========================================
   // 3. MATH HELPERS
@@ -182,6 +194,7 @@ const BillingPOS = () => {
   // ==========================================
 
   const subtotal = useMemo(() => {
+    
     return cart.reduce((acc, item) => acc + (getDynamicPrice(item) * item.quantity + item.stoneCost), 0);
   }, [cart, getDynamicPrice]);
 
@@ -217,8 +230,14 @@ const BillingPOS = () => {
     return { goldCredit: totalGoldSaved, vaCredit: totalVaSaved, cashCredit: 0 };
   }, [couponData, cart, liveRates, subtotal, checkIs22K]);
 
-  // Manager discount reduces the GST base
-  const managerWaiver = isOtpVerified ? (subtotal * (managerDiscountPercent / 100)) : 0;
+  const requiresOwnerApproval = managerDiscountPercent > ADMIN_DISCOUNT_LIMIT;
+  const discountApprovalPending = requiresOwnerApproval && !isOtpVerified;
+
+  // Manager discount reduces the GST base only when it is within the admin cap
+  // or when the owner has explicitly approved a higher discount.
+  const managerWaiver = (managerDiscountPercent > 0 && (!requiresOwnerApproval || isOtpVerified))
+    ? subtotal * (managerDiscountPercent / 100)
+    : 0;
 
   const goldCartWeight = cart.filter(i => !checkIsSilver(i)).reduce((acc, i) => acc + Number(i.grams || 0), 0);
 
@@ -323,6 +342,11 @@ const BillingPOS = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [cart, inventory]);
 
+  const handleDiscountChange = (value: string) => {
+    const parsed = Number(value);
+    setManagerDiscountPercent(Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 0);
+  };
+
   const handleApplyCoupon = async () => {
     if (!couponCode) return;
     setIsApplyingCoupon(true);
@@ -360,9 +384,16 @@ const BillingPOS = () => {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (data.success) {
+
+      if (res.ok && data.success) {
         setIsOtpSent(true);
-        setToastMessage("Admin Verification OTP Sent");
+        setIsOtpVerified(false);
+        setOtp("");
+        setResendCountdown(30);
+        setToastMessage("OTP sent to the configured admin email.");
+        setShowToast(true);
+      } else {
+        setToastMessage(data.error || "Unable to send OTP.");
         setShowToast(true);
       }
     } finally {
@@ -371,16 +402,27 @@ const BillingPOS = () => {
   };
 
   const handleVerifyOTP = async () => {
+    if (!otp.trim()) {
+      setToastMessage("Enter the OTP received by the owner.");
+      setShowToast(true);
+      return;
+    }
+
     setOtpLoading(true);
     try {
       const res = await fetch("https://suvarnagold-16e5.vercel.app/api/otp/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ otp }),
+        body: JSON.stringify({ otp: otp.trim() }),
       });
-      if ((await res.json()).success) {
+      const data = await res.json();
+
+      if (res.ok && data.success) {
         setIsOtpVerified(true);
-        setToastMessage("Authorization Confirmed");
+        setToastMessage("Owner approval confirmed.");
+        setShowToast(true);
+      } else {
+        setToastMessage(data.error || "OTP verification failed.");
         setShowToast(true);
       }
     } finally {
@@ -389,6 +431,12 @@ const BillingPOS = () => {
   };
 
   const handleCheckout = async () => {
+    if (discountApprovalPending) {
+      setToastMessage("Owner approval is required for discounts above 10%. Please send and verify the OTP.");
+      setShowToast(true);
+      return;
+    }
+
     if (remainingToPay !== 0 || isFinalizing) {
       setToastMessage("Payment Mismatch: Please settle the full balance.");
       setShowToast(true);
@@ -640,81 +688,100 @@ const BillingPOS = () => {
                     </div>
 
                     <div className="flex-1 overflow-y-auto custom-scrollbar space-y-8 pr-2">
-                      {/* ADMIN OTP SECTION */}
                       <div className="space-y-4">
                         <div className="flex items-center justify-between px-2">
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                            Administrative Bypass
+                            Customer Discount Control
                           </label>
-
-                          {isOtpSent && !isOtpVerified && (
-                            <button
-                              onClick={handleRequestOTP}
-                              disabled={otpLoading || resendCountdown > 0}
-                              className={cn(
-                                "text-[10px] font-black uppercase tracking-tighter transition-all duration-300",
-                                resendCountdown > 0
-                                  ? "text-slate-300 cursor-not-allowed"
-                                  : "text-gold hover:text-amber-600 underline underline-offset-4"
-                              )}
-                            >
-                              {resendCountdown > 0
-                                ? `Resend in ${resendCountdown}s`
-                                : "Resend Code"}
-                            </button>
-                          )}
+                          <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                            Admin cap: 10%
+                          </span>
                         </div>
 
-                        <div className="flex gap-3">
-                          <div className="relative flex-1">
-                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gold/40" size={16} />
-                            <Input
-                              placeholder="ADMIN OTP"
-                              value={otp}
-                              onChange={(e) => setOtp(e.target.value)}
-                              disabled={isOtpVerified}
-                              className="h-14 pl-12 rounded-2xl text-center font-Book Antiqua font-black text-lg tracking-[0.6em] border-2 border-gold/10 focus-visible:ring-gold bg-white"
-                            />
+                        <div className="relative">
+                          <Percent className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600" size={16} />
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            placeholder="TOTAL DISCOUNT %"
+                            value={managerDiscountPercent || ""}
+                            onChange={(e) => handleDiscountChange(e.target.value)}
+                            className="h-14 pl-12 rounded-2xl text-center font-black text-xl text-emerald-700 bg-emerald-50 border-emerald-200"
+                          />
+                        </div>
+
+                        {!requiresOwnerApproval ? (
+                          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3">
+                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700">
+                              Admin may apply up to 10% without OTP.
+                            </p>
                           </div>
+                        ) : (
+                          <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">
+                                  Owner approval required
+                                </p>
+                                <p className="text-[10px] text-amber-800/85 mt-1">
+                                  OTP will be sent to the admin email configured in the backend. After verification, you can enter the total discount you want to apply.
+                                </p>
+                              </div>
+                              {isOtpSent && !isOtpVerified && (
+                                <button
+                                  onClick={handleRequestOTP}
+                                  disabled={otpLoading || resendCountdown > 0}
+                                  className={cn(
+                                    "text-[10px] font-black uppercase tracking-tighter transition-all duration-300",
+                                    resendCountdown > 0
+                                      ? "text-slate-300 cursor-not-allowed"
+                                      : "text-amber-700 hover:text-amber-900 underline underline-offset-4"
+                                  )}
+                                >
+                                  {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : "Resend Code"}
+                                </button>
+                              )}
+                            </div>
 
-                          <Button
-                            onClick={!isOtpSent ? handleRequestOTP : handleVerifyOTP}
-                            disabled={otpLoading || isOtpVerified}
-                            variant="gold"
-                            className="h-14 w-32 rounded-2xl shadow-lg transition-transform active:scale-95"
-                          >
-                            {otpLoading ? (
-                              <Loader2 className="animate-spin w-5 h-5" />
-                            ) : isOtpVerified ? (
-                              <CheckCircle2 size={24} />
-                            ) : isOtpSent ? (
-                              "VERIFY"
-                            ) : (
-                              "GET OTP"
+                            <div className="flex gap-3">
+                              <div className="relative flex-1">
+                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-500" size={16} />
+                                <Input
+                                  placeholder="OWNER OTP"
+                                  value={otp}
+                                  onChange={(e) => setOtp(e.target.value)}
+                                  disabled={isOtpVerified}
+                                  className="h-14 pl-12 rounded-2xl text-center font-Book Antiqua font-black text-lg tracking-[0.6em] border-2 border-amber-200 bg-white"
+                                />
+                              </div>
+
+                              <Button
+                                onClick={!isOtpSent ? handleRequestOTP : handleVerifyOTP}
+                                disabled={otpLoading || isOtpVerified}
+                                variant="gold"
+                                className="h-14 w-32 rounded-2xl shadow-lg transition-transform active:scale-95"
+                              >
+                                {otpLoading ? (
+                                  <Loader2 className="animate-spin w-5 h-5" />
+                                ) : isOtpVerified ? (
+                                  <CheckCircle2 size={24} />
+                                ) : isOtpSent ? (
+                                  "VERIFY"
+                                ) : (
+                                  "GET OTP"
+                                )}
+                              </Button>
+                            </div>
+
+                            {isOtpVerified && (
+                              <div className="flex items-center justify-center gap-2 py-1 bg-emerald-100/50 rounded-lg border border-emerald-100">
+                                <CheckCircle2 size={10} className="text-emerald-600" />
+                                <p className="text-[9px] text-emerald-600 font-black uppercase tracking-widest">
+                                  Owner Discount Approval Confirmed
+                                </p>
+                              </div>
                             )}
-                          </Button>
-                        </div>
-
-                        {/* PRIVILEGED DISCOUNT AREA */}
-                        {isOtpVerified && (
-                          <div className="space-y-2 animate-in slide-in-from-top-2 duration-500">
-                            <div className="relative">
-                              <Percent className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600" size={16} />
-                              <Input
-                                type="number"
-                                min="0"
-                                placeholder="SPECIAL DISCOUNT %"
-                                value={managerDiscountPercent || ""}
-                                onChange={(e) => setManagerDiscountPercent(Number(e.target.value))}
-                                className="h-14 pl-12 rounded-xl text-center font-black text-xl text-emerald-700 bg-emerald-50 border-emerald-200"
-                              />
-                            </div>
-                            <div className="flex items-center justify-center gap-2 py-1 bg-emerald-100/50 rounded-lg border border-emerald-100">
-                              <CheckCircle2 size={10} className="text-emerald-600" />
-                              <p className="text-[9px] text-emerald-600 font-black uppercase tracking-widest">
-                                Privileged Discount Unlocked
-                              </p>
-                            </div>
                           </div>
                         )}
                       </div>
@@ -807,7 +874,7 @@ const BillingPOS = () => {
                         <p className="text-4xl font-Book Antiqua font-black text-slate-900 tracking-tighter">₹{total.toLocaleString()}</p>
                       </div>
                       <Button
-                        disabled={cart.length === 0}
+                        disabled={cart.length === 0 || discountApprovalPending}
                         onClick={() => setCheckoutStep(2)}
                         variant="gold"
                         className="w-full h-16 rounded-[1.5rem] shadow-xl text-lg font-black uppercase tracking-widest"
@@ -988,7 +1055,7 @@ const BillingPOS = () => {
                         onClick={handleCheckout}
                         variant="gold"
                         className="w-full h-18 rounded-3xl text-xl font-black uppercase tracking-widest py-8"
-                        disabled={remainingToPay !== 0 || !customer.name || !customer.phone || isFinalizing}
+                        disabled={remainingToPay !== 0 || !customer.name || !customer.phone || isFinalizing || discountApprovalPending}
                       >
                         {isFinalizing ? (
                           <div className="flex items-center gap-3">

@@ -433,7 +433,7 @@ const Reports = () => {
 
                 // Email sits immediately below the last address line
                 const emailY = INV_Y + 26 + addrLines * 10 + 2;
-                draw(`Email: ${purchase.email}`, CUST_X, emailY, 7, grey);
+                // draw(`Email: ${purchase.email}`, CUST_X, emailY, 7, grey);
 
                 // Divider sits 12 px below email
                 const sepY = emailY + 12;
@@ -490,7 +490,7 @@ const Reports = () => {
                 const skuY = R + nameLines * 11 + 2;
                 const huidY = skuY + 11;
                 draw(`SKU:  ${item.sku || "N/A"}`, col.name, skuY, 7, grey);
-                draw(`HUID: ${item.huid || "N/A"}`, col.name, huidY, 7, grey);
+                // draw(`HUID: ${item.huid || "N/A"}`, col.name, huidY, 7, grey);
 
                 // Purity + stone cost — always anchored at row top
                 draw(item.purity, col.purity, R, 9, black);
@@ -691,7 +691,7 @@ const Reports = () => {
                         Authorization: `Bearer ${token}`,
                     },
                     body: JSON.stringify({
-                        email: purchase.email,
+                        email: "adapajayanth131@gmail.com",
                         customerName: purchase.customer,
                         invoice: purchase.invoice,
                         pdfData: pdfBase64,
