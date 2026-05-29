@@ -14,7 +14,7 @@ import {
   ChevronRight, ScanLine, User, Phone,
   Mail, MapPin, Landmark, ReceiptText, ArrowLeft,
   RefreshCcw, CheckCircle2, Percent, Edit3, Wallet, CreditCard, Banknote, Loader2, X, Printer, LayoutDashboard,
-  ShieldCheck, History, UserPlus, Fingerprint, Coins, Scale
+  ShieldCheck, History, UserPlus, Fingerprint, Coins, Scale, Edit2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -50,6 +50,8 @@ const BillingPOS = () => {
   const [search, setSearch] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingPrice, setEditingPrice] = useState("");
 
   const [cart, setCart] = useState<any[]>(() => getSaved("pos_cart", []));
   const [customer, setCustomer] = useState(() => getSaved("pos_customer", { name: "", phone: "", email: "", address: "" }));
@@ -152,15 +154,45 @@ const BillingPOS = () => {
   }, [liveRates, checkIsSilver]);
 
   const getDynamicPrice = useCallback((item: any) => {
-    if (item.manualPrice !== undefined && item.manualPrice !== null) return Number(item.manualPrice);
+    console.log("getDynamicPrice - Item Details:", {
+      id: item.id,
+      name: item.name,
+      manualBasePrice: item.manualBasePrice,
+      grams: item.grams,
+      netWeight: item.netWeight,
+      carats: item.carats,
+      va: item.va,
+      stoneCost: item.stoneCost
+    });
+
+    if (item.manualBasePrice !== undefined && item.manualBasePrice !== null) {
+      console.log("Using manual base price:", item.manualBasePrice);
+      return Number(item.manualBasePrice);
+    }
     if (!liveRates || !item.grams) return 0;
+
     const rate = getRateForItem(item);
-    const base = rate * item.grams;
+    const netWeight = parseFloat(item.netWeight || item.grams);
+    const baseAmount = rate * netWeight;
     const vaPercent = parseFloat(item.va || 0);
-    return Math.round(base + (base * (vaPercent / 100)));
+    const vaAmount = baseAmount * (vaPercent / 100);
+    const finalPrice = Math.round(baseAmount + vaAmount);
+
+    console.log("Calculated Price:", {
+      rate,
+      netWeight,
+      baseAmount,
+      vaPercent,
+      vaAmount,
+      finalPrice
+    });
+
+    return finalPrice;
   }, [liveRates, getRateForItem]);
 
   const getItemCalculationDetail = (item: any) => {
+    console.log("getItemCalculationDetail - Item:", item);
+
     if (!liveRates) return (
       <div className="flex items-center gap-2">
         <Loader2 size={10} className="animate-spin" />
@@ -168,15 +200,27 @@ const BillingPOS = () => {
       </div>
     );
     const rate = getRateForItem(item);
-    const gross = item.grams * rate;
-    const vaAmt = gross * (parseFloat(item.va || 0) / 100);
+    const netWeight = parseFloat(item.netWeight || item.grams);
+    const baseAmount = netWeight * rate;
+    const vaPercent = parseFloat(item.va || 0);
+    const vaAmt = baseAmount * (vaPercent / 100);
     const isGold22 = checkIs22K(item);
+
+    console.log("Calculation Detail:", {
+      rate,
+      netWeight,
+      baseAmount,
+      vaPercent,
+      vaAmt,
+      isGold22
+    });
 
     return (
       <div className="space-y-1.5 mt-1 border-l-2 border-gold/20 pl-3">
         <p className="tracking-tight text-slate-500 text-[10px]">
-          <span className="font-bold text-slate-700">Formula:</span> ({item.grams}g × ₹{rate.toLocaleString()}) + (VA {item.va}%: ₹{Math.round(vaAmt).toLocaleString()})
-        </p>
+          <span className="font-bold text-slate-700">Formula:</span>{" "}
+          ({netWeight}g × ₹{rate.toLocaleString()}) +
+          (VA {vaPercent}%: ₹{Math.round(vaAmt).toLocaleString()})        </p>
         {!isGold22 && !checkIsSilver(item) && (
           <div className="flex items-center gap-1.5 bg-red-50 px-2 py-0.5 rounded-md w-fit">
             <Lock size={8} className="text-red-500" />
@@ -194,8 +238,19 @@ const BillingPOS = () => {
   // ==========================================
 
   const subtotal = useMemo(() => {
-    
-    return cart.reduce((acc, item) => acc + (getDynamicPrice(item) * item.quantity + item.stoneCost), 0);
+    const calculatedSubtotal = cart.reduce((acc, item) => acc + (getDynamicPrice(item) * item.quantity) + item.stoneCost, 0);
+    console.log("Subtotal Calculation:", {
+      itemCount: cart.length,
+      items: cart.map(item => ({
+        name: item.name,
+        price: getDynamicPrice(item),
+        quantity: item.quantity,
+        stoneCost: item.stoneCost,
+        itemTotal: (getDynamicPrice(item) * item.quantity) + item.stoneCost
+      })),
+      subtotal: calculatedSubtotal
+    });
+    return calculatedSubtotal;
   }, [cart, getDynamicPrice]);
 
   const couponAdjustments = useMemo(() => {
@@ -213,18 +268,26 @@ const BillingPOS = () => {
 
     const eligible22K = cart
       .filter(item => checkIs22K(item))
-      .sort((a, b) => parseFloat(b.va) - parseFloat(a.va));
+      .sort((a, b) => parseFloat(b.va || 0) - parseFloat(a.va || 0));
 
     eligible22K.forEach((item) => {
       if (remainingGrams <= 0) return;
-      const weightUsed = Math.min(item.grams, remainingGrams);
+      const netWeight = parseFloat(item.netWeight || item.grams);
+      const weightUsed = Math.min(netWeight, remainingGrams);
       const goldVal = weightUsed * gold22Rate;
       totalGoldSaved += goldVal;
       // Pre-closed coupons: VA benefit is blocked — only weight/gold credit applies
       if (!couponData.isPreClosed) {
-        totalVaSaved += goldVal * (parseFloat(item.va || 0) / 100);
+        const vaPercent = parseFloat(item.va || 0);
+        totalVaSaved += goldVal * (vaPercent / 100);
       }
       remainingGrams -= weightUsed;
+    });
+
+    console.log("Coupon Adjustments:", {
+      totalGoldSaved,
+      totalVaSaved,
+      cashCredit: 0
     });
 
     return { goldCredit: totalGoldSaved, vaCredit: totalVaSaved, cashCredit: 0 };
@@ -260,6 +323,18 @@ const BillingPOS = () => {
 
   // Final payable = GST base + GST - coupon discount
   const total = Math.max(0, Math.round(gstBase + cgst + sgst - totalCouponDiscount));
+
+  console.log("Final Billing Summary:", {
+    subtotal,
+    managerDiscount: managerWaiver,
+    gstBase,
+    cgst: Math.round(cgst),
+    sgst: Math.round(sgst),
+    couponAdjustments,
+    totalCouponDiscount,
+    totalDeductions,
+    final_total: total
+  });
 
   // Exchange value as payment contribution
   const exchangePaymentValue = isExchangeApplied ? (exchangeData.discount || 0) : 0;
@@ -301,7 +376,9 @@ const BillingPOS = () => {
       setShowToast(true);
       return;
     }
-    setCart(prev => [...prev, { ...product, quantity: 1 }]);
+    const newCartItem = { ...product, quantity: 1 };
+    console.log("Item Added to Cart:", newCartItem);
+    setCart(prev => [...prev, newCartItem]);
     setToastMessage(`${product.name} Secured`);
     setShowToast(true);
     setSearch("");
@@ -345,6 +422,32 @@ const BillingPOS = () => {
   const handleDiscountChange = (value: string) => {
     const parsed = Number(value);
     setManagerDiscountPercent(Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 0);
+  };
+
+  const handleEditItemPrice = (itemId: string, currentPrice: number) => {
+    setEditingItemId(itemId);
+    setEditingPrice(String(currentPrice));
+  };
+
+  const handleSaveItemPrice = (itemId: string) => {
+    const newPrice = parseFloat(editingPrice);
+    if (!isNaN(newPrice) && newPrice >= 0) {
+      console.log("Manual Price Edit:", {
+        itemId,
+        newPrice,
+        timestamp: new Date().toISOString()
+      });
+      setCart(prev => prev.map(item =>
+        item.id === itemId ? { ...item, manualBasePrice: newPrice } : item
+      ));
+      setEditingItemId(null);
+      setEditingPrice("");
+      setToastMessage("Item price updated successfully.");
+      setShowToast(true);
+    } else {
+      setToastMessage("Please enter a valid price.");
+      setShowToast(true);
+    }
   };
 
   const handleApplyCoupon = async () => {
@@ -527,12 +630,13 @@ const BillingPOS = () => {
     if (!search) return [];
     return inventory.filter(p =>
       p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.sku?.toLowerCase().includes(search.toLowerCase())
+      p.sku?.toLowerCase().includes(search.toLowerCase()) ||
+      p.itemCode?.toLowerCase().includes(search.toLowerCase())
     ).slice(0, 5);
   }, [search, inventory]);
 
   // Show loading screen while checking authentication or if not authenticated
-  
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex bg-[#FCFBF7] w-full overflow-hidden print:bg-white selection:bg-gold/30">
@@ -655,8 +759,55 @@ const BillingPOS = () => {
                         </div>
                         <div className="flex items-center gap-6">
                           <div className="text-right">
-                            <p className="text-xl font-black text-slate-900 italic tracking-tighter">₹{(getDynamicPrice(item) * item.quantity + item.stoneCost).toLocaleString()}</p>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Base Item Cost</p>
+                            {editingItemId === item.id ? (
+                              <div className="flex flex-col gap-2 items-end">
+                                <div className="flex gap-2">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={editingPrice}
+                                    onChange={(e) => setEditingPrice(e.target.value)}
+                                    placeholder="Enter price"
+                                    className="w-24 h-8 text-right border-gold/30"
+                                    autoFocus
+                                  />
+                                  <Button
+                                    onClick={() => handleSaveItemPrice(item.id)}
+                                    variant="default"
+                                    size="sm"
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white h-8"
+                                  >
+                                    Save
+                                  </Button>
+                                  <Button
+                                    onClick={() => {
+                                      setEditingItemId(null);
+                                      setEditingPrice("");
+                                    }}
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8"
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-2 justify-end">
+                                  <p className="text-xl font-black text-slate-900 italic tracking-tighter">₹{(getDynamicPrice(item) * item.quantity + item.stoneCost).toLocaleString()}</p>
+                                  <Button
+                                    onClick={() => handleEditItemPrice(item.id, getDynamicPrice(item) * item.quantity + item.stoneCost)}
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-slate-300 hover:text-gold transition-all print:hidden"
+                                  >
+                                    <Edit2 size={14} />
+                                  </Button>
+                                </div>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Base Item Cost</p>
+                              </>
+                            )}
                           </div>
                           <Button onClick={() => removeItem(item.id)} variant="ghost" size="icon" className="h-12 w-12 rounded-full text-slate-200 hover:text-red-500 transition-all print:hidden">
                             <Trash2 size={20} />
@@ -860,7 +1011,7 @@ const BillingPOS = () => {
                             <span>Tax (GST 3%)</span>
                             {managerWaiver > 0 && (
                               <span className="text-[9px] text-slate-300 normal-case font-medium tracking-normal">
-                                </span>
+                              </span>
                             )}
                           </span>
                           <span>₹{Math.round(cgst + sgst).toLocaleString()}</span>

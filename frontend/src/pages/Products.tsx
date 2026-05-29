@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import {
   Plus, RefreshCw, Loader2, Filter, Store,
   FileDown, Table as TableIcon, X, Printer, CheckSquare,
-  Trash2, Layers, Tag, Scissors, Sparkles, ShieldCheck
+  Trash2, Layers, Tag, Scissors, Sparkles, ShieldCheck, Search as SearchIcon, PackageSearch
 } from "lucide-react";
 import {
   Select,
@@ -93,6 +93,7 @@ const Products = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // ---------------------------------------------------------------------------
   // 2. ORNAMENT CATEGORY DEFINITIONS
@@ -137,11 +138,10 @@ const Products = () => {
       return [...prev, product];
     });
   };
-  // Select entire row of products (for grid layout: 4 columns on large screens)
-  const selectRowProducts = (productIndex: number, columnsPerRow: number = 4) => {
-    const rowStartIndex = Math.floor(productIndex / columnsPerRow) * columnsPerRow;
-    const rowEndIndex = Math.min(rowStartIndex + columnsPerRow, displayedProducts.length);
-    const rowProducts = displayedProducts.slice(rowStartIndex, rowEndIndex);
+  // Select next 25 items from a product onwards
+  const selectRowProducts = (productIndex: number, itemsToSelect: number = 25) => {
+    const endIndex = Math.min(productIndex + itemsToSelect, displayedProducts.length);
+    const rowProducts = displayedProducts.slice(productIndex, endIndex);
     
     setPrintQueue(prev => {
       const newQueue = [...prev];
@@ -154,7 +154,19 @@ const Products = () => {
       return newQueue;
     });
     
-    setToastMessage(`Added ${rowProducts.length} items from row to batch`);
+    setToastMessage(`Added ${rowProducts.length} items to batch`);
+    setShowToast(true);
+  };
+
+  // Remove entire row from print queue (25 items starting from productIndex)
+  const removeRowFromQueue = (productIndex: number, itemsToRemove: number = 25) => {
+    const endIndex = Math.min(productIndex + itemsToRemove, displayedProducts.length);
+    const rowProducts = displayedProducts.slice(productIndex, endIndex);
+    const rowIds = rowProducts.map(p => p.id);
+    
+    setPrintQueue(prev => prev.filter(item => !rowIds.includes(item.id)));
+    
+    setToastMessage(`Removed ${rowProducts.length} items from batch`);
     setShowToast(true);
   };
   const selectAllFiltered = () => {
@@ -367,16 +379,30 @@ const Products = () => {
         return normalizedVal === normalizedFilter;
       };
 
+      // Search filter by SKU, name, and itemCode
+      const matchesSearch = () => {
+        if (!searchQuery.trim()) return true;
+        const query = searchQuery.trim().toLowerCase();
+        const sku = p.sku?.toString().toLowerCase() || "";
+        const name = p.name?.toString().toLowerCase() || "";
+        const itemCode = p.itemCode?.toString().toLowerCase() || "";
+        return sku.includes(query) || name.includes(query) || itemCode.includes(query);
+      };
+
       return (
         cleanMatch(p.metalType, filters.metal) &&
         cleanMatch(p.bodyPart, filters.bodyPart) &&
         cleanMatch(p.category, filters.category) &&
-        cleanMatch(p.branchName, filters.branch)
+        cleanMatch(p.branchName, filters.branch) &&
+        matchesSearch()
       );
     });
-  }, [products, filters]);
+  }, [products, filters, searchQuery]);
 
-  const resetFilters = () => setFilters({ metal: "all", bodyPart: "all", category: "all", branch: "all" });
+  const resetFilters = () => {
+    setFilters({ metal: "all", bodyPart: "all", category: "all", branch: "all" });
+    setSearchQuery("");
+  };
 
   // Pagination: Show only the first `displayCount` products
   const displayedProducts = useMemo(() => {
@@ -631,6 +657,22 @@ const Products = () => {
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-amber-50/50 border-2 border-amber-50 flex flex-wrap gap-8 items-end relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-amber-50 rounded-full -mr-16 -mt-16 opacity-40 blur-3xl" />
 
+              {/* SEARCH INPUT */}
+              <div className="space-y-2 relative z-10">
+                <label className="text-[10px] font-black text-amber-900/40 uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
+                  <SearchIcon className="w-3.5 h-3.5" /> Quick Search
+                </label>
+                <Input
+                  placeholder="Search by SKU, Name, or Item Code..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setDisplayCount(50); // Reset pagination on search
+                  }}
+                  className="w-64 h-11 rounded-xl border-2 border-amber-50 bg-white placeholder:text-amber-400/50 text-xs font-bold focus:border-amber-400 focus:ring-amber-500"
+                />
+              </div>
+
               <div className="space-y-2 relative z-10">
                 <label className="text-[10px] font-black text-amber-900/40 uppercase flex items-center gap-2 tracking-[0.2em] ml-1">
                   <Filter className="w-3.5 h-3.5" /> Filter: Metal Base
@@ -751,9 +793,10 @@ const Products = () => {
                       // Selection logic for bulk printing
                       isSelected={!!printQueue.find(item => item.id === product.id)}
                       onToggle={toggleSelection}
-                      // Row selection props
+                      // Row selection & removal props
                       productIndex={index}
                       onSelectRow={selectRowProducts}
+                      onRemoveRow={removeRowFromQueue}
                     />
                   ))
                 ) : (

@@ -48,7 +48,7 @@ export async function PUT(
       grams, 
       stoneWeight, 
       netWeight, 
-      
+      stoneCost,
       itemCode,
       va
     } = body;
@@ -62,6 +62,7 @@ export async function PUT(
         category,
         bodyPart,
         itemCode,
+        stoneCost,
         va,
         // 🔹 Ensure numbers are parsed correctly
         grams: grams !== undefined ? parseFloat(grams) : undefined,
