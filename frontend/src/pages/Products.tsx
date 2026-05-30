@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { ProductCard } from "@/components/ProductCard";
@@ -10,32 +10,55 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Plus, RefreshCw, Loader2, Filter, Store,
-  FileDown, Table as TableIcon, X, Printer, CheckSquare,
-  Trash2, Layers, Tag, Scissors, Sparkles, ShieldCheck, Search as SearchIcon, PackageSearch
+  FileDown, Table as TableIcon, X, CheckSquare,
+  Trash2, Layers, Tag, ShieldCheck, Search as SearchIcon, PackageSearch
 } from "lucide-react";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-// UPDATED: Now using the Bulk Barcode Printer component
 import BulkBarcodePrinter from "../components/BulkBarcodePrinter";
 
-// Export Utilities
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
 
-/**
- * PRODUCT SKELETON LOADER
- * Provides a high-fidelity shimmer effect while inventory is being synchronized
- * from the Suvarna Backend API.
- */
+// ─────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────
+const ITEMS_PER_ROW_MAX = 4; // xl:grid-cols-4
+const ROW_SELECT_BATCH = 25;
+const VIRTUAL_OVERSCAN = 3; // extra rows rendered above/below viewport
+const CARD_HEIGHT_PX = 440; // approximate card height (px) — tune to your actual card
+const GAP_PX = 40;          // gap-10 = 2.5rem = 40px
+
+const STORE_INFO = {
+  name: "Suvarna Jewellers",
+  hq: "Visakhapatnam, Andhra Pradesh",
+  exportNote: "Official Inventory Registry",
+};
+
+const ORNAMENT_MAPPING: Record<string, string[]> = {
+  head_hair: ["Tiara, Crown, Diadem", "Hair Comb, Hair Pin", "Fascinator Chain, Coronet", "Wreath (laurel), Circlet"],
+  forehead: ["Frontlet, Ferronnière", "Bandeau, Brow Band"],
+  ears: ["Stud, Hoop Earrings", "Drop, Chandelier Earrings", "Huggie Earrings, Ear Cuffs", "Clip-on, Threader, Crawler"],
+  nose: ["Nose Ring, Nose Stud", "Septum Ring, Nose Chain, Nose Cuff"],
+  neck: ["Necklace, Pendant, Choker", "Chain, Locket, Collar Necklace", "Torque/Torc, Riviere, Lavaliere", "Bib Necklace, Sautoir", "Opera, Rope Chain, Lariat"],
+  chest_shoulders: ["Brooch, Fibula, Pectoral", "Shoulder Chain, Epaulette, Body Chain"],
+  arms: ["Armlet, Arm Band, Upper Arm Cuff", "Arm Chain"],
+  wrists: ["Bangle, Bracelet, Cuff", "Tennis, Charm, Chain Bracelet", "Slave Bracelet (hand chain)"],
+  hands_fingers: ["Signet, Engagement, Wedding Band", "Cocktail, Eternity, Stackable Rings", "Knuckle Ring, Hand Harness/Chain"],
+};
+
+let productsCache: any[] | null = null;
+
+// ─────────────────────────────────────────────────────────
+// SKELETON — memoized so it never re-renders
+// ─────────────────────────────────────────────────────────
 const ProductSkeleton = () => (
   <div className="h-[400px] w-full rounded-3xl bg-gray-100 animate-pulse flex flex-col p-6 space-y-4">
     <div className="flex justify-between">
@@ -57,31 +80,221 @@ const ProductSkeleton = () => (
   </div>
 );
 
-let productsCache: any[] | null = null;
+// ─────────────────────────────────────────────────────────
+// VIRTUALISED GRID
+// Only renders cards that are (or are near) the viewport.
+// No external dependency — uses a scroll listener on the
+// parent <main> element and simple index math.
+// ─────────────────────────────────────────────────────────
+interface VirtualGridProps {
+  products: any[];
+  printQueueIds: Set<string>;
+  onToggle: (product: any) => void;
+  onSelectRow: (startIndex: number) => void;
+  onRemoveRow: (startIndex: number) => void;
+  onUpdated: () => void;
+  showToast: (msg: string) => void;
+  columnsCount: number; // determined by container width
+}
 
-const STORE_INFO = {
-  name: "Suvarna Jewellers",
-  hq: "Visakhapatnam, Andhra Pradesh",
-  exportNote: "Official Inventory Registry",
+const VirtualGrid: React.FC<VirtualGridProps> = ({
+  products,
+  printQueueIds,
+  onToggle,
+  onSelectRow,
+  onRemoveRow,
+  onUpdated,
+  showToast,
+  columnsCount,
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const scrollParentRef = useRef<HTMLElement | null>(null);
+  // containerOffsetTop = distance (px) from scroll-parent's content top to our grid top
+  const containerOffsetTopRef = useRef<number>(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(800);
+
+  const ROW_HEIGHT = CARD_HEIGHT_PX + GAP_PX;
+  const totalRows = Math.ceil(products.length / columnsCount);
+  const totalHeight = totalRows * ROW_HEIGHT;
+
+  // Find the closest scrollable ancestor (the <main> element)
+  useEffect(() => {
+    let el: HTMLElement | null = containerRef.current?.parentElement ?? null;
+    while (el) {
+      const style = getComputedStyle(el);
+      if (style.overflowY === "auto" || style.overflowY === "scroll") {
+        scrollParentRef.current = el;
+        break;
+      }
+      el = el.parentElement;
+    }
+    // Fall back to the document root if nothing found
+    if (!scrollParentRef.current) {
+      scrollParentRef.current = document.documentElement;
+    }
+  }, []);
+
+  // Measure and track everything on scroll + resize
+  useEffect(() => {
+    const parent = scrollParentRef.current;
+    if (!parent) return;
+
+    const measure = () => {
+      if (!containerRef.current) return;
+      // getBoundingClientRect().top is viewport-relative.
+      // parent.getBoundingClientRect().top is also viewport-relative.
+      // So: container's distance from scroll-parent top edge (in content space)
+      //   = parent.scrollTop + (containerRect.top - parentRect.top)
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const parentRect = parent.getBoundingClientRect();
+      containerOffsetTopRef.current =
+        parent.scrollTop + (containerRect.top - parentRect.top);
+      setContainerHeight(parent.clientHeight);
+      setScrollTop(parent.scrollTop);
+    };
+
+    const onScroll = () => {
+      setScrollTop(parent.scrollTop);
+    };
+
+    const onResize = () => measure();
+
+    parent.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onResize, { passive: true });
+
+    // Initial measurement — defer one frame so layout is complete
+    requestAnimationFrame(measure);
+
+    return () => {
+      parent.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  // Re-measure containerOffsetTop whenever products list changes (filters, search)
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      if (!containerRef.current || !scrollParentRef.current) return;
+      const parent = scrollParentRef.current;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const parentRect = parent.getBoundingClientRect();
+      containerOffsetTopRef.current =
+        parent.scrollTop + (containerRect.top - parentRect.top);
+    });
+  }, [products]);
+
+  // Calculate which rows are visible
+  const { startRow, endRow } = useMemo(() => {
+    // How far the user has scrolled past the top of our grid
+    const scrolledPastGrid = scrollTop - containerOffsetTopRef.current;
+
+    // If we haven't reached the grid yet, start from row 0
+    const firstVisible = scrolledPastGrid > 0
+      ? Math.floor(scrolledPastGrid / ROW_HEIGHT)
+      : 0;
+
+    const visibleRows = Math.ceil(containerHeight / ROW_HEIGHT);
+
+    return {
+      startRow: Math.max(0, firstVisible - VIRTUAL_OVERSCAN),
+      endRow: Math.min(totalRows - 1, firstVisible + visibleRows + VIRTUAL_OVERSCAN),
+    };
+  }, [scrollTop, containerHeight, totalRows, ROW_HEIGHT]);
+
+  const visibleItems = useMemo(() => {
+    const items: Array<{ product: any; index: number; top: number }> = [];
+    for (let row = startRow; row <= endRow; row++) {
+      for (let col = 0; col < columnsCount; col++) {
+        const index = row * columnsCount + col;
+        if (index >= products.length) break;
+        items.push({ product: products[index], index, top: row * ROW_HEIGHT });
+      }
+    }
+    return items;
+  }, [startRow, endRow, products, columnsCount, ROW_HEIGHT]);
+
+  return (
+    <div
+      ref={containerRef}
+      style={{ position: "relative", height: totalHeight }}
+    >
+      {visibleItems.map(({ product, index, top }) => {
+        const col = index % columnsCount;
+        // Correct CSS calc for equal-width columns with fixed px gaps:
+        //   card width  = (100% - (cols-1)*GAP) / cols
+        //   card left   = col * (cardWidth + GAP)
+        const totalGapPx = (columnsCount - 1) * GAP_PX;
+        const cardW = columnsCount > 1
+          ? `calc((100% - ${totalGapPx}px) / ${columnsCount})`
+          : "100%";
+        const cardLeft = col === 0
+          ? "0px"
+          : `calc(${col} * ((100% - ${totalGapPx}px) / ${columnsCount} + ${GAP_PX}px))`;
+
+        return (
+          <div
+            key={product.id}
+            style={{
+              position: "absolute",
+              top,
+              left: cardLeft,
+              width: cardW,
+              height: CARD_HEIGHT_PX,
+            }}
+          >
+            <ProductCard
+              product={product}
+              onUpdated={onUpdated}
+              showToast={showToast}
+              isSelected={printQueueIds.has(product.id)}
+              onToggle={onToggle}
+              productIndex={index}
+              onSelectRow={onSelectRow}
+              onRemoveRow={onRemoveRow}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
 };
 
+// ─────────────────────────────────────────────────────────
+// USE COLUMNS HOOK — tracks container width → column count
+// ─────────────────────────────────────────────────────────
+function useColumnsCount(ref: React.RefObject<HTMLDivElement>) {
+  const [cols, setCols] = useState(4);
+  useEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const w = entry.contentRect.width;
+      if (w < 640) setCols(1);
+      else if (w < 1024) setCols(2);
+      else if (w < 1280) setCols(3);
+      else setCols(4);
+    });
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+  return cols;
+}
+
+// ─────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────
 const Products = () => {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-  // ---------------------------------------------------------------------------
-  // 1. CORE DATA STATES
-  // ---------------------------------------------------------------------------
   const [products, setProducts] = useState<any[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // NEW: Bulk Printing Queue State
-  const [printQueue, setPrintQueue] = useState<any[]>([]);
-
-  // NEW: Pagination State for Performance
-  const [displayCount, setDisplayCount] = useState(50);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // printQueue stored as Map for O(1) lookup
+  const [printQueueMap, setPrintQueueMap] = useState<Map<string, any>>(new Map());
+  const printQueueIds = useMemo(() => new Set(printQueueMap.keys()), [printQueueMap]);
+  const printQueue = useMemo(() => Array.from(printQueueMap.values()), [printQueueMap]);
 
   const [filters, setFilters] = useState({
     metal: "all",
@@ -89,97 +302,83 @@ const Products = () => {
     category: "all",
     branch: "all",
   });
-
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // ---------------------------------------------------------------------------
-  // 2. ORNAMENT CATEGORY DEFINITIONS
-  // ---------------------------------------------------------------------------
-  const ORNAMENT_MAPPING = {
-    head_hair: ["Tiara, Crown, Diadem", "Hair Comb, Hair Pin", "Fascinator Chain, Coronet", "Wreath (laurel), Circlet"],
-    forehead: ["Frontlet, Ferronnière", "Bandeau, Brow Band"],
-    ears: ["Stud, Hoop Earrings", "Drop, Chandelier Earrings", "Huggie Earrings, Ear Cuffs", "Clip-on, Threader, Crawler"],
-    nose: ["Nose Ring, Nose Stud", "Septum Ring, Nose Chain, Nose Cuff"],
-    neck: ["Necklace, Pendant, Choker", "Chain, Locket, Collar Necklace", "Torque/Torc, Riviere, Lavaliere", "Bib Necklace, Sautoir", "Opera, Rope Chain, Lariat"],
-    chest_shoulders: ["Brooch, Fibula, Pectoral", "Shoulder Chain, Epaulette, Body Chain"],
-    arms: ["Armlet, Arm Band, Upper Arm Cuff", "Arm Chain"],
-    wrists: ["Bangle, Bracelet, Cuff", "Tennis, Charm, Chain Bracelet", "Slave Bracelet (hand chain)"],
-    hands_fingers: ["Signet, Engagement, Wedding Band", "Cocktail, Eternity, Stackable Rings", "Knuckle Ring, Hand Harness/Chain"],
-  };
+  const gridRef = useRef<HTMLDivElement>(null);
+  const columnsCount = useColumnsCount(gridRef);
 
   const [formData, setFormData] = useState({
-    name: "",
-    type: "gold",
-    grams: "",
-    carats: "",
-    quantity: "1",
-    huid: "",
-    stoneWeight: "0",
-    netWeight: "0",
-    va: "0",
-    bodyPart: "",
-    category: "",
-    branchName: "",
-    stoneCost: "0",
+    name: "", type: "gold", grams: "", carats: "", quantity: "1",
+    huid: "", stoneWeight: "0", netWeight: "0", va: "0",
+    bodyPart: "", category: "", branchName: "", stoneCost: "0",
   });
 
-  // ---------------------------------------------------------------------------
-  // 3. BULK PRINTING HANDLERS
-  // ---------------------------------------------------------------------------
-  const toggleSelection = (product: any) => {
-    setPrintQueue(prev => {
-      const exists = prev.find(item => item.id === product.id);
-      if (exists) {
-        return prev.filter(item => item.id !== product.id);
+  // ── toast helper ──────────────────────────────────────
+  const fireToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    setShowToast(true);
+  }, []);
+
+  // ── bulk selection ────────────────────────────────────
+  const toggleSelection = useCallback((product: any) => {
+    setPrintQueueMap(prev => {
+      const next = new Map(prev);
+      next.has(product.id) ? next.delete(product.id) : next.set(product.id, product);
+      return next;
+    });
+  }, []);
+
+  const filteredProductsRef = useRef<any[]>([]);
+
+  /**
+   * ROW TOGGLE — single handler used for BOTH onSelectRow and onRemoveRow.
+   * • If ALL 25 items in the batch are already in the queue → remove them all.
+   * • Otherwise → add any that are missing.
+   * This means clicking a row-select button always toggles the entire batch,
+   * regardless of which prop name ProductCard uses to call it.
+   */
+  const selectOrToggleRow = useCallback((startIndex: number) => {
+    const list = filteredProductsRef.current;
+    const end = Math.min(startIndex + ROW_SELECT_BATCH, list.length);
+    const batch = list.slice(startIndex, end);
+    if (batch.length === 0) return;
+
+    // Capture current queue state BEFORE setState to determine correct toast
+    setPrintQueueMap(prev => {
+      const allSelected = batch.every(p => prev.has(p.id));
+      const next = new Map(prev);
+      if (allSelected) {
+        batch.forEach(p => next.delete(p.id));
+        // Schedule toast after state update
+        setTimeout(() => fireToast(`Removed ${batch.length} items from batch`), 0);
+      } else {
+        batch.forEach(p => { if (!next.has(p.id)) next.set(p.id, p); });
+        setTimeout(() => fireToast(`Added ${batch.length} items to batch`), 0);
       }
-      return [...prev, product];
+      return next;
     });
-  };
-  // Select next 25 items from a product onwards
-  const selectRowProducts = (productIndex: number, itemsToSelect: number = 25) => {
-    const endIndex = Math.min(productIndex + itemsToSelect, displayedProducts.length);
-    const rowProducts = displayedProducts.slice(productIndex, endIndex);
-    
-    setPrintQueue(prev => {
-      const newQueue = [...prev];
-      rowProducts.forEach(product => {
-        const exists = newQueue.find(item => item.id === product.id);
-        if (!exists) {
-          newQueue.push(product);
-        }
-      });
-      return newQueue;
+  }, [fireToast]);
+
+  // Alias — ProductCard may call onRemoveRow separately; both route through the same toggle.
+  const removeRowFromQueue = selectOrToggleRow;
+
+  const selectAllFiltered = useCallback(() => {
+    const all = filteredProductsRef.current;
+    setPrintQueueMap(prev => {
+      const next = new Map(prev);
+      all.forEach(p => next.set(p.id, p));
+      return next;
     });
-    
-    setToastMessage(`Added ${rowProducts.length} items to batch`);
-    setShowToast(true);
-  };
+    fireToast(`Added ${all.length} items to print queue`);
+  }, [fireToast]);
 
-  // Remove entire row from print queue (25 items starting from productIndex)
-  const removeRowFromQueue = (productIndex: number, itemsToRemove: number = 25) => {
-    const endIndex = Math.min(productIndex + itemsToRemove, displayedProducts.length);
-    const rowProducts = displayedProducts.slice(productIndex, endIndex);
-    const rowIds = rowProducts.map(p => p.id);
-    
-    setPrintQueue(prev => prev.filter(item => !rowIds.includes(item.id)));
-    
-    setToastMessage(`Removed ${rowProducts.length} items from batch`);
-    setShowToast(true);
-  };
-  const selectAllFiltered = () => {
-    setPrintQueue(filteredProducts);
-    setToastMessage(`Added ${filteredProducts.length} items to print queue`);
-    setShowToast(true);
-  };
-
-  // ---------------------------------------------------------------------------
-  // 4. EXPORT UTILITIES (EXCEL & PDF)
-  // ---------------------------------------------------------------------------
-  const exportToExcel = () => {
-    const dataToExport = filteredProducts.map(p => ({
+  // ── exports ───────────────────────────────────────────
+  const exportToExcel = useCallback(() => {
+    const fp = filteredProductsRef.current;
+    const dataToExport = fp.map(p => ({
       "SKU": p.sku || "N/A",
       "Product Name": p.name,
       "Metal": p.metalType,
@@ -195,88 +394,66 @@ const Products = () => {
       "Quantity": p.quantity,
       "Stone Cost": p.stoneCost || "0",
     }));
-
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Inventory");
     XLSX.writeFile(workbook, `Suvarna_Inventory_${new Date().toISOString().split('T')[0]}.xlsx`);
+    fireToast("Inventory Excel file generated.");
+  }, [fireToast]);
 
-    setToastMessage("Inventory Excel file generated.");
-    setShowToast(true);
-  };
-
-  const exportToPDF = () => {
+  const exportToPDF = useCallback(() => {
+    const fp = filteredProductsRef.current;
     const doc = new jsPDF('landscape');
-
     doc.setFontSize(22);
-    doc.setTextColor(120, 80, 20); // Deep Gold
+    doc.setTextColor(120, 80, 20);
     doc.text("SUVARNA JEWELLERS", 14, 18);
-
     doc.setFontSize(10);
     doc.setTextColor(100);
     doc.text(`${STORE_INFO.hq} | Inventory Registry`, 14, 25);
-    doc.text(`Exported: ${new Date().toLocaleString()} | Items: ${filteredProducts.length}`, 14, 30);
-
+    doc.text(`Exported: ${new Date().toLocaleString()} | Items: ${fp.length}`, 14, 30);
     const tableColumn = ["SKU", "Name", "Branch", "Metal", "Grams", "Stone Weight", "Net Wt", "VA", "HUID", "Qty", "Stone Cost"];
-    const tableRows = filteredProducts.map(p => [
-      p.sku || "-",
-      p.name.toUpperCase(),
-      p.branchName,
-      `${p.metalType} (${p.carats})`,
-      p.grams,
-      p.stoneWeight,
-      p.netWeight,
-      `${p.va}%`,
-      p.huid || "-",
-      p.quantity,
-      p.stoneCost || "0"
+    const tableRows = fp.map(p => [
+      p.sku || "-", p.name.toUpperCase(), p.branchName,
+      `${p.metalType} (${p.carats})`, p.grams, p.stoneWeight,
+      p.netWeight, `${p.va}%`, p.huid || "-", p.quantity, p.stoneCost || "0"
     ]);
-
     autoTable(doc, {
-      head: [tableColumn],
-      body: tableRows,
-      startY: 38,
-      theme: 'grid',
+      head: [tableColumn], body: tableRows, startY: 38, theme: 'grid',
       headStyles: { fillColor: [180, 150, 50], textColor: [255, 255, 255], fontStyle: 'bold' },
       styles: { fontSize: 7, cellPadding: 2 },
       alternateRowStyles: { fillColor: [250, 248, 240] }
     });
-
     doc.save(`Suvarna_Registry_${Date.now()}.pdf`);
-    setToastMessage("Inventory PDF file generated.");
-    setShowToast(true);
-  };
+    fireToast("Inventory PDF file generated.");
+  }, [fireToast]);
 
-  // ---------------------------------------------------------------------------
-  // 5. AUTO CALCULATION & DATA SYNC
-  // ---------------------------------------------------------------------------
+  // ── net weight auto-calc ──────────────────────────────
   useEffect(() => {
     const g = parseFloat(formData.grams) || 0;
     const s = parseFloat(formData.stoneWeight) || 0;
-    const total = (g + s).toFixed(3);
-    setFormData((prev) => ({ ...prev, netWeight: total }));
+    setFormData(prev => ({ ...prev, netWeight: (g + s).toFixed(3) }));
   }, [formData.grams, formData.stoneWeight]);
 
-  const fetchBranches = async () => {
+  // ── data fetching ─────────────────────────────────────
+  const fetchBranches = useCallback(async () => {
     try {
       const res = await fetch("https://suvarnagold-16e5.vercel.app/api/admin/all", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (data.admins) {
-        const uniqueBranches = Array.from(new Set(data.admins.map((a: any) => a.branchName?.trim()))) as string[];
-        const validBranches = uniqueBranches.filter(b => b && b !== "");
-        setBranches(validBranches);
-        if (validBranches.length > 0 && !formData.branchName) {
-          setFormData(prev => ({ ...prev, branchName: validBranches[0] }));
+        const uniqueBranches = Array.from(
+          new Set(data.admins.map((a: any) => a.branchName?.trim()))
+        ).filter(Boolean) as string[];
+        setBranches(uniqueBranches);
+        if (uniqueBranches.length > 0) {
+          setFormData(prev => prev.branchName ? prev : { ...prev, branchName: uniqueBranches[0] });
         }
       }
-    } catch (error) {
-      console.error("Fetch Branches Error:", error);
-    }
-  };
+    } catch (e) { console.error("Fetch Branches Error:", e); }
+  }, [token]);
 
-  const fetchProducts = async (forceRefresh = false) => {
+  const fetchProducts = useCallback(async (forceRefresh = false) => {
     if (!forceRefresh && productsCache !== null) {
       setProducts(productsCache);
       setIsLoading(false);
@@ -288,48 +465,35 @@ const Products = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      const fetchedProducts = data.products || [];
-      setProducts(fetchedProducts);
-      productsCache = fetchedProducts;
-    } catch (error) {
-      console.error("Fetch Error:", error);
-      setToastMessage("Critical: Failed to synchronize treasury.");
-      setShowToast(true);
+      const fetched = data.products || [];
+      productsCache = fetched;
+      setProducts(fetched);
+    } catch (e) {
+      console.error("Fetch Error:", e);
+      fireToast("Critical: Failed to synchronize treasury.");
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [token, fireToast]);
 
   useEffect(() => {
     fetchProducts();
     fetchBranches();
   }, []);
 
-  // Reset display count when filters change
-  useEffect(() => {
-    setDisplayCount(50);
-  }, [filters]);
-
-  // ---------------------------------------------------------------------------
-  // 6. CREATION LOGIC
-  // ---------------------------------------------------------------------------
-  const handleCreateProduct = async () => {
+  // ── create product ────────────────────────────────────
+  const handleCreateProduct = useCallback(async () => {
     if (!formData.name || !formData.grams) {
-      setToastMessage("Please provide at least Name and Weight.");
-      setShowToast(true);
+      fireToast("Please provide at least Name and Weight.");
       return;
     }
-
     setIsSubmitting(true);
     setIsLoading(true);
     try {
       const currentDate = new Date().toISOString().split("T")[0];
       const res = await fetch("https://suvarnagold-16e5.vercel.app/api/products/create", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           ...formData,
           grams: parseFloat(formData.grams),
@@ -341,185 +505,114 @@ const Products = () => {
           manufactureDate: currentDate,
           branchName: formData.branchName,
           metalType: formData.type,
-          itemCode: formData.huid ? formData.huid.toUpperCase() : "" // Use HUID as item code if provided
+          itemCode: formData.huid ? formData.huid.toUpperCase() : "",
         }),
       });
       if (res.ok) {
-        setToastMessage("Masterpiece added to collection");
-        setShowToast(true);
+        fireToast("Masterpiece added to collection");
         setShowForm(false);
         await fetchProducts(true);
         setFormData({
           name: "", type: "gold", grams: "", carats: "", bodyPart: "",
           category: "", quantity: "1", huid: "", stoneWeight: "0", netWeight: "0",
-          va: "0", branchName: branches[0] || "", stoneCost: "0"
+          va: "0", branchName: branches[0] || "", stoneCost: "0",
         });
       } else {
         const err = await res.json();
-        setToastMessage(`Error: ${err.error}`);
-        setShowToast(true);
+        fireToast(`Error: ${err.error}`);
       }
-    } catch (error) {
-      console.error("Creation Error:", error);
-    } finally {
-      setIsSubmitting(false);
-      setIsLoading(false);
-    }
-  };
+    } catch (e) { console.error("Creation Error:", e); }
+    finally { setIsSubmitting(false); setIsLoading(false); }
+  }, [formData, token, branches, fetchProducts, fireToast]);
 
-  // ---------------------------------------------------------------------------
-  // 7. FILTERING & MEMOIZATION
-  // ---------------------------------------------------------------------------
+  // ── filtering (memoised) ──────────────────────────────
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      const cleanMatch = (val: any, filterVal: string) => {
-        if (filterVal === "all") return true;
-        const normalizedVal = val?.toString().trim().toLowerCase() || "";
-        const normalizedFilter = filterVal.trim().toLowerCase();
-        return normalizedVal === normalizedFilter;
-      };
-
-      // Search filter by SKU, name, and itemCode
-      const matchesSearch = () => {
-        if (!searchQuery.trim()) return true;
-        const query = searchQuery.trim().toLowerCase();
-        const sku = p.sku?.toString().toLowerCase() || "";
-        const name = p.name?.toString().toLowerCase() || "";
-        const itemCode = p.itemCode?.toString().toLowerCase() || "";
-        return sku.includes(query) || name.includes(query) || itemCode.includes(query);
-      };
-
-      return (
-        cleanMatch(p.metalType, filters.metal) &&
-        cleanMatch(p.bodyPart, filters.bodyPart) &&
-        cleanMatch(p.category, filters.category) &&
-        cleanMatch(p.branchName, filters.branch) &&
-        matchesSearch()
-      );
-    });
+    const cleanMatch = (val: any, filterVal: string) => {
+      if (filterVal === "all") return true;
+      return (val?.toString().trim().toLowerCase() || "") === filterVal.trim().toLowerCase();
+    };
+    const q = searchQuery.trim().toLowerCase();
+    return products.filter(p =>
+      cleanMatch(p.metalType, filters.metal) &&
+      cleanMatch(p.bodyPart, filters.bodyPart) &&
+      cleanMatch(p.category, filters.category) &&
+      cleanMatch(p.branchName, filters.branch) &&
+      (!q || (p.sku?.toString().toLowerCase() || "").includes(q) ||
+        (p.name?.toString().toLowerCase() || "").includes(q) ||
+        (p.itemCode?.toString().toLowerCase() || "").includes(q))
+    );
   }, [products, filters, searchQuery]);
 
-  const resetFilters = () => {
+  // Keep ref in sync so callbacks always see latest filteredProducts
+  useEffect(() => { filteredProductsRef.current = filteredProducts; }, [filteredProducts]);
+
+  const resetFilters = useCallback(() => {
     setFilters({ metal: "all", bodyPart: "all", category: "all", branch: "all" });
     setSearchQuery("");
-  };
+  }, []);
 
-  // Pagination: Show only the first `displayCount` products
-  const displayedProducts = useMemo(() => {
-    return filteredProducts.slice(0, displayCount);
-  }, [filteredProducts, displayCount]);
+  const handleRefetch = useCallback(() => fetchProducts(true), [fetchProducts]);
 
-  const hasMoreProducts = filteredProducts.length > displayCount;
-
-  // Load More Handler with Loading State
-  const handleLoadMore = async () => {
-    setIsLoadingMore(true);
-    // Simulate loading delay for better UX feedback
-    await new Promise(resolve => setTimeout(resolve, 300));
-    setDisplayCount(prev => prev + 50);
-    setIsLoadingMore(false);
-  };
-
-  // ---------------------------------------------------------------------------
-  // 8. RENDER LOGIC
-  // ---------------------------------------------------------------------------
-
+  // ─────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-[#fdfcf9] font-sans">
         <DashboardSidebar />
 
-        {/* --- ADD PRODUCT MODAL --- */}
-        {/* --- ADD PRODUCT MODAL --- */}
+        {/* ADD PRODUCT MODAL */}
         {showForm && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4 animate-in fade-in duration-200">
-            {/* Reduced max-width from max-w-lg to max-w-md and adjusted padding */}
             <div className="bg-white rounded-[1.5rem] p-6 w-full max-w-md space-y-4 shadow-2xl border border-amber-100 max-h-[95vh] overflow-y-auto custom-scrollbar relative">
-
-              {/* Header - Made more compact */}
               <div className="flex justify-between items-center border-b border-amber-100 pb-3">
                 <h2 className="text-lg font-serif font-black text-amber-900 flex items-center gap-2">
                   <Plus className="w-5 h-5 text-amber-600" /> New Masterpiece
                 </h2>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowForm(false)}
-                  className="rounded-full h-8 w-8 hover:bg-red-50 hover:text-red-500"
-                >
+                <Button variant="ghost" size="icon" onClick={() => setShowForm(false)} className="rounded-full h-8 w-8 hover:bg-red-50 hover:text-red-500">
                   <X className="w-5 h-5" />
                 </Button>
               </div>
-
               <div className="space-y-3">
-                {/* Branch Selection - Reduced heights from h-12 to h-10 */}
                 <div className="space-y-1">
                   <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Branch Origin</label>
-                  <Select value={formData.branchName} onValueChange={(val) => setFormData({ ...formData, branchName: val })}>
-                    <SelectTrigger className="h-10 bg-amber-50/30 border-amber-100 rounded-lg focus:ring-amber-500">
-                      <SelectValue placeholder="Select Branch" />
-                    </SelectTrigger>
+                  <Select value={formData.branchName} onValueChange={(val) => setFormData(p => ({ ...p, branchName: val }))}>
+                    <SelectTrigger className="h-10 bg-amber-50/30 border-amber-100 rounded-lg"><SelectValue placeholder="Select Branch" /></SelectTrigger>
                     <SelectContent className="z-[130]">
-                      {branches.map(b => (
-                        <SelectItem key={b} value={b} className="capitalize font-bold text-xs">{b}</SelectItem>
-                      ))}
+                      {branches.map(b => <SelectItem key={b} value={b} className="capitalize font-bold text-xs">{b}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
-
-                {/* Display Name */}
                 <div className="space-y-1">
                   <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Display Name</label>
-                  <Input
-                    placeholder="e.g., Antique Gold Haram"
-                    value={formData.name}
-                    className="h-10 border-amber-50 rounded-lg focus:border-amber-400 focus:ring-0 text-xs"
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  />
+                  <Input placeholder="e.g., Antique Gold Haram" value={formData.name} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))} />
                 </div>
-
-                {/* Placement & Type Row */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Placement</label>
-                    <Select value={formData.bodyPart} onValueChange={(val) => setFormData({ ...formData, bodyPart: val, category: "" })}>
-                      <SelectTrigger className="h-10 bg-white border-amber-50 rounded-lg text-xs">
-                        <SelectValue placeholder="Select Area" />
-                      </SelectTrigger>
+                    <Select value={formData.bodyPart} onValueChange={(val) => setFormData(p => ({ ...p, bodyPart: val, category: "" }))}>
+                      <SelectTrigger className="h-10 bg-white border-amber-50 rounded-lg text-xs"><SelectValue placeholder="Select Area" /></SelectTrigger>
                       <SelectContent className="z-[130]">
-                        <SelectItem value="head_hair">Head & Hair</SelectItem>
-                        <SelectItem value="forehead">Forehead</SelectItem>
-                        <SelectItem value="ears">Ears</SelectItem>
-                        <SelectItem value="nose">Nose</SelectItem>
-                        <SelectItem value="neck">Neck</SelectItem>
-                        <SelectItem value="wrists">Wrists</SelectItem>
-                        <SelectItem value="hands_fingers">Hands & Fingers</SelectItem>
+                        {Object.keys(ORNAMENT_MAPPING).map(k => <SelectItem key={k} value={k}>{k.replace(/_/g, " & ")}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
-
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Type</label>
-                    <Select value={formData.category} onValueChange={(val) => setFormData({ ...formData, category: val })} disabled={!formData.bodyPart}>
-                      <SelectTrigger className="h-10 bg-white border-amber-50 rounded-lg text-xs">
-                        <SelectValue placeholder="Type" />
-                      </SelectTrigger>
+                    <Select value={formData.category} onValueChange={(val) => setFormData(p => ({ ...p, category: val }))} disabled={!formData.bodyPart}>
+                      <SelectTrigger className="h-10 bg-white border-amber-50 rounded-lg text-xs"><SelectValue placeholder="Type" /></SelectTrigger>
                       <SelectContent className="z-[130] max-h-[200px]">
-                        {formData.bodyPart && ORNAMENT_MAPPING[formData.bodyPart as keyof typeof ORNAMENT_MAPPING]?.map((item) => (
-                          <SelectItem key={item} value={item.toLowerCase().replace(/ /g, "_")} className="text-xs">
-                            {item}
-                          </SelectItem>
+                        {formData.bodyPart && ORNAMENT_MAPPING[formData.bodyPart]?.map(item => (
+                          <SelectItem key={item} value={item.toLowerCase().replace(/ /g, "_")} className="text-xs">{item}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
-
-                {/* Metal Base & Purity Row */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Metal Base</label>
-                    <Select value={formData.type} onValueChange={(val) => setFormData({ ...formData, type: val, carats: "" })}>
+                    <Select value={formData.type} onValueChange={(val) => setFormData(p => ({ ...p, type: val, carats: "" }))}>
                       <SelectTrigger className="h-10 border-amber-50 rounded-lg text-xs"><SelectValue placeholder="Metal" /></SelectTrigger>
                       <SelectContent className="z-[130]">
                         <SelectItem value="gold" className="font-bold text-amber-600 text-xs">Gold</SelectItem>
@@ -529,44 +622,37 @@ const Products = () => {
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Purity</label>
-                    <Select value={formData.carats} onValueChange={(val) => setFormData({ ...formData, carats: val })}>
+                    <Select value={formData.carats} onValueChange={(val) => setFormData(p => ({ ...p, carats: val }))}>
                       <SelectTrigger className="h-10 border-amber-50 rounded-lg text-xs"><SelectValue placeholder="Quality" /></SelectTrigger>
                       <SelectContent className="z-[130]">
-                        {formData.type === "gold" ? (
-                          ["24K", "22K", "18K", "14K", "9K"].map(k => <SelectItem key={k} value={k} className="text-xs">{k}</SelectItem>)
-                        ) : (
-                          ["99.9%", "92.5%", "70%"].map(p => <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>)
-                        )}
+                        {formData.type === "gold"
+                          ? ["24K","22K","18K","14K","9K"].map(k => <SelectItem key={k} value={k} className="text-xs">{k}</SelectItem>)
+                          : ["99.9%","92.5%","70%"].map(p => <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>)
+                        }
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
-
-                {/* Weights Row */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Metal Wt (g)</label>
-                    <Input type="number" min="0" placeholder="0.000" value={formData.grams} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, grams: e.target.value })} />
+                    <Input type="number" min="0" placeholder="0.000" value={formData.grams} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData(p => ({ ...p, grams: e.target.value }))} />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Stone Wt (g)</label>
-                    <Input type="number" min="0" placeholder="0.000" value={formData.stoneWeight} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, stoneWeight: e.target.value })} />
+                    <Input type="number" min="0" placeholder="0.000" value={formData.stoneWeight} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData(p => ({ ...p, stoneWeight: e.target.value }))} />
                   </div>
                 </div>
-
-                {/* VA & Stone Cost Row */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">VA %</label>
-                    <Input type="number" min="0" placeholder="0%" value={formData.va} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, va: e.target.value })} />
+                    <Input type="number" min="0" placeholder="0%" value={formData.va} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData(p => ({ ...p, va: e.target.value }))} />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Stone Cost</label>
-                    <Input type="number" min="0" placeholder="₹0" value={formData.stoneCost} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData({ ...formData, stoneCost: e.target.value })} />
+                    <Input type="number" min="0" placeholder="₹0" value={formData.stoneCost} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData(p => ({ ...p, stoneCost: e.target.value }))} />
                   </div>
                 </div>
-
-                {/* Calculated Weight - Made much smaller */}
                 <div className="bg-gradient-to-br from-amber-50 to-yellow-50 p-3 rounded-xl border border-amber-100">
                   <div className="flex justify-between items-center">
                     <div>
@@ -576,15 +662,11 @@ const Products = () => {
                     <Layers className="w-6 h-6 text-amber-200/50" />
                   </div>
                 </div>
-
-                {/* HUID */}
                 <div className="space-y-1">
                   <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">HUID Serial</label>
-                  <Input placeholder="Enter HUID" value={formData.huid} className="h-10 border-amber-50 rounded-lg focus:border-amber-400 text-xs" onChange={(e) => setFormData({ ...formData, huid: e.target.value })} />
+                  <Input placeholder="Enter HUID" value={formData.huid} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData(p => ({ ...p, huid: e.target.value }))} />
                 </div>
               </div>
-
-              {/* Footer Buttons */}
               <div className="flex gap-3 pt-2">
                 <Button variant="outline" onClick={() => setShowForm(false)} className="flex-1 h-11 rounded-xl font-black uppercase text-[10px] tracking-widest border-2">Discard</Button>
                 <Button onClick={handleCreateProduct} className="flex-[2] h-11 rounded-xl bg-amber-600 text-white hover:bg-amber-700 shadow-lg font-black uppercase text-[10px] tracking-widest" disabled={isSubmitting}>
@@ -595,55 +677,42 @@ const Products = () => {
           </div>
         )}
 
-        {/* --- BULK PRINTER WIDGET --- */}
+        {/* BULK PRINTER WIDGET */}
         {printQueue.length > 0 && (
           <BulkBarcodePrinter
             queue={printQueue}
-            onClearQueue={() => setPrintQueue([])}
-            onRemoveFromQueue={(id) => setPrintQueue(prev => prev.filter(item => item.id !== id))}
+            onClearQueue={() => setPrintQueueMap(new Map())}
+            onRemoveFromQueue={(id: string) => setPrintQueueMap(prev => { const n = new Map(prev); n.delete(id); return n; })}
           />
         )}
 
         <main className="flex-1 overflow-auto h-screen custom-scrollbar">
+          {/* HEADER */}
           <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b-2 border-amber-50 px-10 py-8 flex justify-between items-center">
-            <div>
-              <div className="flex items-center gap-3">
-                <div className="bg-amber-600 p-2.5 rounded-2xl shadow-lg shadow-amber-200">
-                  <Plus className="text-white w-6 h-6" />
-                </div>
-                <div>
-                  <h1 className="text-4xl font-serif font-black tracking-tight text-amber-950 italic">Inventory Vault</h1>
-                  <p className="text-[11px] text-amber-700 font-black uppercase tracking-[0.3em] mt-1 ml-1 opacity-60">Suvarna Luxury Collection</p>
-                </div>
+            <div className="flex items-center gap-3">
+              <div className="bg-amber-600 p-2.5 rounded-2xl shadow-lg shadow-amber-200">
+                <Plus className="text-white w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-4xl font-serif font-black tracking-tight text-amber-950 italic">Inventory Vault</h1>
+                <p className="text-[11px] text-amber-700 font-black uppercase tracking-[0.3em] mt-1 ml-1 opacity-60">Suvarna Luxury Collection</p>
               </div>
             </div>
-
             <div className="flex items-center gap-4">
-              {/* BULK ACTION PANEL */}
               {filteredProducts.length > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setPrintQueue(displayedProducts);
-                    setToastMessage(`Added ${displayedProducts.length} visible items to print queue`);
-                    setShowToast(true);
-                  }}
-                  className="rounded-xl border-2 border-amber-200 bg-amber-50/50 hover:bg-amber-100 text-amber-900 font-black uppercase text-[10px] tracking-widest transition-all"
-                >
-                  <CheckSquare className="w-4 h-4 mr-2" /> Select Visible ({displayedProducts.length})
+                <Button variant="outline" size="sm" onClick={selectAllFiltered}
+                  className="rounded-xl border-2 border-amber-200 bg-amber-50/50 hover:bg-amber-100 text-amber-900 font-black uppercase text-[10px] tracking-widest transition-all">
+                  <CheckSquare className="w-4 h-4 mr-2" /> Select All ({filteredProducts.length})
                 </Button>
               )}
-
               <div className="h-10 w-[2px] bg-amber-50 mx-2" />
-
               <Button variant="outline" size="sm" onClick={exportToExcel} className="hidden md:flex rounded-xl border-amber-200 text-amber-800 font-bold hover:bg-amber-50">
                 <TableIcon className="w-4 h-4 mr-2" /> Excel
               </Button>
               <Button variant="outline" size="sm" onClick={exportToPDF} className="hidden md:flex rounded-xl border-red-200 text-red-800 font-bold hover:bg-red-50">
                 <FileDown className="w-4 h-4 mr-2" /> Registry PDF
               </Button>
-              <Button variant="outline" size="icon" className="rounded-xl border-2" onClick={() => fetchProducts(true)}>
+              <Button variant="outline" size="icon" className="rounded-xl border-2" onClick={handleRefetch}>
                 <RefreshCw className={`w-5 h-5 text-amber-600 ${isLoading ? "animate-spin" : ""}`} />
               </Button>
               <Button variant="gold" className="h-12 px-8 rounded-2xl shadow-xl shadow-amber-100 font-black uppercase tracking-widest text-xs" onClick={() => setShowForm(true)}>
@@ -653,11 +722,9 @@ const Products = () => {
           </header>
 
           <div className="p-10 space-y-10 max-w-[1700px] mx-auto">
-            {/* ADVANCED FILTERING SUITE */}
+            {/* FILTER SUITE */}
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-amber-50/50 border-2 border-amber-50 flex flex-wrap gap-8 items-end relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-amber-50 rounded-full -mr-16 -mt-16 opacity-40 blur-3xl" />
-
-              {/* SEARCH INPUT */}
               <div className="space-y-2 relative z-10">
                 <label className="text-[10px] font-black text-amber-900/40 uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
                   <SearchIcon className="w-3.5 h-3.5" /> Quick Search
@@ -665,59 +732,40 @@ const Products = () => {
                 <Input
                   placeholder="Search by SKU, Name, or Item Code..."
                   value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setDisplayCount(50); // Reset pagination on search
-                  }}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-64 h-11 rounded-xl border-2 border-amber-50 bg-white placeholder:text-amber-400/50 text-xs font-bold focus:border-amber-400 focus:ring-amber-500"
                 />
               </div>
-
               <div className="space-y-2 relative z-10">
                 <label className="text-[10px] font-black text-amber-900/40 uppercase flex items-center gap-2 tracking-[0.2em] ml-1">
                   <Filter className="w-3.5 h-3.5" /> Filter: Metal Base
                 </label>
                 <div className="flex gap-2 p-1 bg-amber-50/50 rounded-xl border border-amber-100">
-                  {["all", "gold", "silver"].map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setFilters({ ...filters, metal: t })}
-                      className={cn(
-                        "px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
-                        filters.metal === t
-                          ? "bg-amber-600 text-white shadow-lg shadow-amber-200 scale-105"
-                          : "text-amber-800/60 hover:text-amber-600"
-                      )}
-                    >
+                  {["all","gold","silver"].map(t => (
+                    <button key={t} onClick={() => setFilters(f => ({ ...f, metal: t }))}
+                      className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                        filters.metal === t ? "bg-amber-600 text-white shadow-lg shadow-amber-200 scale-105" : "text-amber-800/60 hover:text-amber-600")}>
                       {t}
                     </button>
                   ))}
                 </div>
               </div>
-
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-amber-900/40 uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
                   <Store className="w-3.5 h-3.5" /> Branch Location
                 </label>
-                <Select value={filters.branch} onValueChange={(val) => setFilters({ ...filters, branch: val })}>
-                  <SelectTrigger className="w-48 text-xs font-bold h-11 bg-white border-2 border-amber-50 rounded-xl focus:ring-amber-500 shadow-sm">
-                    <SelectValue placeholder="All Branches" />
-                  </SelectTrigger>
+                <Select value={filters.branch} onValueChange={(val) => setFilters(f => ({ ...f, branch: val }))}>
+                  <SelectTrigger className="w-48 text-xs font-bold h-11 bg-white border-2 border-amber-50 rounded-xl focus:ring-amber-500 shadow-sm"><SelectValue placeholder="All Branches" /></SelectTrigger>
                   <SelectContent className="rounded-xl border-amber-100">
                     <SelectItem value="all" className="font-bold">Global Registry</SelectItem>
-                    {branches.map(b => (
-                      <SelectItem key={b} value={b} className="capitalize font-bold">{b}</SelectItem>
-                    ))}
+                    {branches.map(b => <SelectItem key={b} value={b} className="capitalize font-bold">{b}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-amber-900/40 uppercase tracking-[0.2em] ml-1">Body Placement</label>
-                <Select value={filters.bodyPart} onValueChange={(val) => setFilters({ ...filters, bodyPart: val })}>
-                  <SelectTrigger className="w-44 text-xs font-bold h-11 bg-white border-2 border-amber-50 rounded-xl shadow-sm">
-                    <SelectValue placeholder="All Parts" />
-                  </SelectTrigger>
+                <Select value={filters.bodyPart} onValueChange={(val) => setFilters(f => ({ ...f, bodyPart: val }))}>
+                  <SelectTrigger className="w-44 text-xs font-bold h-11 bg-white border-2 border-amber-50 rounded-xl shadow-sm"><SelectValue placeholder="All Parts" /></SelectTrigger>
                   <SelectContent className="rounded-xl border-amber-100">
                     <SelectItem value="all" className="font-bold uppercase tracking-tighter">Every Part</SelectItem>
                     <SelectItem value="head">Head</SelectItem>
@@ -729,15 +777,12 @@ const Products = () => {
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-amber-900/40 uppercase tracking-[0.2em] ml-1 flex items-center gap-2">
                   <Tag className="w-3.5 h-3.5" /> Piece Category
                 </label>
-                <Select value={filters.category} onValueChange={(val) => setFilters({ ...filters, category: val })}>
-                  <SelectTrigger className="w-44 text-xs font-bold h-11 bg-white border-2 border-amber-50 rounded-xl shadow-sm">
-                    <SelectValue placeholder="All Categories" />
-                  </SelectTrigger>
+                <Select value={filters.category} onValueChange={(val) => setFilters(f => ({ ...f, category: val }))}>
+                  <SelectTrigger className="w-44 text-xs font-bold h-11 bg-white border-2 border-amber-50 rounded-xl shadow-sm"><SelectValue placeholder="All Categories" /></SelectTrigger>
                   <SelectContent className="rounded-xl border-amber-100">
                     <SelectItem value="all" className="font-bold">Total Collection</SelectItem>
                     <SelectItem value="rings">Rings</SelectItem>
@@ -748,28 +793,20 @@ const Products = () => {
                   </SelectContent>
                 </Select>
               </div>
-
-              <Button
-                variant="ghost"
-                className="h-11 px-6 text-[10px] font-black uppercase tracking-widest text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                onClick={resetFilters}
-              >
+              <Button variant="ghost" onClick={resetFilters}
+                className="h-11 px-6 text-[10px] font-black uppercase tracking-widest text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all">
                 Reset Filters
               </Button>
             </div>
 
-            <div className="py-4">
-              <GoldDivider opacity={30} />
-            </div>
+            <div className="py-4"><GoldDivider opacity={30} /></div>
 
-            {/* INVENTORY DISPLAY GRID */}
+            {/* INVENTORY GRID */}
             <div>
               <div className="mb-6 flex flex-col sm:flex-row justify-between items-center gap-4">
                 <p className="text-sm font-bold text-amber-700">
-                  Showing <span className="text-amber-900 font-black">{displayedProducts.length}</span> of <span className="text-amber-900 font-black">{filteredProducts.length}</span> products
+                  <span className="text-amber-900 font-black">{filteredProducts.length}</span> products in registry
                 </p>
-                
-                {/* Selected Products Count */}
                 {printQueue.length > 0 && (
                   <div className="bg-gradient-to-r from-emerald-50 to-green-50 border-2 border-emerald-200 rounded-2xl px-8 py-3 shadow-lg shadow-emerald-100">
                     <div className="text-center">
@@ -780,64 +817,40 @@ const Products = () => {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-10">
-                {isLoading ? (
-                  Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)
-                ) : filteredProducts.length > 0 ? (
-                  displayedProducts.map((product, index) => (
-                    <ProductCard
-                      key={product.id}
-                      product={product}
-                      onUpdated={() => fetchProducts(true)}
-                      showToast={setToastMessage}
-                      // Selection logic for bulk printing
-                      isSelected={!!printQueue.find(item => item.id === product.id)}
-                      onToggle={toggleSelection}
-                      // Row selection & removal props
-                      productIndex={index}
-                      onSelectRow={selectRowProducts}
-                      onRemoveRow={removeRowFromQueue}
-                    />
-                  ))
-                ) : (
-                  <div className="col-span-full py-40 text-center space-y-6 bg-white/50 rounded-[3rem] border-4 border-dashed border-amber-100/50">
-                    <div className="text-amber-200 flex justify-center"><PackageSearch size={80} className="animate-bounce" /></div>
-                    <div className="space-y-2">
-                      <h3 className="text-2xl font-serif font-black text-amber-900 italic">No Artifacts Uncovered</h3>
-                      <p className="text-muted-foreground font-serif text-lg opacity-60">Adjust your criteria to reveal hidden treasures from the registry.</p>
-                    </div>
-                    <Button variant="gold" size="lg" className="h-14 px-10 rounded-2xl shadow-xl shadow-amber-200" onClick={resetFilters}>
-                      Restore Full Registry View
-                    </Button>
+              {isLoading ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-10">
+                  {Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)}
+                </div>
+              ) : filteredProducts.length === 0 ? (
+                <div className="col-span-full py-40 text-center space-y-6 bg-white/50 rounded-[3rem] border-4 border-dashed border-amber-100/50">
+                  <div className="text-amber-200 flex justify-center"><PackageSearch size={80} className="animate-bounce" /></div>
+                  <div className="space-y-2">
+                    <h3 className="text-2xl font-serif font-black text-amber-900 italic">No Artifacts Uncovered</h3>
+                    <p className="text-muted-foreground font-serif text-lg opacity-60">Adjust your criteria to reveal hidden treasures from the registry.</p>
                   </div>
-                )}
-              </div>
-
-              {/* LOAD MORE BUTTON */}
-              {hasMoreProducts && (
-                <div className="flex justify-center mt-16 pb-8">
-                  <Button
-                    onClick={handleLoadMore}
-                    disabled={isLoadingMore}
-                    className="h-14 px-12 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-lg shadow-amber-200 font-black uppercase tracking-widest text-sm transition-all hover:scale-105 disabled:opacity-70 disabled:cursor-wait"
-                  >
-                    {isLoadingMore ? (
-                      <>
-                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                        Loading...
-                      </>
-                    ) : (
-                      <>
-                        Load More Products ({filteredProducts.length - displayCount} remaining)
-                      </>
-                    )}
+                  <Button variant="gold" size="lg" className="h-14 px-10 rounded-2xl shadow-xl shadow-amber-200" onClick={resetFilters}>
+                    Restore Full Registry View
                   </Button>
+                </div>
+              ) : (
+                // VIRTUALISED GRID — only renders visible cards
+                <div ref={gridRef}>
+                  <VirtualGrid
+                    products={filteredProducts}
+                    printQueueIds={printQueueIds}
+                    onToggle={toggleSelection}
+                    onSelectRow={selectOrToggleRow}
+                    onRemoveRow={removeRowFromQueue}
+                    onUpdated={() => fetchProducts(true)}
+                    showToast={fireToast}
+                    columnsCount={columnsCount}
+                  />
                 </div>
               )}
             </div>
           </div>
 
-          {/* TERMINAL FOOTER DECORATION */}
+          {/* FOOTER */}
           <footer className="p-20 text-center opacity-20 flex flex-col items-center gap-4">
             <div className="h-[2px] w-40 bg-amber-900" />
             <p className="text-[10px] font-black uppercase tracking-[1em] text-amber-900">End of Inventory Registry</p>
@@ -853,13 +866,19 @@ const Products = () => {
   );
 };
 
-// SVG Placeholder icons to fulfill missing imports in current context
-const PackageSearch = ({ className, size }: { className?: string, size?: number }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width={size || 24} height={size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" /><path d="M11 17a3 3 0 1 0 6 0 3 3 0 0 0-6 0" /><path d="m20 21-1.5-1.5" /></svg>
+// SVG fallback icons
+const PackageSearch = ({ className, size }: { className?: string; size?: number }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size || 24} height={size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+    <path d="m3.3 7 8.7 5 8.7-5" /><path d="M12 22V12" />
+    <path d="M11 17a3 3 0 1 0 6 0 3 3 0 0 0-6 0" /><path d="m20 21-1.5-1.5" />
+  </svg>
 );
 
-const CheckSquare = ({ className, size }: { className?: string, size?: number }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width={size || 24} height={size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="18" height="18" x="3" y="3" rx="2" /><path d="m9 11 3 3L22 4" /></svg>
+const CheckSquare = ({ className, size }: { className?: string; size?: number }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size || 24} height={size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect width="18" height="18" x="3" y="3" rx="2" /><path d="m9 11 3 3L22 4" />
+  </svg>
 );
 
 export default Products;

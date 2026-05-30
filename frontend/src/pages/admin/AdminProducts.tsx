@@ -57,7 +57,7 @@ const AdminProducts = () => {
     setIsLoading(true);
     try {
       // Build URL with branch filter if user is ADMIN
-      let apiUrl = "https://suvarnagold-16e5.vercel.app/api/products/all";
+      let apiUrl = "http://localhost:3000/api/products/all";
       if (currentUser && currentUser.branchName) {
         apiUrl += `?branch=${encodeURIComponent(currentUser.branchName)}`;
       }
