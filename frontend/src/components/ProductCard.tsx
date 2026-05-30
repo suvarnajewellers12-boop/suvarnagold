@@ -10,16 +10,16 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
-import { 
-  Edit2, Save, X, QrCode, Anchor, Weight, Fingerprint, 
-  Layers, IndianRupee, Loader2, Check 
+import {
+  Edit2, Save, X, QrCode, Anchor, Weight, Fingerprint,
+  Layers, IndianRupee, Loader2, Check
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Product {
   id: string;
   name: string;
-  metalType: "gold" | "silver" | "other";
+  metalType: string; // Accept any case: "gold" | "GOLD" | "Gold" etc.
   grams: number;
   carats: string;
   itemCode?: string;
@@ -38,23 +38,38 @@ interface ProductCardProps {
   onUpdated?: () => void;
   showToast?: (msg: string) => void;
   onShowQR?: (code: string) => void;
-  // Selection Props for Bulk Printing
-  isSelected: boolean;
-  onToggle: (product: Product) => void;
-  // Row Selection Props
+  // Selection props for bulk printing
+  isSelected?: boolean;
+  onToggle?: (product: Product) => void;
+  // Row selection props
   productIndex?: number;
-  onSelectRow?: (index: number, columnsPerRow?: number) => void;
+  onSelectRow?: (index: number) => void;
+  onRemoveRow?: (index: number) => void;
 }
+
+// ── Badge colour map — keyed in lowercase, always normalise before lookup ──
+const TYPE_COLORS: Record<string, string> = {
+  gold:   "from-amber-600 to-yellow-400 text-amber-950",
+  silver: "from-slate-400 to-slate-200 text-slate-900",
+  other:  "from-rose-700 to-rose-500 text-white",
+};
+
+/** Normalise any API-returned metalType to a TYPE_COLORS key. */
+const resolveTypeColor = (metalType: string): string => {
+  const key = metalType?.trim().toLowerCase();
+  return TYPE_COLORS[key] ?? TYPE_COLORS["other"];
+};
 
 export const ProductCard = ({
   product,
   onUpdated,
   showToast,
   onShowQR,
-  isSelected,
+  isSelected = false,
   onToggle,
   productIndex = 0,
-  onSelectRow
+  onSelectRow,
+  onRemoveRow,
 }: ProductCardProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedProduct, setEditedProduct] = useState(product);
@@ -62,7 +77,7 @@ export const ProductCard = ({
 
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-  // Auto-calculate Net Weight on the edit side if values change
+  // Auto-calculate net weight when grams or stoneWeight change
   useEffect(() => {
     const total = (Number(editedProduct.grams) + Number(editedProduct.stoneWeight)).toFixed(3);
     setEditedProduct(prev => ({ ...prev, netWeight: Number(total) }));
@@ -107,10 +122,21 @@ export const ProductCard = ({
     }
   };
 
-  const typeColors = {
-    gold: "from-amber-600 to-yellow-400 text-amber-950",
-    silver: "from-slate-400 to-slate-200 text-slate-900",
-    other: "from-rose-700 to-rose-500 text-white",
+  // Resolve badge colour once per render — handles any casing from the API
+  const badgeColor = resolveTypeColor(product.metalType);
+  // Display label: normalise to Title Case for the badge
+  const metalLabel = product.metalType
+    ? product.metalType.charAt(0).toUpperCase() + product.metalType.slice(1).toLowerCase()
+    : "Other";
+
+  // Row button: if onRemoveRow is provided AND the card is already selected,
+  // clicking the Row button removes the row; otherwise it selects.
+  const handleRowClick = () => {
+    if (isSelected && onRemoveRow) {
+      onRemoveRow(productIndex);
+    } else {
+      onSelectRow?.(productIndex);
+    }
   };
 
   return (
@@ -118,37 +144,42 @@ export const ProductCard = ({
       "flip-card h-[400px] w-full group relative transition-all duration-300",
       isSelected && "scale-[0.98]"
     )}>
-      
-      {/* ROW SELECTION CHECKBOX (Top Left) */}
-      {!isEditing && onSelectRow && (
-        <div 
-          onClick={() => onSelectRow(productIndex, 4)}
+
+      {/* ROW SELECTION BUTTON (Top Left) — only shown when handler is provided */}
+      {!isEditing && (onSelectRow || onRemoveRow) && (
+        <div
+          onClick={handleRowClick}
           className="absolute top-0 left-0 z-40 cursor-pointer"
         >
           <div className={cn(
             "px-4 py-2 rounded-br-2xl border-r-2 border-b-2 flex items-center gap-2 transition-all shadow-md",
-            "bg-blue-500 border-blue-600 hover:bg-blue-600 shadow-lg shadow-blue-200"
+            isSelected
+              ? "bg-orange-500 border-orange-600 hover:bg-orange-600 shadow-lg shadow-orange-200"
+              : "bg-blue-500 border-blue-600 hover:bg-blue-600 shadow-lg shadow-blue-200"
           )}>
             <div className="w-4 h-4 rounded-sm border-2 border-white flex items-center justify-center bg-transparent">
-              <div className="w-2 h-2 bg-white rounded-xs" />
+              {isSelected
+                ? <X className="w-3 h-3 text-white stroke-[3px]" />
+                : <div className="w-2 h-2 bg-white rounded-sm" />
+              }
             </div>
             <span className="text-[10px] font-black uppercase tracking-wider text-white">
-              Row
+              {isSelected ? "Deselect" : "Row"}
             </span>
           </div>
         </div>
       )}
 
-      {/* INDIVIDUAL SELECTION CHECKBOX (Bottom Right) */}
-      {!isEditing && (
-        <div 
+      {/* INDIVIDUAL SELECTION CHECKBOX (Bottom Right) — only shown when handler is provided */}
+      {!isEditing && onToggle && (
+        <div
           onClick={() => onToggle(product)}
           className="absolute bottom-0 right-0 z-40 cursor-pointer"
         >
           <div className={cn(
             "px-4 py-2 rounded-tl-2xl border-l-2 border-t-2 flex items-center gap-2 transition-all shadow-md",
-            isSelected 
-              ? "bg-emerald-500 border-emerald-600 shadow-lg shadow-emerald-300" 
+            isSelected
+              ? "bg-emerald-500 border-emerald-600 shadow-lg shadow-emerald-300"
               : "bg-white border-amber-200 hover:border-amber-400 hover:shadow-lg"
           )}>
             <span className={cn(
@@ -159,8 +190,8 @@ export const ProductCard = ({
             </span>
             <div className={cn(
               "w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all",
-              isSelected 
-                ? "bg-white border-white" 
+              isSelected
+                ? "bg-white border-white"
                 : "bg-transparent border-amber-400 hover:border-emerald-500"
             )}>
               {isSelected && <Check className="w-4 h-4 text-emerald-600 stroke-[3px]" />}
@@ -169,35 +200,47 @@ export const ProductCard = ({
         </div>
       )}
 
-      <div
-        className={cn(
-          "flip-card-inner relative w-full h-full transition-all duration-700",
-          isEditing && "flipped"
-        )}
-      >
-        {/* FRONT: PREMIUM DISPLAY */}
+      <div className={cn(
+        "flip-card-inner relative w-full h-full transition-all duration-700",
+        isEditing && "flipped"
+      )}>
+
+        {/* ── FRONT: DISPLAY ── */}
         <div className="flip-card-front absolute w-full h-full">
           <div className={cn(
             "card-luxury h-full p-6 flex flex-col bg-white border shadow-xl rounded-3xl overflow-hidden transition-colors",
             isSelected ? "border-amber-500 ring-2 ring-amber-500/20" : "border-amber-100"
           )}>
+
+            {/* Header row: badge + edit button */}
             <div className="flex items-center justify-between mb-4 pl-8">
               <div className={cn(
                 "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm bg-gradient-to-r",
-                typeColors[product.metalType]
+                badgeColor   // ← always resolves correctly regardless of API casing
               )}>
-                {product.metalType} • {product.carats}
+                {metalLabel} • {product.carats}
               </div>
-              <Button variant="ghost" size="icon" className="hover:bg-amber-50 rounded-full" onClick={() => setIsEditing(true)}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hover:bg-amber-50 rounded-full"
+                onClick={() => setIsEditing(true)}
+              >
                 <Edit2 className="w-4 h-4 text-amber-700" />
               </Button>
             </div>
 
+            {/* Name + SKU */}
             <div className="mb-4">
-              <h3 className="font-serif text-2xl font-bold text-gray-900 leading-tight">{product.name}</h3>
-              <p className="text-[10px] text-amber-600 font-mono tracking-tighter uppercase">SKU: {product.sku}</p>
+              <h3 className="font-serif text-2xl font-bold text-gray-900 leading-tight">
+                {product.name}
+              </h3>
+              <p className="text-[10px] text-amber-600 font-mono tracking-tighter uppercase">
+                SKU: {product.sku}
+              </p>
             </div>
 
+            {/* Stats grid */}
             <div className="grid grid-cols-2 gap-y-4 gap-x-2 border-t border-amber-50 pt-4">
               <div className="flex items-center gap-2">
                 <Weight className="w-3.5 h-3.5 text-amber-500" />
@@ -243,54 +286,93 @@ export const ProductCard = ({
               </div>
             </div>
 
+            {/* Footer: net weight + QR */}
             <div className="mt-auto pt-4 flex items-end justify-between border-t border-amber-100">
               <div className="bg-amber-50 px-3 py-2 rounded-2xl border border-amber-200/50">
                 <p className="text-[9px] font-bold text-amber-600 uppercase">Total Net Weight</p>
-                <p className="text-xl font-mono font-black text-amber-900">{Number(product.netWeight).toFixed(3)}g</p>
+                <p className="text-xl font-mono font-black text-amber-900">
+                  {Number(product.netWeight).toFixed(3)}g
+                </p>
               </div>
-              <Button variant="gold" size="icon" className="rounded-2xl shadow-lg shadow-amber-200" disabled={isLoadingQR} onClick={async () => {
-                setIsLoadingQR(true);
-                try { await onShowQR?.(product.sku); } finally { setIsLoadingQR(false); }
-              }}>
-                {isLoadingQR ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" />}
+              <Button
+                variant="gold"
+                size="icon"
+                className="rounded-2xl shadow-lg shadow-amber-200"
+                disabled={isLoadingQR}
+                onClick={async () => {
+                  setIsLoadingQR(true);
+                  try { await onShowQR?.(product.sku); }
+                  finally { setIsLoadingQR(false); }
+                }}
+              >
+                {isLoadingQR
+                  ? <Loader2 className="w-5 h-5 animate-spin" />
+                  : <QrCode className="w-5 h-5" />
+                }
               </Button>
             </div>
           </div>
         </div>
 
-        {/* BACK: EDIT MODE */}
+        {/* ── BACK: EDIT MODE ── */}
         <div className="flip-card-back absolute w-full h-full">
           <div className="card-luxury h-full p-5 flex flex-col bg-[#1a0f0f] border border-red-900/30 rounded-3xl shadow-2xl">
             <div className="flex justify-between items-center mb-3 border-b border-white/10 pb-2">
-              <h4 className="font-serif font-bold text-amber-200 uppercase tracking-widest text-xs">Edit Masterpiece</h4>
+              <h4 className="font-serif font-bold text-amber-200 uppercase tracking-widest text-xs">
+                Edit Masterpiece
+              </h4>
               <div className="flex gap-1">
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-green-400 hover:bg-white/5" onClick={handleSave}><Save className="w-4 h-4" /></Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:bg-white/5" onClick={() => { setIsEditing(false); setEditedProduct(product); }}><X className="w-4 h-4" /></Button>
+                <Button
+                  variant="ghost" size="icon"
+                  className="h-7 w-7 text-green-400 hover:bg-white/5"
+                  onClick={handleSave}
+                >
+                  <Save className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost" size="icon"
+                  className="h-7 w-7 text-red-400 hover:bg-white/5"
+                  onClick={() => { setIsEditing(false); setEditedProduct(product); }}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
               </div>
             </div>
 
             <div className="space-y-2.5 overflow-y-auto pr-1 custom-scrollbar text-left">
               <div className="space-y-1">
                 <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Title</label>
-                <Input className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.name} onChange={(e) => setEditedProduct({ ...editedProduct, name: e.target.value })} />
+                <Input
+                  className="bg-white/5 border-white/10 text-white h-7 text-xs"
+                  value={editedProduct.name}
+                  onChange={(e) => setEditedProduct({ ...editedProduct, name: e.target.value })}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Placement</label>
                   <Select value={editedProduct.bodyPart} onValueChange={(v) => setEditedProduct({ ...editedProduct, bodyPart: v })}>
-                    <SelectTrigger className="bg-white/5 border-white/10 text-white h-7 text-[10px]"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="bg-white/5 border-white/10 text-white h-7 text-[10px]">
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
-                      {["head", "ears", "nose", "neck", "wrist", "fingers", "waist", "foot", "arms"].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                      {["head", "ears", "nose", "neck", "wrist", "fingers", "waist", "foot", "arms"].map(p => (
+                        <SelectItem key={p} value={p}>{p}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Type</label>
                   <Select value={editedProduct.category} onValueChange={(v) => setEditedProduct({ ...editedProduct, category: v })}>
-                    <SelectTrigger className="bg-white/5 border-white/10 text-white h-7 text-[10px]"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="bg-white/5 border-white/10 text-white h-7 text-[10px]">
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
-                      {["rings", "earrings", "necklaces", "bangles", "pendants", "nosepins", "anklets", "mangalsutra", "coins", "other"].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                      {["rings", "earrings", "necklaces", "bangles", "pendants", "nosepins", "anklets", "mangalsutra", "coins", "other"].map(c => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -299,28 +381,52 @@ export const ProductCard = ({
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Grams</label>
-                  <Input type="number" min="0" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.grams} onChange={(e) => setEditedProduct({ ...editedProduct, grams: Number(e.target.value) })} />
+                  <Input
+                    type="number" min="0"
+                    className="bg-white/5 border-white/10 text-white h-7 text-xs"
+                    value={editedProduct.grams}
+                    onChange={(e) => setEditedProduct({ ...editedProduct, grams: Number(e.target.value) })}
+                  />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Stone Wt</label>
-                  <Input type="number" min="0" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.stoneWeight} onChange={(e) => setEditedProduct({ ...editedProduct, stoneWeight: Number(e.target.value) })} />
+                  <Input
+                    type="number" min="0"
+                    className="bg-white/5 border-white/10 text-white h-7 text-xs"
+                    value={editedProduct.stoneWeight}
+                    onChange={(e) => setEditedProduct({ ...editedProduct, stoneWeight: Number(e.target.value) })}
+                  />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                 <div className="space-y-1">
+                <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">VA %</label>
-                  <Input type="number" min="0" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.va} onChange={(e) => setEditedProduct({ ...editedProduct, va: Number(e.target.value) })} />
+                  <Input
+                    type="number" min="0"
+                    className="bg-white/5 border-white/10 text-white h-7 text-xs"
+                    value={editedProduct.va}
+                    onChange={(e) => setEditedProduct({ ...editedProduct, va: Number(e.target.value) })}
+                  />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Stone Cost</label>
-                  <Input type="number" min="0" className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.stoneCost} onChange={(e) => setEditedProduct({ ...editedProduct, stoneCost: Number(e.target.value) })} />
+                  <Input
+                    type="number" min="0"
+                    className="bg-white/5 border-white/10 text-white h-7 text-xs"
+                    value={editedProduct.stoneCost}
+                    onChange={(e) => setEditedProduct({ ...editedProduct, stoneCost: Number(e.target.value) })}
+                  />
                 </div>
               </div>
 
               <div className="space-y-1">
                 <label className="text-[8px] text-white/40 uppercase font-bold ml-1">HUID Tag</label>
-                <Input className="bg-white/5 border-white/10 text-white h-7 text-xs" value={editedProduct.itemCode || ""} onChange={(e) => setEditedProduct({ ...editedProduct, itemCode: e.target.value })} />
+                <Input
+                  className="bg-white/5 border-white/10 text-white h-7 text-xs"
+                  value={editedProduct.itemCode || ""}
+                  onChange={(e) => setEditedProduct({ ...editedProduct, itemCode: e.target.value })}
+                />
               </div>
 
               <div className="bg-amber-400/10 p-2 rounded-lg border border-amber-400/20">
@@ -335,7 +441,17 @@ export const ProductCard = ({
   );
 };
 
-// Dummy icon for VA if not imported
+// Inline icon — avoids external dependency
 const BadgePercent = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+  <svg
+    xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+    viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
+    <line x1="9" y1="15" x2="15" y2="9"/>
+    <circle cx="9.5" cy="9.5" r=".5" fill="currentColor"/>
+    <circle cx="14.5" cy="14.5" r=".5" fill="currentColor"/>
+  </svg>
 );
