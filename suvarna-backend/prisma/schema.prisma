@@ -212,6 +212,7 @@ model CreditNote {
   couponId    String
   createdAt   DateTime     @default(now())
   coupon      ReturnCoupon @relation(fields: [couponId], references: [id])
+  isUsed      Boolean      @default(false)
 }
 
 model CustomerScheme {

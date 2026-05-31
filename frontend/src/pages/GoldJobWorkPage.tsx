@@ -62,92 +62,189 @@ export default function GoldJobWorkPage() {
 
   const handleJobReceipt = async (job: any, mode: "download" | "print", type: "ASSIGNMENT" | "SETTLEMENT" = "ASSIGNMENT") => {
     try {
-      const [templateBytes, fontBytes] = await Promise.all([
-        fetch("/receipt-template.pdf").then((res) => res.arrayBuffer()),
-        fetch("/fonts/NotoSans-VariableFont_wdth,wght.ttf").then((res) => res.arrayBuffer()),
-      ]);
+      const fontBytes = await fetch("/fonts/NotoSans-VariableFont_wdth,wght.ttf").then((res) => res.arrayBuffer());
 
-      const pdfDoc = await PDFDocument.load(templateBytes);
-      pdfDoc.registerFontkit(fontkit);
-      const customFont = await pdfDoc.embedFont(fontBytes);
-      const page = pdfDoc.getPages()[0];
-      const { height } = page.getSize();
+      const A5_W = 419.53;
+      const A5_H = 595.28;
+      const SAFE_TOP = 80;
+      const SAFE_BOTTOM = 544;
+      const MARGIN_L = 30;
+      const MARGIN_R = A5_W - 30;
 
-      const goldColor = rgb(0.72, 0.52, 0.04);
+      const gold = rgb(0.72, 0.52, 0.04);
       const grey = rgb(0.45, 0.45, 0.45);
       const black = rgb(0, 0, 0);
+      const lightGrey = rgb(0.85, 0.85, 0.85);
+      const emerald = rgb(0.06, 0.47, 0.23);
 
-      const draw = (text: string, x: number, yOffset: number, size = 10, color = black) => {
-        page.drawText(String(text || ""), { x, y: height - yOffset, size, font: customFont, color });
+      const pdfDoc = await PDFDocument.create();
+      pdfDoc.registerFontkit(fontkit);
+      const customFont = await pdfDoc.embedFont(fontBytes);
+      const page = pdfDoc.addPage([A5_W, A5_H]);
+
+      const makePen = (page: any) => {
+        const draw = (text: string, x: number, yFromTop: number, size = 9, color = black) =>
+          page.drawText(String(text ?? ""), { x, y: A5_H - yFromTop, size, font: customFont, color });
+
+        const drawR = (text: string, rightX: number, yFromTop: number, size = 9, color = black) => {
+          const w = customFont.widthOfTextAtSize(String(text ?? ""), size);
+          page.drawText(String(text ?? ""), { x: rightX - w, y: A5_H - yFromTop, size, font: customFont, color });
+        };
+
+        const hLine = (yFromTop: number, lineColor = lightGrey, thickness = 0.4) =>
+          page.drawLine({
+            start: { x: MARGIN_L, y: A5_H - yFromTop },
+            end: { x: MARGIN_R, y: A5_H - yFromTop },
+            thickness,
+            color: lineColor,
+          });
+
+        return { draw, drawR, hLine };
       };
 
-      const drawRight = (text: string, rightX: number, yOffset: number, size = 10, color = black) => {
-        const textWidth = customFont.widthOfTextAtSize(String(text || ""), size);
-        page.drawText(String(text || ""), { x: rightX - textWidth, y: height - yOffset, size, font: customFont, color });
-      };
+      const { draw, drawR, hLine } = makePen(page);
 
-      // Header
-      const topY = 165;
-      draw("SUVARNA JEWELLERS", 40, topY, 16, goldColor);
-      draw(type === "ASSIGNMENT" ? "MANUFACTURING DISPATCH SLIP" : "MANUFACTURING FINAL SETTLEMENT", 40, topY + 18, 10, grey);
-      drawRight(`JOB ID: ${job.id.substring(0, 8).toUpperCase()}`, 555, topY, 12, black);
-      drawRight(`Date: ${format(new Date(), "dd-MM-yyyy")}`, 555, topY + 15, 10, grey);
-
-      // Worker Info
-      draw("WORKER DETAILS", 40, topY + 55, 9, goldColor);
-      draw(`Worker: ${job.workerName}`, 40, topY + 70, 12, black);
-      draw(`Product: ${job.productType}`, 40, topY + 83, 10, grey);
-
-      // Table
-      const tableY = 320;
-      draw("ORDER ID", 40, tableY, 9, grey);
-      draw("ITEM", 150, tableY, 9, grey);
-      drawRight("NET WT SENT", 555, tableY, 9, grey);
-
-      let currentY = tableY + 25;
-      job.assignedOrders?.forEach((order: any) => {
-        draw(order.orderId, 40, currentY, 10, black);
-        draw(order.itemName, 150, currentY, 10, black);
-        drawRight(`${order.netWeight}g`, 555, currentY, 10, black);
-        currentY += 18;
-      });
-
-      // Accounting Logic (Fixing the Balance Issue)
-      const footerY = height - 170;
+      // ── CALCULATIONS ──────────────────────────────────────────
       const totalLabor = Number(job.totalAmount) || 0;
       const advancePaid = Number(job.advancePaid) || 0;
-      const currentBalance = totalLabor - advancePaid;
+      const balance = totalLabor - advancePaid;
+      const totalGrams = job.assignedOrders?.reduce((sum: number, o: any) => sum + (Number(o.netWeight) || 0), 0) || 0;
 
-      draw("GOLD ACCOUNTING", 40, footerY, 9, goldColor);
-      draw(`Gold Sent: ${Number(job.totalGrams).toFixed(3)}g`, 40, footerY + 18, 10, black);
+      // ── HEADER ──────────────────────────────────────────────────
+      const HDR_Y = SAFE_TOP + 10;
+      draw("SUVARNA JEWELLERS", MARGIN_L, HDR_Y, 11, gold);
+      const typeLabel = type === "SETTLEMENT" ? "MANUFACTURING FINAL SETTLEMENT" : "MANUFACTURING DISPATCH SLIP";
+      draw(typeLabel, MARGIN_L, HDR_Y + 14, 8.5, black);
+      drawR(`JOB: ${job.id.substring(0, 8).toUpperCase()}`, MARGIN_R, HDR_Y, 9, black);
+      drawR(`Date: ${format(new Date(), "dd-MM-yyyy")}`, MARGIN_R, HDR_Y + 12, 8, grey);
+      hLine(HDR_Y + 28);
 
-      drawRight("FINANCIAL SUMMARY", 555, footerY, 9, goldColor);
-      drawRight(`Total Labor Value: ₹${totalLabor.toLocaleString()}`, 555, footerY + 18, 11, black);
-      drawRight(`Advance Paid: ₹${advancePaid.toLocaleString()}`, 555, footerY + 33, 10, rgb(0, 0.5, 0));
-      
+      // ── WORKER DETAILS ───────────────────────────────────────
+      const WORKER_Y = HDR_Y + 42;
+      draw("WORKER ASSIGNED", MARGIN_L, WORKER_Y, 8, grey);
+      draw(job.workerName, MARGIN_L, WORKER_Y + 12, 9, black);
+      draw(`Product: ${job.productType}`, MARGIN_L, WORKER_Y + 24, 8, grey);
+      draw(`Making Charge: ₹${Number(job.makingCharge || 0).toLocaleString()}`, MARGIN_L, WORKER_Y + 36, 8, grey);
+      hLine(WORKER_Y + 50);
+
+      // ── ASSIGNED ORDERS TABLE ────────────────────────────────
+      const TBL_Y = WORKER_Y + 68;
+      const col = { ordId: MARGIN_L, item: MARGIN_L + 80, weight: MARGIN_R };
+
+      draw("ORDER ID", col.ordId, TBL_Y, 7.5, grey);
+      draw("ITEM NAME", col.item, TBL_Y, 7.5, grey);
+      drawR("NET WT (g)", col.weight, TBL_Y, 7.5, grey);
+      hLine(TBL_Y + 10);
+
+      let rowY = TBL_Y + 22;
+      if (job.assignedOrders && Array.isArray(job.assignedOrders)) {
+        job.assignedOrders.forEach((order: any) => {
+          if (rowY > SAFE_BOTTOM - 150) return;
+          draw(order.orderId || "N/A", col.ordId, rowY, 8, black);
+          draw(order.itemName || "Item", col.item, rowY, 8, black);
+          drawR(`${order.netWeight || 0}`, col.weight, rowY, 8, black);
+          rowY += 14;
+        });
+      }
+      hLine(rowY + 5);
+
+      // ── GOLD ACCOUNTING ──────────────────────────────────────
+      const ACC_Y = rowY + 25;
+      draw("GOLD ACCOUNTING", MARGIN_L, ACC_Y, 8, gold);
+      draw(`Total Gold Sent: ${totalGrams.toFixed(3)}g`, MARGIN_L, ACC_Y + 14, 8.5, black);
+
       if (type === "SETTLEMENT") {
-        draw(`Returned Gold: ${Number(job.returnedGoldGrams).toFixed(3)}g`, 40, footerY + 33, 10, black);
-        draw(`Wastage: ${Number(job.wastageGrams).toFixed(3)}g`, 40, footerY + 48, 10, black);
-        drawRight(`Settlement Paid: ₹${currentBalance.toLocaleString()}`, 555, footerY + 48, 10, black);
-        drawRight(`FINAL BALANCE: ₹0.00`, 555, footerY + 70, 16, goldColor);
-      } else {
-        drawRight(`Balance on Return: ₹${currentBalance.toLocaleString()}`, 555, footerY + 70, 15, goldColor);
+        draw(`Gold Returned: ${Number(job.returnedGoldGrams || 0).toFixed(3)}g`, MARGIN_L, ACC_Y + 28, 8.5, emerald);
+        draw(`Wastage Loss: ${Number(job.wastageGrams || 0).toFixed(3)}g`, MARGIN_L, ACC_Y + 42, 8.5, grey);
       }
 
+      // ── FINANCIAL BOX ────────────────────────────────────────
+      const FIN_Y = ACC_Y + 65;
+      const finBoxW = 180;
+      const finBoxH = type === "SETTLEMENT" ? 70 : 55;
+      const finBoxX = MARGIN_R - finBoxW;
+      const finBoxBottomY = A5_H - FIN_Y - finBoxH;
+
+      page.drawRectangle({
+        x: finBoxX,
+        y: finBoxBottomY,
+        width: finBoxW,
+        height: finBoxH,
+        color: rgb(0.98, 0.95, 0.88),
+        borderColor: gold,
+        borderWidth: 1.2,
+      });
+
+      page.drawText("FINANCIAL SUMMARY", {
+        x: finBoxX + 10,
+        y: finBoxBottomY + (finBoxH - 12),
+        size: 7.5,
+        font: customFont,
+        color: grey,
+      });
+
+      const finLine1 = `Total: ₹${totalLabor.toLocaleString()}`;
+      page.drawText(finLine1, {
+        x: finBoxX + 10,
+        y: finBoxBottomY + (finBoxH - 28),
+        size: 8,
+        font: customFont,
+        color: black,
+      });
+
+      const finLine2 = `Advance: ₹${advancePaid.toLocaleString()}`;
+      page.drawText(finLine2, {
+        x: finBoxX + 10,
+        y: finBoxBottomY + (finBoxH - 42),
+        size: 8,
+        font: customFont,
+        color: grey,
+      });
+
+      if (type === "SETTLEMENT") {
+        const finLine3 = `Balance: ₹0.00 ✓`;
+        page.drawText(finLine3, {
+          x: finBoxX + 10,
+          y: finBoxBottomY + 8,
+          size: 8,
+          font: customFont,
+          color: emerald,
+        });
+      } else {
+        const finLine3 = `Balance Due: ₹${balance.toLocaleString()}`;
+        page.drawText(finLine3, {
+          x: finBoxX + 10,
+          y: finBoxBottomY + 8,
+          size: 8,
+          font: customFont,
+          color: gold,
+        });
+      }
+
+      // ── FOOTER ──────────────────────────────────────────────
+      const FTR_Y = SAFE_BOTTOM - 25;
+      draw(`Manufacturing Reference: Job${job.id.substring(0, 8)}`, MARGIN_L, FTR_Y, 7, grey);
+
       const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
       const pdfUrl = URL.createObjectURL(blob);
 
       if (mode === "download") {
         const link = document.createElement("a");
         link.href = pdfUrl;
-        link.download = `Job_${job.workerName}_${type}.pdf`;
+        link.download = `JobWork_${job.workerName}_${type}_${format(new Date(), "ddMMyy")}.pdf`;
         link.click();
       } else {
         const printWindow = window.open(pdfUrl);
-        if (printWindow) printWindow.print();
+        if (printWindow) {
+          printWindow.addEventListener("load", () => printWindow.print());
+        }
       }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error("Job PDF Error:", err);
+      setToastMessage("Failed to generate job receipt");
+      setShowToast(true);
+    }
   };
 
   const fetchJobWorks = async () => {

@@ -64,137 +64,189 @@ export default function OrderManagementPage() {
   // 2. DUAL PDF GENERATION ENGINE
   // ---------------------------------------------------------------------------
   const handleOrderReceipt = async (order: any, mode: "download" | "print", type: "BOOKING" | "DELIVERY" = "BOOKING") => {
-  try {
-    // --- 1. LOAD ASSETS ---
-    const [templateBytes, fontBytes] = await Promise.all([
-      fetch("/receipt-template.pdf").then((res) => res.arrayBuffer()),
-      fetch("/fonts/NotoSans-VariableFont_wdth,wght.ttf").then((res) => res.arrayBuffer()),
-    ]);
+    try {
+      const fontBytes = await fetch("/fonts/NotoSans-VariableFont_wdth,wght.ttf").then((res) => res.arrayBuffer());
 
-    const pdfDoc = await PDFDocument.load(templateBytes);
-    pdfDoc.registerFontkit(fontkit);
-    const customFont = await pdfDoc.embedFont(fontBytes);
-    const page = pdfDoc.getPages()[0];
-    const { height } = page.getSize();
+      const A5_W = 419.53;
+      const A5_H = 595.28;
+      const SAFE_TOP = 80;
+      const SAFE_BOTTOM = 544;
+      const MARGIN_L = 30;
+      const MARGIN_R = A5_W - 30;
 
-    // --- 2. COLORS & HELPERS ---
-    const gold = rgb(0.72, 0.52, 0.04);
-    const grey = rgb(0.45, 0.45, 0.45);
-    const black = rgb(0, 0, 0);
-    const emerald = rgb(0.06, 0.47, 0.23);
-    const red = rgb(0.8, 0, 0);
+      const gold = rgb(0.72, 0.52, 0.04);
+      const grey = rgb(0.45, 0.45, 0.45);
+      const black = rgb(0, 0, 0);
+      const lightGrey = rgb(0.85, 0.85, 0.85);
+      const emerald = rgb(0.06, 0.47, 0.23);
+      const red = rgb(0.8, 0, 0);
 
-    const draw = (text: string, x: number, yOffset: number, size = 10, color = black) => {
-      page.drawText(String(text || ""), { x, y: height - yOffset, size, font: customFont, color });
-    };
+      const pdfDoc = await PDFDocument.create();
+      pdfDoc.registerFontkit(fontkit);
+      const customFont = await pdfDoc.embedFont(fontBytes);
+      const page = pdfDoc.addPage([A5_W, A5_H]);
 
-    const drawRight = (text: string, rightX: number, yOffset: number, size = 10, color = black) => {
-      const textWidth = customFont.widthOfTextAtSize(String(text || ""), size);
-      page.drawText(String(text || ""), { x: rightX - textWidth, y: height - yOffset, size, font: customFont, color });
-    };
+      const makePen = (page: any) => {
+        const draw = (text: string, x: number, yFromTop: number, size = 9, color = black) =>
+          page.drawText(String(text ?? ""), { x, y: A5_H - yFromTop, size, font: customFont, color });
 
-    // --- 3. CORE CALCULATIONS ---
-    const netWt = Number(order.netWeight) || 0;
-    const grossWt = Number(order.grossWeight) || 0;
-    const stoneWt = Number(order.stoneWeight) || 0;
-    const rate = Number(order.liveRate) || 0;
-    const vaPer = Number(order.vaPercentage) || 0;
-    const stoneC = Number(order.stoneCost) || 0;
-    const discAmt = Number(order.discountAmount) || 0;
-    const advance = Number(order.advanceCash) || 0;
+        const drawR = (text: string, rightX: number, yFromTop: number, size = 9, color = black) => {
+          const w = customFont.widthOfTextAtSize(String(text ?? ""), size);
+          page.drawText(String(text ?? ""), { x: rightX - w, y: A5_H - yFromTop, size, font: customFont, color });
+        };
 
-    const goldValue = netWt * rate;
-    const vaAmount = goldValue * (vaPer / 100);
-    const subtotalBeforeDiscount = goldValue + vaAmount + stoneC;
-    const subtotalAfterDiscount = Math.max(0, subtotalBeforeDiscount - discAmt);
-    
-    const totalGst = subtotalAfterDiscount * 0.03;
-    const halfGst = totalGst / 2;
-    const grandTotal = subtotalAfterDiscount + totalGst;
-    const balance = grandTotal - advance;
+        const hLine = (yFromTop: number, lineColor = lightGrey, thickness = 0.4) =>
+          page.drawLine({
+            start: { x: MARGIN_L, y: A5_H - yFromTop },
+            end: { x: MARGIN_R, y: A5_H - yFromTop },
+            thickness,
+            color: lineColor,
+          });
 
-    // --- 4. HEADER SECTION ---
-    const headerY = 175;
-    draw("SUVARNA JEWELLERS", 40, headerY, 16, gold);
-    draw(type === "DELIVERY" ? "FINAL SETTLEMENT & DELIVERY RECEIPT" : "INITIAL BOOKING ACKNOWLEDGEMENT", 40, headerY + 18, 10, grey);
+        return { draw, drawR, hLine };
+      };
 
-    drawRight(`ORDER ID: ${order.orderId}`, 555, headerY, 12, black);
-    drawRight(`Date: ${format(new Date(), "dd-MM-yyyy")}`, 555, headerY + 15, 10, grey);
+      const { draw, drawR, hLine } = makePen(page);
 
-    // --- 5. CUSTOMER INFO ---
-    const custY = headerY + 55;
-    draw("CUSTOMER DETAILS", 40, custY, 9, gold);
-    draw(`Name: ${order.customerName}`, 40, custY + 15, 11, black);
-    draw(`Phone: +91 ${order.phoneNumber}`, 40, custY + 28, 10, grey);
+      // ── CALCULATIONS ──────────────────────────────────────────
+      const netWt = Number(order.netWeight) || 0;
+      const grossWt = Number(order.grossWeight) || 0;
+      const stoneWt = Number(order.stoneWeight) || 0;
+      const rate = Number(order.liveRate) || 0;
+      const vaPer = Number(order.vaPercentage) || 0;
+      const stoneC = Number(order.stoneCost) || 0;
+      const discAmt = Number(order.discountAmount) || 0;
+      const advance = Number(order.advanceCash) || 0;
 
-    // --- 6. TECHNICAL TABLE ---
-    const tableY = 320;
-    const col = { name: 40, gross: 160, stone: 220, net: 280, va: 340, gst: 430, total: 555 };
-    const headerSize = 9;
+      const goldValue = netWt * rate;
+      const vaAmount = goldValue * (vaPer / 100);
+      const subtotalBeforeDisc = goldValue + vaAmount + stoneC;
+      const subtotalAfterDisc = Math.max(0, subtotalBeforeDisc - discAmt);
+      const halfGst = (subtotalAfterDisc * 0.015);
+      const grandTotal = subtotalAfterDisc + halfGst * 2;
+      const balance = grandTotal - advance;
 
-    draw("ITEM", col.name, tableY, headerSize, grey);
-    draw("GROSS", col.gross, tableY, headerSize, grey);
-    draw("STONE", col.stone, tableY, headerSize, grey);
-    draw("NET", col.net, tableY, headerSize, grey);
-    draw("VA(AMT)", col.va, tableY, headerSize, grey);
-    draw("GST", col.gst, tableY, headerSize, grey);
-    drawRight("TOTAL", col.total, tableY, headerSize, grey);
+      // ── HEADER ──────────────────────────────────────────────────
+      const HDR_Y = SAFE_TOP + 10;
+      draw("SUVARNA JEWELLERS", MARGIN_L, HDR_Y, 11, gold);
+      const typeLabel = type === "DELIVERY" ? "FINAL SETTLEMENT & DELIVERY" : "INITIAL BOOKING ACKNOWLEDGEMENT";
+      draw(typeLabel, MARGIN_L, HDR_Y + 14, 8.5, black);
+      drawR(`Order: ${order.orderId}`, MARGIN_R, HDR_Y, 9, black);
+      drawR(`Date: ${format(new Date(), "dd-MM-yyyy")}`, MARGIN_R, HDR_Y + 12, 8, grey);
+      hLine(HDR_Y + 28);
 
-    const rowY = tableY + 25;
-    draw(order.itemName, col.name, rowY, 10, black);
-    draw(`${grossWt}g`, col.gross, rowY, 10, black);
-    draw(`${stoneWt}g`, col.stone, rowY, 10, black);
-    draw(`${netWt}g`, col.net, rowY, 10, black);
-    draw(`₹${Math.round(vaAmount).toLocaleString()}`, col.va, rowY, 10, black);
-    draw(`₹${Math.round(totalGst).toLocaleString()}`, col.gst, rowY, 10, black);
-    drawRight(`₹${Math.round(grandTotal).toLocaleString()}`, col.total, rowY, 10, black);
+      // ── CUSTOMER DETAILS ─────────────────────────────────────
+      const CUST_Y = HDR_Y + 42;
+      draw("CUSTOMER", MARGIN_L, CUST_Y, 8, grey);
+      draw(order.customerName, MARGIN_L, CUST_Y + 12, 9, black);
+      draw(`Ph: +91 ${order.phoneNumber}`, MARGIN_L, CUST_Y + 24, 8, grey);
+      hLine(CUST_Y + 36);
 
-    // --- 7. PAYMENT SUMMARY FOOTER ---
-    const footerY = height - 160;
-    draw("PAYMENT SUMMARY", 40, footerY, 9, gold);
-    draw(`CGST (1.5%): ₹${Math.round(halfGst).toLocaleString()}`, 40, footerY + 15, 10, grey);
-    draw(`SGST (1.5%): ₹${Math.round(halfGst).toLocaleString()}`, 40, footerY + 28, 10, grey);
-    
-    // Technical Breakdown in Footer
-    draw(`Gold Value: ₹${Math.round(goldValue).toLocaleString()}`, 40, footerY + 41, 10, grey);
-    if (discAmt > 0) {
-      draw(`Discount Applied: -₹${discAmt.toLocaleString()}`, 40, footerY + 54, 10, red);
-    } else {
-      draw(`Stone Cost: ₹${stoneC.toLocaleString()}`, 40, footerY + 54, 10, grey);
-    }
+      // ── ITEM DETAILS TABLE ───────────────────────────────────
+      const TBL_Y = CUST_Y + 55;
+      const col = { name: MARGIN_L, gross: 130, stone: 185, net: 245, va: 305, total: MARGIN_R };
+      
+      draw("ITEM", col.name, TBL_Y, 7.5, grey);
+      draw("GROSS", col.gross, TBL_Y, 7.5, grey);
+      draw("STONE", col.stone, TBL_Y, 7.5, grey);
+      draw("NET", col.net, TBL_Y, 7.5, grey);
+      draw("VA", col.va, TBL_Y, 7.5, grey);
+      drawR("AMOUNT", col.total, TBL_Y, 7.5, grey);
+      hLine(TBL_Y + 10);
 
-    // Right Side Totals
-    drawRight(`Subtotal: ₹${Math.round(subtotalAfterDiscount).toLocaleString()}`, 555, footerY + 15, 11, black);
-    
-    if (type === "DELIVERY") {
-      drawRight(`Advance Cleared: ₹${advance.toLocaleString()}`, 555, footerY + 35, 11, emerald);
-      drawRight(`Balance Paid: ₹${Math.round(balance).toLocaleString()}`, 555, footerY + 50, 11, black);
-      drawRight(`TOTAL SETTLEMENT: FULLY PAID`, 555, footerY + 75, 14, emerald);
-    } else {
-      drawRight(`Advance Received: ₹${advance.toLocaleString()}`, 555, footerY + 35, 11, emerald);
-      drawRight(`PENDING BALANCE: ₹${Math.round(balance).toLocaleString()}`, 555, footerY + 65, 15, gold);
-    }
+      const ROW_Y = TBL_Y + 22;
+      draw(order.itemName || "Custom Item", col.name, ROW_Y, 8.5, black);
+      draw(`${grossWt}g`, col.gross, ROW_Y, 8.5, black);
+      draw(`${stoneWt}g`, col.stone, ROW_Y, 8.5, black);
+      draw(`${netWt}g`, col.net, ROW_Y, 8.5, black);
+      draw(`₹${Math.round(vaAmount).toLocaleString()}`, col.va, ROW_Y, 8.5, black);
+      drawR(`₹${Math.round(grandTotal).toLocaleString()}`, col.total, ROW_Y, 8.5, black);
+      hLine(ROW_Y + 15);
 
-    // --- 8. FINAL EXPORT ---
-    const pdfBytes = await pdfDoc.save();
-    const blob = new Blob([pdfBytes], { type: "application/pdf" });
-    const pdfUrl = URL.createObjectURL(blob);
+      // ── FINANCIAL BREAKDOWN ─────────────────────────────────
+      const FIN_Y = ROW_Y + 32;
+      draw("FINANCIAL BREAKDOWN", MARGIN_L, FIN_Y, 8, gold);
 
-    if (mode === "download") {
-      const link = document.createElement("a");
-      link.href = pdfUrl;
-      link.download = `${type}_INVOICE_${order.orderId}.pdf`;
-      link.click();
-    } else {
-      const printWindow = window.open(pdfUrl);
-      if (printWindow) {
-        printWindow.onload = () => { printWindow.print(); };
+      const finRow = (label: string, value: string, y: number, isHighlight = false) => {
+        draw(label, MARGIN_L, y, 7.5, grey);
+        drawR(value, MARGIN_R, y, isHighlight ? 9 : 8, isHighlight ? black : grey);
+      };
+
+      finRow(`Gold Value:`, `₹${Math.round(goldValue).toLocaleString()}`, FIN_Y + 14);
+      finRow(`Discount:`, discAmt > 0 ? `-₹${discAmt.toLocaleString()}` : "None", FIN_Y + 26, discAmt > 0);
+      finRow(`CGST (1.5%):`, `₹${Math.round(halfGst).toLocaleString()}`, FIN_Y + 38);
+      finRow(`SGST (1.5%):`, `₹${Math.round(halfGst).toLocaleString()}`, FIN_Y + 50);
+
+      // ── SETTLEMENT BOX ──────────────────────────────────────
+      const SETT_Y = FIN_Y + 75;
+      const settBoxW = 180;
+      const settBoxH = 50;
+      const settBoxX = MARGIN_R - settBoxW;
+      const settBoxBottomY = A5_H - SETT_Y - settBoxH;
+
+      page.drawRectangle({
+        x: settBoxX,
+        y: settBoxBottomY,
+        width: settBoxW,
+        height: settBoxH,
+        color: rgb(0.98, 0.95, 0.88),
+        borderColor: gold,
+        borderWidth: 1.2,
+      });
+
+      page.drawText("SETTLEMENT STATUS", {
+        x: settBoxX + 10,
+        y: settBoxBottomY + 28,
+        size: 7.5,
+        font: customFont,
+        color: grey,
+      });
+
+      if (type === "DELIVERY") {
+        const balanceText = "FULLY PAID ✓";
+        const balanceW = customFont.widthOfTextAtSize(balanceText, 11);
+        page.drawText(balanceText, {
+          x: settBoxX + (settBoxW - balanceW) / 2,
+          y: settBoxBottomY + 8,
+          size: 11,
+          font: customFont,
+          color: emerald,
+        });
+      } else {
+        const balanceText = `₹${Math.round(balance).toLocaleString()} Pending`;
+        const balanceW = customFont.widthOfTextAtSize(balanceText, 10);
+        page.drawText(balanceText, {
+          x: settBoxX + (settBoxW - balanceW) / 2,
+          y: settBoxBottomY + 8,
+          size: 10,
+          font: customFont,
+          color: gold,
+        });
       }
+
+      // ── FOOTER ──────────────────────────────────────────────
+      const FTR_Y = SAFE_BOTTOM - 25;
+      draw("Thank you for choosing Suvarna Jewellers", MARGIN_L, FTR_Y, 7, grey);
+
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
+      const pdfUrl = URL.createObjectURL(blob);
+
+      if (mode === "download") {
+        const link = document.createElement("a");
+        link.href = pdfUrl;
+        link.download = `${type}_${order.orderId}_${format(new Date(), "ddMMyy")}.pdf`;
+        link.click();
+      } else {
+        const printWindow = window.open(pdfUrl);
+        if (printWindow) {
+          printWindow.addEventListener("load", () => printWindow.print());
+        }
+      }
+    } catch (error) {
+      console.error("Order PDF Error:", error);
     }
-  } catch (error) {
-    console.error("PDF Generation Error:", error);
-  }
-};
+  };
   // ---------------------------------------------------------------------------
   // 3. API OPERATIONS
   // ---------------------------------------------------------------------------

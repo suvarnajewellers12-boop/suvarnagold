@@ -58,262 +58,187 @@ const CreditNotes = () => {
 
   useEffect(() => { fetchCreditNotes(); }, []);
 
-  const generateCreditReceipt = async (note: any) => {
-
+  const generateCreditReceipt = async (note: any, mode: "download" | "print" = "print") => {
     try {
-
-      const [templateBytes, fontBytes] = await Promise.all([
-
-        fetch("/receipt-template3.pdf").then((res) => res.arrayBuffer()),
-
+      const [fontBytes] = await Promise.all([
         fetch("/fonts/NotoSans-VariableFont_wdth,wght.ttf").then((res) => res.arrayBuffer()),
-
       ]);
 
-
-
-      const pdfDoc = await PDFDocument.load(templateBytes);
-
-      pdfDoc.registerFontkit(fontkit);
-
-      const customFont = await pdfDoc.embedFont(fontBytes);
-
-      const page = pdfDoc.getPages()[0];
-
-      const { width, height } = page.getSize();
-
-
+      const A5_W = 419.53;
+      const A5_H = 595.28;
+      const SAFE_TOP = 80;
+      const SAFE_BOTTOM = 544;
+      const MARGIN_L = 30;
+      const MARGIN_R = A5_W - 30;
 
       const gold = rgb(0.72, 0.52, 0.04);
-
       const grey = rgb(0.45, 0.45, 0.45);
-
-      const lightGrey = rgb(0.85, 0.85, 0.85);
-
       const black = rgb(0, 0, 0);
+      const lightGrey = rgb(0.85, 0.85, 0.85);
+      const purple = rgb(0.6, 0.4, 0.8);
 
+      const pdfDoc = await PDFDocument.create();
+      pdfDoc.registerFontkit(fontkit);
+      const customFont = await pdfDoc.embedFont(fontBytes);
+      const page = pdfDoc.addPage([A5_W, A5_H]);
 
+      const makePen = (page: any) => {
+        const draw = (text: string, x: number, yFromTop: number, size = 9, color = black) =>
+          page.drawText(String(text ?? ""), {
+            x,
+            y: A5_H - yFromTop,
+            size,
+            font: customFont,
+            color,
+          });
 
-      const draw = (text: string, x: number, yOffset: number, size = 10, color = black) => {
+        const drawR = (text: string, rightX: number, yFromTop: number, size = 9, color = black) => {
+          const w = customFont.widthOfTextAtSize(String(text ?? ""), size);
+          page.drawText(String(text ?? ""), {
+            x: rightX - w,
+            y: A5_H - yFromTop,
+            size,
+            font: customFont,
+            color,
+          });
+        };
 
-        page.drawText(String(text || ""), { x, y: height - yOffset, size, font: customFont, color });
+        const hLine = (yFromTop: number, lineColor = lightGrey, thickness = 0.4) =>
+          page.drawLine({
+            start: { x: MARGIN_L, y: A5_H - yFromTop },
+            end: { x: MARGIN_R, y: A5_H - yFromTop },
+            thickness,
+            color: lineColor,
+          });
 
+        return { draw, drawR, hLine };
       };
 
+      const { draw, drawR, hLine } = makePen(page);
 
+      // ── HEADER ──────────────────────────────────────────────────
+      const HDR_Y = SAFE_TOP + 10;
+      draw("SUVARNA JEWELLERS", MARGIN_L, HDR_Y, 11, gold);
+      draw("CREDIT VOUCHER / RETURN RECEIPT", MARGIN_L, HDR_Y + 14, 8.5, black);
+      drawR(`Credit ID: ${note.invoice}`, MARGIN_R, HDR_Y, 9, black);
+      drawR(`Date: ${format(new Date(note.createdAt || new Date()), "dd-MM-yyyy")}`, MARGIN_R, HDR_Y + 12, 8, grey);
+      hLine(HDR_Y + 28);
 
-      const drawRight = (text: string, rightX: number, yOffset: number, size = 10, color = black) => {
-
-        const textWidth = customFont.widthOfTextAtSize(String(text || ""), size);
-
-        page.drawText(String(text || ""), { x: rightX - textWidth, y: height - yOffset, size, font: customFont, color });
-
-      };
-
-
-
-      // --- HEADER ---
-
-      const headerTopY = 175;
-
-      draw("SUVARNA JEWELLERS", 40, headerTopY, 14, gold);
-
-      draw("CREDIT VOUCHER / RETURN RECEIPT", 40, headerTopY + 18, 9, black);
-
-
-      console.log("Note Data for PDF:", note); // Debug log to verify data structure
-      draw(`Invoice No: ${note.invoice}`, 350, headerTopY, 11, black);
-
-      draw(`Past Invoice No: ${note.pastinvoice || "N/A"}`, 350, headerTopY + 15, 11, black);
-
-      draw(`Date: ${format(new Date(note.date), "dd-MM-yyyy")}`, 350, headerTopY + 30, 9, grey);
-
-
-
-      draw("COUPON CODE:", 350, headerTopY + 43, 9, grey);
-
-      draw(note.couponCode, 350, headerTopY + 60, 16, gold);
-
-
-
-      // --- TABLE CONFIGURATION ---
-
-      const startX = 40;
-
-      const endX = width - 40;
-
-      const tableWidth = endX - startX + 20;
-
-      const headY = 300;
-
-      const rowHeight = 25;
-
-
-
-      const col1 = startX + 5;
-
-      const col2 = startX + 220;
-
-      const col3 = startX + 350;
-
-      const col4 = startX + 480;
-
-
-
+      // ── COUPON CODE DISPLAY ──────────────────────────────────────
+      const COUPON_Y = HDR_Y + 50;
+      draw("COUPON CODE:", MARGIN_L, COUPON_Y, 8, grey);
+      
+      const couponBoxW = MARGIN_R - MARGIN_L - 10;
+      const couponBoxH = 30;
       page.drawRectangle({
-
-        x: startX,
-
-        y: height - headY - 15,
-
-        width: tableWidth,
-
-        height: rowHeight,
-
-        color: rgb(0.97, 0.97, 0.97),
-
-      });
-
-
-
-      const textPaddingY = headY + 2;
-
-      draw("RETURNED ITEM", col1, textPaddingY, 8, grey);
-
-      draw("PURITY", col2, textPaddingY, 8, grey);
-
-      draw("WEIGHT", col3, textPaddingY, 8, grey);
-
-      draw("STONE WT", col4, textPaddingY, 8, grey);
-
-
-
-      let currentY = headY + 10;
-
-      note.products.forEach((p: any, index: number) => {
-
-        currentY += rowHeight;
-
-        page.drawLine({
-
-          start: { x: startX, y: height - currentY + 15 },
-
-          end: { x: endX, y: height - currentY + 15 },
-
-          thickness: 0.5,
-
-          color: lightGrey,
-
-        });
-
-        draw(p.name.toUpperCase(), col1, currentY, 9, black);
-
-        draw(p.carats, col2, currentY, 9, black);
-
-        draw(`${p.grams}g`, col3, currentY, 9, black);
-
-        draw(p.stoneWeight > 0 ? `${p.stoneWeight}g` : "-", col4, currentY, 9, black);
-
-      });
-
-
-
-      const tableBottomY = currentY + 10;
-
-      page.drawRectangle({
-
-        x: startX,
-
-        y: height - tableBottomY,
-
-        width: tableWidth,
-
-        height: tableBottomY - headY + 15,
-
-        borderColor: lightGrey,
-
-        borderWidth: 1,
-
-      });
-
-
-
-      const verticalLines = [col2 - 10, col3 - 10, col4 - 10];
-
-      verticalLines.forEach((xPos) => {
-
-        page.drawLine({
-
-          start: { x: xPos, y: height - headY + 10 },
-
-          end: { x: xPos, y: height - tableBottomY },
-
-          thickness: 0.5,
-
-          color: lightGrey,
-
-        });
-
-      });
-
-
-
-      let totalY = tableBottomY + 30;
-
-      const boxWidth = 240;
-
-      const boxX = width - boxWidth - 40;
-
-      page.drawRectangle({
-
-        x: boxX,
-
-        y: height - totalY - 50,
-
-        width: boxWidth,
-
-        height: 60,
-
-        color: rgb(1, 1, 1),
-
-        borderColor: gold,
-
+        x: MARGIN_L,
+        y: A5_H - COUPON_Y - 25,
+        width: couponBoxW,
+        height: couponBoxH,
+        color: rgb(0.98, 0.95, 0.88),
+        borderColor: purple,
         borderWidth: 1.5,
-
       });
 
+      const codeText = note.code || note.couponCode || "N/A";
+      const codeW = customFont.widthOfTextAtSize(codeText, 14);
+      page.drawText(codeText, {
+        x: MARGIN_L + (couponBoxW - codeW) / 2,
+        y: A5_H - COUPON_Y - 10,
+        size: 14,
+        font: customFont,
+        color: purple,
+      });
 
+      hLine(COUPON_Y + 50);
 
-      draw("TOTAL CREDIT VALUE", boxX + 15, totalY + 15, 8, grey);
+      // ── RETURNED ITEMS ──────────────────────────────────────────
+      const TBL_Y = COUPON_Y + 70;
+      draw("ITEM NAME", MARGIN_L, TBL_Y, 7.5, grey);
+      draw("PURITY", MARGIN_L + 150, TBL_Y, 7.5, grey);
+      draw("WEIGHT", MARGIN_L + 220, TBL_Y, 7.5, grey);
+      draw("S.WT", MARGIN_L + 300, TBL_Y, 7.5, grey);
+      hLine(TBL_Y + 10);
 
-      drawRight(`₹${note.overallPrice.toLocaleString()}`, endX - 15, totalY + 45, 20, gold);
+      let rowY = TBL_Y + 20;
+      if (note.creditNotes && Array.isArray(note.creditNotes)) {
+        note.creditNotes.forEach((item: any) => {
+          if (rowY > SAFE_BOTTOM - 80) return;
+          draw(item.productName || "Item", MARGIN_L, rowY, 8, black);
+          draw(item.carats || "22K", MARGIN_L + 150, rowY, 8, black);
+          draw(`${item.grams || 0}g`, MARGIN_L + 220, rowY, 8, black);
+          draw(`${item.stoneWeight || 0}g`, MARGIN_L + 300, rowY, 8, black);
+          rowY += 15;
+        });
+      }
 
+      hLine(rowY + 5);
 
+      // ── PAST INVOICE REFERENCE ──────────────────────────────────
+      const REF_Y = rowY + 25;
+      draw("ORIGINAL INVOICE:", MARGIN_L, REF_Y, 8, grey);
+      draw(note.pastInvoice || note.pastinvoice || "N/A", MARGIN_L, REF_Y + 12, 9, black);
 
-      draw("* This voucher is valid for one-time use only against a new purchase.", 40, height - 60, 8, grey);
+      // ── CREDIT VALUE BOX ────────────────────────────────────────
+      const VAL_Y = REF_Y + 40;
+      const valBoxW = 180;
+      const valBoxH = 45;
+      const valBoxX = MARGIN_R - valBoxW;
+      const valBoxBottomY = A5_H - VAL_Y - valBoxH;
 
-      draw("* Please present this voucher at the billing counter.", 40, height - 50, 8, grey);
+      page.drawRectangle({
+        x: valBoxX,
+        y: valBoxBottomY,
+        width: valBoxW,
+        height: valBoxH,
+        color: rgb(0.98, 0.95, 0.88),
+        borderColor: gold,
+        borderWidth: 1.2,
+      });
 
+      page.drawText("CREDIT VALUE", {
+        x: valBoxX + 10,
+        y: valBoxBottomY + 25,
+        size: 8,
+        font: customFont,
+        color: grey,
+      });
 
+      const creditText = `₹${(note.cashAmount || 0).toLocaleString()}`;
+      const creditW = customFont.widthOfTextAtSize(creditText, 13);
+      page.drawText(creditText, {
+        x: valBoxX + (valBoxW - creditW) / 2,
+        y: valBoxBottomY + 8,
+        size: 13,
+        font: customFont,
+        color: gold,
+      });
+
+      // ── FOOTER ──────────────────────────────────────────────────
+      const FTR_Y = SAFE_BOTTOM - 30;
+      draw("✓ Valid for one-time use only against new purchase", MARGIN_L, FTR_Y, 7, grey);
+      draw("✓ Non-transferable and non-refundable", MARGIN_L, FTR_Y + 12, 7, grey);
 
       const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
+      const pdfUrl = URL.createObjectURL(blob);
 
-      const pdfUrl = URL.createObjectURL(new Blob([pdfBytes], { type: "application/pdf" }));
-
-      window.open(pdfUrl)?.print();
-
-
-
+      if (mode === "download") {
+        const link = document.createElement("a");
+        link.href = pdfUrl;
+        link.download = `CreditNote_${note.code || note.invoice}_${format(new Date(), "ddMMyy")}.pdf`;
+        link.click();
+      } else {
+        const printWindow = window.open(pdfUrl);
+        if (printWindow) {
+          printWindow.addEventListener("load", () => printWindow.print());
+        }
+      }
     } catch (error) {
-
-      console.error("Receipt Error:", error);
-
+      console.error("Credit Receipt Error:", error);
       setToastMessage("Could not generate PDF");
-
       setShowToast(true);
-
     }
-
   };
 
 

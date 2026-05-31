@@ -76,6 +76,9 @@ const BillingPOS = () => {
   const [paymentMethods, setPaymentMethods] = useState({ cash: false, upi: false, card: false, cheque: false });
   const [paymentAmounts, setPaymentAmounts] = useState({ cash: 0, upi: 0, card: 0, cheque: 0 });
 
+  // Credit Note Coupon Mode
+  const [isCreditNoteCoupon, setIsCreditNoteCoupon] = useState(() => getSaved("pos_credit_note_mode", false));
+
   // ==========================================
   // 2. STATE CLEARANCE LOGIC
   // ==========================================
@@ -100,6 +103,7 @@ const BillingPOS = () => {
     setExchangeData({ name: "", grams: 0, discount: 0 });
     setPaymentMethods({ cash: false, upi: false, card: false, cheque: false });
     setPaymentAmounts({ cash: 0, upi: 0, card: 0, cheque: 0 });
+    setIsCreditNoteCoupon(false);
     setSearch("");
     setShowDropdown(false);
   }, []);
@@ -113,7 +117,8 @@ const BillingPOS = () => {
     sessionStorage.setItem("pos_otp_verified", JSON.stringify(isOtpVerified));
     sessionStorage.setItem("pos_exchange_active", JSON.stringify(isExchangeApplied));
     sessionStorage.setItem("pos_exchange_data", JSON.stringify(exchangeData));
-  }, [cart, customer, couponData, couponCode, managerDiscountPercent, isOtpVerified, isExchangeApplied, exchangeData]);
+    sessionStorage.setItem("pos_credit_note_mode", JSON.stringify(isCreditNoteCoupon));
+  }, [cart, customer, couponData, couponCode, managerDiscountPercent, isOtpVerified, isExchangeApplied, exchangeData, isCreditNoteCoupon]);
 
   useEffect(() => {
     if (resendCountdown <= 0) return;
@@ -255,6 +260,12 @@ const BillingPOS = () => {
 
   const couponAdjustments = useMemo(() => {
     if (!couponData || cart.length === 0 || !liveRates) return { goldCredit: 0, vaCredit: 0, cashCredit: 0 };
+
+    // Credit Note Coupon: Treat as cash credit
+    if (couponData.isCreditNote || couponData.type === "CREDIT_NOTE") {
+      const appliedCash = Math.min(couponData.value, subtotal);
+      return { goldCredit: 0, vaCredit: 0, cashCredit: appliedCash };
+    }
 
     if (couponData.type === "CASH") {
       const appliedCash = Math.min(couponData.value, subtotal);
@@ -454,26 +465,67 @@ const BillingPOS = () => {
     if (!couponCode) return;
     setIsApplyingCoupon(true);
     try {
-      const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/payment/coupon/${couponCode.trim()}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
+      if (isCreditNoteCoupon) {
+        // Credit Note Coupon Mode - Fetch from credit-note API
+        const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/reports/credit-note/get/[id]?code=${couponCode.trim()}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
 
-      if (res.ok) {
-        if (data.type === "WEIGHT") {
-          const has22K = cart.some(item => checkIs22K(item));
-          if (!has22K) {
-            setToastMessage("Restriction: Gold Wallet vouchers require 22K Gold in cart.");
+        if (res.ok && data.success && data.coupons && data.coupons.length > 0) {
+          const creditNoteCoupon = data.coupons[0];
+          
+          if (creditNoteCoupon.isUsed) {
+            setToastMessage("Credit Note Coupon has already been redeemed.");
             setShowToast(true);
             setIsApplyingCoupon(false);
             return;
           }
+
+          // Format credit note coupon for consistency
+          setCouponData({
+            type: "CREDIT_NOTE",
+            code: creditNoteCoupon.code,
+            value: creditNoteCoupon.cashAmount,
+            isUsed: creditNoteCoupon.isUsed,
+            invoice: creditNoteCoupon.invoice,
+            pastInvoice: creditNoteCoupon.pastinvoice,
+            creditNotes: creditNoteCoupon.creditNotes,
+            isCreditNote: true
+          });
+          setToastMessage(`Credit Note Coupon ${creditNoteCoupon.code} Applied Successfully!`);
+          setShowToast(true);
+        } else {
+          setToastMessage(data.error || "Credit Note Coupon not found or invalid.");
+          setShowToast(true);
         }
-        setCouponData(data);
       } else {
-        setToastMessage(data.error || "Invalid Coupon Credentials");
-        setShowToast(true);
+        // Scheme Coupon Mode - Original logic
+        const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/payment/coupon/${couponCode.trim()}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+          if (data.type === "WEIGHT") {
+            const has22K = cart.some(item => checkIs22K(item));
+            if (!has22K) {
+              setToastMessage("Restriction: Gold Wallet vouchers require 22K Gold in cart.");
+              setShowToast(true);
+              setIsApplyingCoupon(false);
+              return;
+            }
+          }
+          setCouponData({ ...data, isCreditNote: false });
+        } else {
+          setToastMessage(data.error || "Invalid Coupon Credentials");
+          setShowToast(true);
+        }
       }
+    } catch (error) {
+      console.error("Coupon Application Error:", error);
+      setToastMessage("Error applying coupon. Please try again.");
+      setShowToast(true);
     } finally {
       setIsApplyingCoupon(false);
     }
@@ -586,11 +638,21 @@ const BillingPOS = () => {
       const data = await response.json();
       if (data.success) {
         if (couponData) {
-          await fetch(`https://suvarnagold-16e5.vercel.app/api/payment/coupon/${couponCode}/used`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ invoiceNumber: data.invoiceNumber || null }),
-          });
+          if (couponData.isCreditNote) {
+            // Mark credit note coupon as used via PATCH endpoint
+            await fetch("https://suvarnagold-16e5.vercel.app/api/payment/credit-coupon", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ code: couponCode }),
+            });
+          } else {
+            // Mark scheme coupon as used via original endpoint
+            await fetch(`https://suvarnagold-16e5.vercel.app/api/payment/coupon/${couponCode}/used`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ invoiceNumber: data.invoiceNumber || null }),
+            });
+          }
         }
         setToastMessage("Purchase Completed Successfully.");
         setShowToast(true);
@@ -942,9 +1004,31 @@ const BillingPOS = () => {
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2 flex items-center gap-2">
                           <Wallet size={12} className="text-gold" /> Rewards Voucher
                         </label>
+
+                        {/* Credit Note Toggle */}
+                        <div className="flex items-center gap-3 px-4 py-3 bg-gold/5 rounded-2xl border-2 border-gold/20 hover:border-gold/40 transition-colors">
+                          <input
+                            type="checkbox"
+                            id="creditNoteToggle"
+                            checked={isCreditNoteCoupon}
+                            onChange={(e) => {
+                              setIsCreditNoteCoupon(e.target.checked);
+                              setCouponCode("");
+                              setCouponData(null);
+                            }}
+                            className="w-4 h-4 cursor-pointer accent-gold"
+                          />
+                          <label htmlFor="creditNoteToggle" className="flex-1 text-[9px] font-black text-slate-600 uppercase tracking-widest cursor-pointer">
+                            {isCreditNoteCoupon ? "💳 Credit Note Coupon" : "🎟️ Scheme Coupon"}
+                          </label>
+                          <span className="text-[8px] font-black text-gold uppercase tracking-tighter">
+                            {isCreditNoteCoupon ? "Return Mode" : "Regular Mode"}
+                          </span>
+                        </div>
+
                         <div className="flex gap-3">
                           <Input
-                            placeholder="VOUCHER CODE"
+                            placeholder={isCreditNoteCoupon ? "CREDIT NOTE CODE" : "VOUCHER CODE"}
                             value={couponCode}
                             disabled={!!couponData}
                             onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
@@ -957,13 +1041,18 @@ const BillingPOS = () => {
                           )}
                         </div>
                         {couponData && (
-                          <div className={`p-3 border rounded-xl space-y-1 ${couponData.isPreClosed ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-100'}`}>
-                            <p className={`text-[10px] font-black text-center uppercase tracking-tighter italic ${couponData.isPreClosed ? 'text-red-700' : 'text-blue-700'}`}>
-                              Voucher Type: {couponData.type} - {couponData.type === 'CASH' ? 'Applicable Globally' : '22K Gold Specific'}
+                          <div className={`p-3 border rounded-xl space-y-1 ${couponData.isCreditNote ? 'bg-purple-50 border-purple-200' : couponData.isPreClosed ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-100'}`}>
+                            <p className={`text-[10px] font-black text-center uppercase tracking-tighter italic ${couponData.isCreditNote ? 'text-purple-700' : couponData.isPreClosed ? 'text-red-700' : 'text-blue-700'}`}>
+                              Voucher Type: {couponData.isCreditNote ? 'CREDIT NOTE' : couponData.type} - {couponData.isCreditNote ? 'Cash Credit' : couponData.type === 'CASH' ? 'Applicable Globally' : '22K Gold Specific'}
                             </p>
-                            {couponData.isPreClosed && (
+                            {couponData.isPreClosed && !couponData.isCreditNote && (
                               <p className="text-[10px] font-black text-red-600 text-center uppercase tracking-tighter">
                                 ⚠ Pre-Closed — VA benefit blocked
+                              </p>
+                            )}
+                            {couponData.isCreditNote && (
+                              <p className="text-[10px] font-black text-purple-600 text-center uppercase tracking-tighter">
+                                ✓ Credit Note Applied - Invoice: {couponData.invoice}
                               </p>
                             )}
                           </div>
