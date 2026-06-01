@@ -770,11 +770,11 @@ const Reports = () => {
                             <div className="flex flex-col gap-2">
                                 <span className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Calendar className="w-3 h-3" /> Date Filtering</span>
                                 <div className="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit border border-primary/10">
-                                    {(["day", "week", "month", "year"] as const).map((range) => (
+                                    {(["day"] as const).map((range) => (
                                         <Button key={range} variant={timeRange === range ? "gold" : "ghost"} size="sm" onClick={() => { setTimeRange(range); setDateRange(undefined); }} className="capitalize px-4 h-8 text-xs">{range}</Button>
                                     ))}
 
-                                    <Popover>
+                                    {/* <Popover>
                                         <PopoverTrigger asChild>
                                             <Button variant={timeRange === "custom" ? "gold" : "ghost"} size="sm" className="px-4 h-8 text-xs">
                                                 {timeRange === "custom" && dateRange?.from ? (
@@ -805,7 +805,7 @@ const Reports = () => {
                                                 </div>
                                             )}
                                         </PopoverContent>
-                                    </Popover>
+                                    </Popover> */}
                                 </div>
                             </div>
 

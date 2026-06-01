@@ -13,7 +13,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   Calculator, Search, Plus, Trash2,
   Printer, PackageSearch, X, Info, Banknote, Percent,
-  ScanLine, ShoppingCart, RefreshCcw, Layers, Zap, Star, Loader2
+  ScanLine, ShoppingCart, RefreshCcw, Layers, Zap, Star, Loader2, Edit2, Check, XCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +38,10 @@ const EstimationTerminal = () => {
   const [toastMessage, setToastMessage] = useState("");
   const [discountPercent, setDiscountPercent] = useState(0);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
+  
+  // --- EDIT MODE STATE ---
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [editPrice, setEditPrice] = useState("");
 
   // --- HARDWARE SCANNER CONFIGURATION ---
   const scanBuffer = useRef("");
@@ -126,24 +130,41 @@ const EstimationTerminal = () => {
 
   // --- PRICING ENGINE ---
   const calculateItemPricing = (item) => {
+    // If custom price is set, use it
+    if (item.customPrice !== undefined) {
+      return {
+        metal: 0,
+        va: 0,
+        stone: 0,
+        total: Math.round(item.customPrice)
+      };
+    }
+    
     if (!liveRates || !item.grams) return { metal: 0, va: 0, stone: 0, total: 0 };
 
     const metal = (item.metalType || "").toLowerCase();
     const caratsRaw = String(item.carats || "").toLowerCase();
 
+    // Check if purity is "others" (case-insensitive)
+    const isOthersPurity = caratsRaw.toLowerCase().includes("other");
+    
     // Determine Purity Path (Gold vs Silver)
     const isSilver = metal === "silver" || caratsRaw.includes("99") || caratsRaw.includes("silver") || caratsRaw.includes("%");
 
-    let gramRate = 0;
-    if (isSilver) {
-      const baseSilver = parseFloat(String(liveRates.silver).replace(/[^\d.-]/g, '')) || 0;
-      const purityValue = parseFloat(caratsRaw.replace(/[^\d.-]/g, '')) || 99.9;
-      gramRate = (baseSilver / 100) * purityValue;
-    } else {
-      const k = caratsRaw.replace(/\D/g, "");
-      const rateString = liveRates[`gold${k}`] || liveRates[`gold22`];
-      gramRate = parseFloat(String(rateString).replace(/[^\d.-]/g, '')) || 0;
+    // Return zero price for silver items or "others" purity items
+    if (isSilver || isOthersPurity) {
+      return {
+        metal: 0,
+        va: 0,
+        stone: 0,
+        total: 0
+      };
     }
+
+    let gramRate = 0;
+    const k = caratsRaw.replace(/\D/g, "");
+    const rateString = liveRates[`gold${k}`] || liveRates[`gold22`];
+    gramRate = parseFloat(String(rateString).replace(/[^\d.-]/g, '')) || 0;
 
     const metalVal = gramRate * item.grams;
     const vaVal = metalVal * ((item.va || 0) / 100);
@@ -198,6 +219,27 @@ const EstimationTerminal = () => {
 
   const removeManifestItem = (uid) => {
     setEstimateCart(prev => prev.filter(i => i.tempId !== uid));
+  };
+
+  const startEditPrice = (item) => {
+    setEditingItemId(item.tempId);
+    setEditPrice(item.customPrice?.toString() || "0");
+  };
+
+  const saveEditPrice = (tempId) => {
+    const newPrice = parseFloat(editPrice) || 0;
+    setEstimateCart(prev => prev.map(item =>
+      item.tempId === tempId ? { ...item, customPrice: newPrice } : item
+    ));
+    setEditingItemId(null);
+    setEditPrice("");
+    setToastMessage("Price updated successfully");
+    setShowToast(true);
+  };
+
+  const cancelEditPrice = () => {
+    setEditingItemId(null);
+    setEditPrice("");
   };
 
   // Show loading screen while checking authentication
@@ -303,6 +345,7 @@ const EstimationTerminal = () => {
                   ) : (
                     estimateCart.map((item) => {
                       const pData = calculateItemPricing(item);
+                      const isEditing = editingItemId === item.tempId;
                       return (
                         <div key={item.tempId} className="group relative flex items-center justify-between p-6 bg-white border border-slate-100 rounded-3xl hover:border-gold/30 transition-all shadow-sm hover:shadow-xl">
                           <div className="flex items-center gap-8">
@@ -334,19 +377,61 @@ const EstimationTerminal = () => {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-10">
-                            <div className="text-right">
-                              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Item Valuation</p>
-                              <p className="text-2xl font-black text-slate-950 tabular-nums tracking-tighter">
-                                ₹{pData.total.toLocaleString()}
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => removeManifestItem(item.tempId)}
-                              className="p-3 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all"
-                            >
-                              <Trash2 size={22} />
-                            </button>
+                          <div className="flex items-center gap-6">
+                            {isEditing ? (
+                              <div className="flex items-center gap-2 bg-gold/5 px-4 py-2 rounded-2xl border border-gold/20">
+                                <span className="text-[10px] font-bold text-slate-500 uppercase">₹</span>
+                                <input
+                                  type="number"
+                                  value={editPrice}
+                                  onChange={(e) => setEditPrice(e.target.value)}
+                                  className="w-24 px-2 py-1 text-sm font-black bg-white border border-gold/30 rounded-lg focus:ring-2 focus:ring-gold outline-none"
+                                  autoFocus
+                                />
+                                <button
+                                  onClick={() => saveEditPrice(item.tempId)}
+                                  className="p-1 text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                                  title="Save"
+                                >
+                                  <Check size={18} />
+                                </button>
+                                <button
+                                  onClick={cancelEditPrice}
+                                  className="p-1 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                  title="Cancel"
+                                >
+                                  <XCircle size={18} />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="text-right flex flex-col items-end">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Item Valuation</p>
+                                <p className="text-2xl font-black text-slate-950 tabular-nums tracking-tighter">
+                                  ₹{pData.total.toLocaleString()}
+                                </p>
+                                {item.customPrice !== undefined && (
+                                  <span className="text-[8px] text-gold font-bold mt-1">Custom Price Set</span>
+                                )}
+                              </div>
+                            )}
+                            {!isEditing && (
+                              <>
+                                <button
+                                  onClick={() => startEditPrice(item)}
+                                  className="p-3 text-slate-300 hover:text-gold hover:bg-gold/10 rounded-2xl transition-all"
+                                  title="Edit Price"
+                                >
+                                  <Edit2 size={20} />
+                                </button>
+                                <button
+                                  onClick={() => removeManifestItem(item.tempId)}
+                                  className="p-3 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all"
+                                  title="Remove Item"
+                                >
+                                  <Trash2 size={22} />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       );
@@ -374,10 +459,10 @@ const EstimationTerminal = () => {
 
                   {/* Breakdown - Reduced spacing between rows */}
                   <div className="space-y-4">
-                    <div className="flex justify-between items-center group">
+                    {/* <div className="flex justify-between items-center group">
                       <span className="text-xs text-slate-500 font-bold">Metal Base Value</span>
                       <span className="text-sm text-slate-950 font-black tabular-nums">₹{manifestTotals.metal.toLocaleString()}</span>
-                    </div>
+                    </div> */}
 
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-slate-500 font-bold">VA / Wastage</span>

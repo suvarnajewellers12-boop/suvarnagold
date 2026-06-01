@@ -79,12 +79,22 @@ export default function OrderManagementPage() {
       const black = rgb(0, 0, 0);
       const lightGrey = rgb(0.85, 0.85, 0.85);
       const emerald = rgb(0.06, 0.47, 0.23);
-      const red = rgb(0.8, 0, 0);
 
-      const pdfDoc = await PDFDocument.create();
+      // Use template for download, blank sheet for print
+      let pdfDoc: any;
+      if (mode === "download") {
+        const templateBytes = await fetch("/receipt.pdf").then((res) => res.arrayBuffer());
+        pdfDoc = await PDFDocument.load(templateBytes);
+        const page = pdfDoc.getPages()[0];
+        page.setSize(A5_W, A5_H);
+      } else {
+        pdfDoc = await PDFDocument.create();
+        pdfDoc.addPage([A5_W, A5_H]);
+      }
+
       pdfDoc.registerFontkit(fontkit);
       const customFont = await pdfDoc.embedFont(fontBytes);
-      const page = pdfDoc.addPage([A5_W, A5_H]);
+      const page = pdfDoc.getPages()[0];
 
       const makePen = (page: any) => {
         const draw = (text: string, x: number, yFromTop: number, size = 9, color = black) =>
@@ -128,59 +138,107 @@ export default function OrderManagementPage() {
 
       // ── HEADER ──────────────────────────────────────────────────
       const HDR_Y = SAFE_TOP + 10;
-      draw("SUVARNA JEWELLERS", MARGIN_L, HDR_Y, 11, gold);
-      const typeLabel = type === "DELIVERY" ? "FINAL SETTLEMENT & DELIVERY" : "INITIAL BOOKING ACKNOWLEDGEMENT";
-      draw(typeLabel, MARGIN_L, HDR_Y + 14, 8.5, black);
-      drawR(`Order: ${order.orderId}`, MARGIN_R, HDR_Y, 9, black);
-      drawR(`Date: ${format(new Date(), "dd-MM-yyyy")}`, MARGIN_R, HDR_Y + 12, 8, grey);
-      hLine(HDR_Y + 28);
+      const typeLabel = type === "DELIVERY" ? "DELIVERY CONFIRMATION" : "BOOKING RECEIPT";
+      draw(typeLabel, MARGIN_L, HDR_Y, 9.5, black);
+      drawR(`Order: ${order.orderId}`, MARGIN_R, HDR_Y, 8, grey);
+      drawR(`Date: ${format(new Date(), "dd-MM-yyyy")}`, MARGIN_R, HDR_Y + 12, 7.5, grey);
+      hLine(HDR_Y + 26);
 
       // ── CUSTOMER DETAILS ─────────────────────────────────────
-      const CUST_Y = HDR_Y + 42;
-      draw("CUSTOMER", MARGIN_L, CUST_Y, 8, grey);
-      draw(order.customerName, MARGIN_L, CUST_Y + 12, 9, black);
-      draw(`Ph: +91 ${order.phoneNumber}`, MARGIN_L, CUST_Y + 24, 8, grey);
-      hLine(CUST_Y + 36);
+      const CUST_Y = HDR_Y + 38;
+      draw("CUSTOMER", MARGIN_L, CUST_Y, 7.5, grey);
+      draw(order.customerName, MARGIN_L, CUST_Y + 11, 8.5, black);
+      draw(`Ph: +91 ${order.phoneNumber}`, MARGIN_L, CUST_Y + 22, 7.5, grey);
+      hLine(CUST_Y + 32);
 
       // ── ITEM DETAILS TABLE ───────────────────────────────────
-      const TBL_Y = CUST_Y + 55;
+      const TBL_Y = CUST_Y + 50;
       const col = { name: MARGIN_L, gross: 130, stone: 185, net: 245, va: 305, total: MARGIN_R };
       
-      draw("ITEM", col.name, TBL_Y, 7.5, grey);
-      draw("GROSS", col.gross, TBL_Y, 7.5, grey);
-      draw("STONE", col.stone, TBL_Y, 7.5, grey);
-      draw("NET", col.net, TBL_Y, 7.5, grey);
-      draw("VA", col.va, TBL_Y, 7.5, grey);
-      drawR("AMOUNT", col.total, TBL_Y, 7.5, grey);
-      hLine(TBL_Y + 10);
+      draw("ITEM", col.name, TBL_Y, 7, grey);
+      draw("GROSS", col.gross, TBL_Y, 7, grey);
+      draw("STONE", col.stone, TBL_Y, 7, grey);
+      draw("NET", col.net, TBL_Y, 7, grey);
+      draw("VA", col.va, TBL_Y, 7, grey);
+      drawR("AMOUNT", col.total, TBL_Y, 7, grey);
+      hLine(TBL_Y + 9);
 
-      const ROW_Y = TBL_Y + 22;
-      draw(order.itemName || "Custom Item", col.name, ROW_Y, 8.5, black);
-      draw(`${grossWt}g`, col.gross, ROW_Y, 8.5, black);
-      draw(`${stoneWt}g`, col.stone, ROW_Y, 8.5, black);
-      draw(`${netWt}g`, col.net, ROW_Y, 8.5, black);
-      draw(`₹${Math.round(vaAmount).toLocaleString()}`, col.va, ROW_Y, 8.5, black);
-      drawR(`₹${Math.round(grandTotal).toLocaleString()}`, col.total, ROW_Y, 8.5, black);
-      hLine(ROW_Y + 15);
+      const ROW_Y = TBL_Y + 19;
+      draw(order.itemName || "Custom Item", col.name, ROW_Y, 7.5, black);
+      draw(`${grossWt}g`, col.gross, ROW_Y, 7.5, black);
+      draw(`${stoneWt}g`, col.stone, ROW_Y, 7.5, black);
+      draw(`${netWt}g`, col.net, ROW_Y, 7.5, black);
+      draw(`₹${Math.round(vaAmount).toLocaleString()}`, col.va, ROW_Y, 7.5, black);
+      drawR(`₹${Math.round(grandTotal).toLocaleString()}`, col.total, ROW_Y, 7.5, black);
+      hLine(ROW_Y + 13);
 
-      // ── FINANCIAL BREAKDOWN ─────────────────────────────────
-      const FIN_Y = ROW_Y + 32;
-      draw("FINANCIAL BREAKDOWN", MARGIN_L, FIN_Y, 8, gold);
+      // ── METAL COMPOSITION ───────────────────────────────────
+      const FIN_Y = ROW_Y + 28;
+      draw("METAL COMPOSITION", MARGIN_L, FIN_Y, 7.5, grey);
+      hLine(FIN_Y + 8);
 
-      const finRow = (label: string, value: string, y: number, isHighlight = false) => {
-        draw(label, MARGIN_L, y, 7.5, grey);
-        drawR(value, MARGIN_R, y, isHighlight ? 9 : 8, isHighlight ? black : grey);
+      const finRow = (label: string, value: string, y: number) => {
+        draw(label, MARGIN_L, y, 6.5, grey);
+        drawR(value, MARGIN_R, y, 6.5, black);
       };
 
-      finRow(`Gold Value:`, `₹${Math.round(goldValue).toLocaleString()}`, FIN_Y + 14);
-      finRow(`Discount:`, discAmt > 0 ? `-₹${discAmt.toLocaleString()}` : "None", FIN_Y + 26, discAmt > 0);
-      finRow(`CGST (1.5%):`, `₹${Math.round(halfGst).toLocaleString()}`, FIN_Y + 38);
-      finRow(`SGST (1.5%):`, `₹${Math.round(halfGst).toLocaleString()}`, FIN_Y + 50);
+      const givenMetal = Number(order.givenMetalGrams) || 0;
+      const addedMetal = Number(order.addedMetalGrams) || 0;
+      const totalMetal = givenMetal + addedMetal;
+
+      finRow(`Customer Given`, `${givenMetal}g`, FIN_Y + 14);
+      finRow(`Shop Added`, `${addedMetal}g`, FIN_Y + 21);
+      // finRow(`Total Metal`, `${totalMetal}g`, FIN_Y + 28);
+      hLine(FIN_Y + 34);
+
+      // // ── WEIGHT DETAILS ──────────────────────────────────────
+      // const WGT_Y = FIN_Y + 44;
+      // draw("WEIGHT DETAILS", MARGIN_L, WGT_Y, 7.5, grey);
+      // hLine(WGT_Y + 8);
+      
+      // finRow(`Stone Weight`, `${stoneWt}g`, WGT_Y + 14);
+      // finRow(`Gross Weight`, `${grossWt}g`, WGT_Y + 21);
+      // finRow(`Net Weight`, `${netWt}g`, WGT_Y + 28);
+      // hLine(WGT_Y + 34);
+
+      // // ── FINANCIAL BREAKDOWN ─────────────────────────────────
+      // const FIN2_Y = WGT_Y + 44;
+      // draw("VALUATION", MARGIN_L, FIN2_Y, 7.5, grey);
+      // hLine(FIN2_Y + 8);
+
+      // // finRow(`Metal Value @ ₹${rate}/g`, `₹${Math.round(goldValue).toLocaleString()}`, FIN2_Y + 14);
+      // // finRow(`VA/Making (${vaPer}%)`, `₹${Math.round(vaAmount).toLocaleString()}`, FIN2_Y + 21);
+      // finRow(`Stone Cost`, `₹${Math.round(stoneC).toLocaleString()}`, FIN2_Y + 28);
+      
+      // if (discAmt > 0) {
+      //   finRow(`Discount`, `-₹${Math.round(discAmt).toLocaleString()}`, FIN2_Y + 35);
+      //   finRow(`CGST (1.5%)`, `₹${Math.round(halfGst).toLocaleString()}`, FIN2_Y + 42);
+      //   finRow(`SGST (1.5%)`, `₹${Math.round(halfGst).toLocaleString()}`, FIN2_Y + 49);
+      // } else {
+      //   finRow(`CGST (1.5%)`, `₹${Math.round(halfGst).toLocaleString()}`, FIN2_Y + 35);
+      //   finRow(`SGST (1.5%)`, `₹${Math.round(halfGst).toLocaleString()}`, FIN2_Y + 42);
+      // }
+      // hLine(FIN2_Y + 56);
+
+      // ── PAYMENT STATUS ──────────────────────────────────────
+      const PAY_Y = 255 + 66;
+      draw("PAYMENT STATUS", MARGIN_L, PAY_Y, 7.5, grey);
+      hLine(PAY_Y + 8);
+
+      finRow(`Total Bill`, `₹${Math.round(grandTotal).toLocaleString()}`, PAY_Y + 14);
+      finRow(`Advance Paid`, `₹${Math.round(advance).toLocaleString()}`, PAY_Y + 21);
+      
+      if (type === "DELIVERY") {
+        finRow(`Balance Due`, `₹ ${Math.round(grandTotal)- Math.round(advance)} (Paid)`, PAY_Y + 30);
+      } else {
+        finRow(`Balance Due`, `₹${Math.round(balance).toLocaleString()}`, PAY_Y + 28);
+      }
+      hLine(PAY_Y + 34);
 
       // ── SETTLEMENT BOX ──────────────────────────────────────
-      const SETT_Y = FIN_Y + 75;
-      const settBoxW = 180;
-      const settBoxH = 50;
+      const SETT_Y = PAY_Y + 44;
+      const settBoxW = 160;
+      const settBoxH = 45;
       const settBoxX = MARGIN_R - settBoxW;
       const settBoxBottomY = A5_H - SETT_Y - settBoxH;
 
@@ -194,39 +252,35 @@ export default function OrderManagementPage() {
         borderWidth: 1.2,
       });
 
-      page.drawText("SETTLEMENT STATUS", {
+      page.drawText("SETTLEMENT", {
         x: settBoxX + 10,
-        y: settBoxBottomY + 28,
-        size: 7.5,
+        y: settBoxBottomY + 23,
+        size: 7,
         font: customFont,
         color: grey,
       });
 
       if (type === "DELIVERY") {
-        const balanceText = "FULLY PAID ✓";
-        const balanceW = customFont.widthOfTextAtSize(balanceText, 11);
+        const balanceText = "FULLY PAID ";
+        const balanceW = customFont.widthOfTextAtSize(balanceText, 10);
         page.drawText(balanceText, {
           x: settBoxX + (settBoxW - balanceW) / 2,
-          y: settBoxBottomY + 8,
-          size: 11,
+          y: settBoxBottomY + 6,
+          size: 10,
           font: customFont,
           color: emerald,
         });
       } else {
         const balanceText = `₹${Math.round(balance).toLocaleString()} Pending`;
-        const balanceW = customFont.widthOfTextAtSize(balanceText, 10);
+        const balanceW = customFont.widthOfTextAtSize(balanceText, 9);
         page.drawText(balanceText, {
           x: settBoxX + (settBoxW - balanceW) / 2,
-          y: settBoxBottomY + 8,
-          size: 10,
+          y: settBoxBottomY + 6,
+          size: 9,
           font: customFont,
           color: gold,
         });
       }
-
-      // ── FOOTER ──────────────────────────────────────────────
-      const FTR_Y = SAFE_BOTTOM - 25;
-      draw("Thank you for choosing Suvarna Jewellers", MARGIN_L, FTR_Y, 7, grey);
 
       const pdfBytes = await pdfDoc.save();
       const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
@@ -510,49 +564,106 @@ export default function OrderManagementPage() {
             </div>
           </DialogHeader>
 
-          <div className="p-12 grid grid-cols-1 md:grid-cols-3 gap-12 text-left bg-white">
-            <div className="space-y-8">
+          <div className="p-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 text-left bg-white">
+            {/* METAL COMPOSITION */}
+            <div className="space-y-6">
               <div className="flex items-center gap-3 border-b border-gold/10 pb-4">
                 <Scale className="w-5 h-5 text-gold" />
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-widest">Weights</h4>
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-widest">Metal Composition</h4>
               </div>
-              <div className="space-y-6">
-                <div className="flex justify-between items-center"><span className="text-slate-400 text-sm font-medium">Gross Weight</span><span className="font-bold text-slate-800 text-lg">{viewingOrder?.grossWeight}g</span></div>
-                <div className="flex justify-between items-center"><span className="text-slate-400 text-sm font-medium">Stone Wt</span><span className="font-bold text-slate-800 text-lg">{viewingOrder?.stoneWeight}g</span></div>
-                <div className="p-6 bg-gold/5 rounded-3xl border border-gold/10"><div className="flex justify-between items-center"><span className="text-gold font-bold text-xs uppercase tracking-widest">Net Value</span><span className="text-3xl font-serif font-bold text-slate-900">{viewingOrder?.netWeight}g</span></div></div>
+              <div className="space-y-4">
+                <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Customer Given</p>
+                  <p className="text-2xl font-serif font-bold text-slate-900">{viewingOrder?.givenMetalGrams || 0}g</p>
+                </div>
+                <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100">
+                  <p className="text-[10px] font-bold text-purple-600 uppercase tracking-widest mb-1">Shop Added</p>
+                  <p className="text-2xl font-serif font-bold text-slate-900">{viewingOrder?.addedMetalGrams || 0}g</p>
+                </div>
+                <div className="p-4 bg-gold/10 rounded-2xl border border-gold/20 border-dashed">
+                  <p className="text-[10px] font-bold text-gold uppercase tracking-widest mb-1">Total Metal</p>
+                  <p className="text-2xl font-serif font-bold text-slate-900">{Number(viewingOrder?.givenMetalGrams || 0) + Number(viewingOrder?.addedMetalGrams || 0)}g</p>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-8 border-x border-slate-100 px-12">
+            {/* WEIGHTS BREAKDOWN */}
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 border-b border-gold/10 pb-4">
+                <Gem className="w-5 h-5 text-gold" />
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-widest">Weight Details</h4>
+              </div>
+              <div className="space-y-4">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1">Stone Weight</p>
+                  <p className="text-2xl font-serif font-bold text-slate-900">{viewingOrder?.stoneWeight}g</p>
+                </div>
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                  <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1">Gross Weight</p>
+                  <p className="text-2xl font-serif font-bold text-slate-900">{viewingOrder?.grossWeight}g</p>
+                </div>
+                <div className="p-4 bg-gold/5 rounded-2xl border border-gold/10 ring-2 ring-gold/20">
+                  <p className="text-[10px] font-bold text-gold uppercase tracking-widest mb-1">Net Weight</p>
+                  <p className="text-3xl font-serif font-bold text-slate-900">{viewingOrder?.netWeight}g</p>
+                </div>
+              </div>
+            </div>
+
+            {/* FINANCIAL BREAKDOWN */}
+            <div className="space-y-6">
               <div className="flex items-center gap-3 border-b border-gold/10 pb-4">
                 <IndianRupee className="w-5 h-5 text-gold" />
                 <h4 className="text-xs font-bold text-slate-800 uppercase tracking-widest">Charges</h4>
               </div>
-              <div className="space-y-4">
-                <p className="font-bold text-slate-900 text-xl font-serif mb-2">{viewingOrder?.itemName}</p>
-                <div className="space-y-3">
-                   <div className="flex justify-between text-sm text-slate-500"><span>Pure Gold</span><span className="text-slate-900 font-bold">₹{(Number(viewingOrder?.netWeight) * Number(viewingOrder?.liveRate)).toLocaleString()}</span></div>
-                   <div className="flex justify-between text-sm text-slate-500"><span>VA ({viewingOrder?.vaPercentage}%)</span><span className="text-slate-900 font-bold">₹{Math.round(Number(viewingOrder?.netWeight) * Number(viewingOrder?.liveRate) * (Number(viewingOrder?.vaPercentage) / 100)).toLocaleString()}</span></div>
-                   {Number(viewingOrder?.discountAmount) > 0 && <div className="flex justify-between text-sm text-rose-500 font-bold bg-rose-50 p-2 rounded-lg border border-rose-100"><Tag className="w-3 h-3" /><span>Discount</span><span>-₹{Number(viewingOrder?.discountAmount).toLocaleString()}</span></div>}
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Item</p>
+                  <p className="text-lg font-serif font-bold text-slate-900">{viewingOrder?.itemName}</p>
                 </div>
-                <div className="pt-6 mt-6 border-t border-slate-100 space-y-3">
-                  <div className="flex justify-between text-[11px] text-slate-400 font-bold uppercase"><span>CGST (1.5%)</span><span>₹{(Number(viewingOrder?.gstAmount) / 2).toLocaleString()}</span></div>
-                  <div className="flex justify-between text-[11px] text-slate-400 font-bold uppercase"><span>SGST (1.5%)</span><span>₹{(Number(viewingOrder?.gstAmount) / 2).toLocaleString()}</span></div>
+                <div className="p-3 bg-slate-50 rounded-xl">
+                  <div className="flex justify-between text-xs text-slate-600 mb-1"><span>Pure Metal</span><span className="font-bold">₹{(Number(viewingOrder?.netWeight) * Number(viewingOrder?.liveRate)).toLocaleString()}</span></div>
                 </div>
+                <div className="p-3 bg-slate-50 rounded-xl">
+                  <div className="flex justify-between text-xs text-slate-600 mb-1"><span>VA ({viewingOrder?.vaPercentage}%)</span><span className="font-bold">₹{Math.round(Number(viewingOrder?.netWeight) * Number(viewingOrder?.liveRate) * (Number(viewingOrder?.vaPercentage) / 100)).toLocaleString()}</span></div>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl">
+                  <div className="flex justify-between text-xs text-slate-600"><span>Stone Cost</span><span className="font-bold">₹{Number(viewingOrder?.stoneCost || 0).toLocaleString()}</span></div>
+                </div>
+                {Number(viewingOrder?.discountAmount) > 0 && (
+                  <div className="p-3 bg-rose-50 rounded-xl border border-rose-100">
+                    <div className="flex justify-between text-xs text-rose-600 font-bold"><span>Discount</span><span>-₹{Number(viewingOrder?.discountAmount).toLocaleString()}</span></div>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="space-y-8">
+            {/* PAYMENT STATUS */}
+            <div className="space-y-6">
               <div className={cn(
-                "p-10 rounded-[3rem] text-white shadow-2xl transition-all duration-700 relative overflow-hidden",
+                "p-8 rounded-[2rem] text-white shadow-2xl transition-all duration-700 relative overflow-hidden",
                 viewingOrder?.status === "DELIVERED" ? "bg-emerald-900" : "bg-slate-900"
               )}>
-                <h4 className="text-[10px] font-bold text-gold uppercase tracking-[0.2em] mb-8 border-b border-white/10 pb-4">Status Overview</h4>
-                <div className="space-y-6 relative z-10">
-                  <div className="flex justify-between items-center"><span className="text-slate-400 text-xs font-bold uppercase">Total Bill</span><span className="font-bold text-lg font-serif">₹{Number(viewingOrder?.totalAmount).toLocaleString()}</span></div>
-                  <div className="flex justify-between items-center"><span className="text-slate-400 text-xs font-bold uppercase">Paid</span><span className="text-emerald-400 font-bold text-lg font-serif">₹{viewingOrder?.status === "DELIVERED" ? Number(viewingOrder?.totalAmount).toLocaleString() : Number(viewingOrder?.advanceCash).toLocaleString()}</span></div>
+                <h4 className="text-[10px] font-bold text-gold uppercase tracking-[0.2em] mb-6 border-b border-white/10 pb-3">Payment Status</h4>
+                <div className="space-y-5 relative z-10">
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase font-bold mb-2">Total Bill</p>
+                    <p className="text-3xl font-serif font-bold text-white">₹{Number(viewingOrder?.totalAmount).toLocaleString()}</p>
+                  </div>
+                  
+                  <div className="pt-4 border-t border-white/10">
+                    <p className="text-[10px] text-slate-300 uppercase font-bold mb-2">Advance Paid</p>
+                    <p className="text-2xl font-serif font-bold text-emerald-400">₹{Number(viewingOrder?.advanceCash).toLocaleString()}</p>
+                  </div>
+
                   <GoldDivider className="opacity-20" />
-                  <div className="text-left py-2"><p className="text-[11px] font-bold text-gold uppercase tracking-[0.2em] mb-2">Balance Due</p><p className="text-5xl font-serif font-bold tracking-tighter">₹{viewingOrder?.status === "DELIVERED" ? "0" : Number(viewingOrder?.balanceAmount).toLocaleString()}</p></div>
+                  
+                  <div>
+                    <p className="text-[10px] font-bold text-gold uppercase tracking-[0.2em] mb-2">Balance Due</p>
+                    <p className="text-4xl font-serif font-bold text-white tracking-tighter">₹{viewingOrder?.status === "DELIVERED" ? "0" : Number(viewingOrder?.balanceAmount).toLocaleString()}</p>
+                    {viewingOrder?.status === "DELIVERED" && (
+                      <p className="text-xs text-emerald-300 font-bold mt-2 uppercase tracking-widest">✓ Fully Settled</p>
+                    )}
+                  </div>
                 </div>
               </div>
 

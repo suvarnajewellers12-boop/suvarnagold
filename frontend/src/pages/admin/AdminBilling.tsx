@@ -14,7 +14,7 @@ import {
   ChevronRight, ScanLine, User, Phone,
   Mail, MapPin, Landmark, ReceiptText, ArrowLeft,
   RefreshCcw, CheckCircle2, Percent, Edit3, Wallet, CreditCard, Banknote, Loader2, X, Printer, LayoutDashboard,
-  ShieldCheck, History, UserPlus, Fingerprint, Coins, Scale
+  ShieldCheck, History, UserPlus, Fingerprint, Coins, Scale, Edit2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 
 const BillingPOS = () => {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const ADMIN_DISCOUNT_LIMIT = 10;
 
   // ==========================================
   // 1. PERSISTENT STATES & DATA INIT
@@ -49,6 +50,8 @@ const BillingPOS = () => {
   const [search, setSearch] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingPrice, setEditingPrice] = useState("");
 
   const [cart, setCart] = useState<any[]>(() => getSaved("pos_cart", []));
   const [customer, setCustomer] = useState(() => getSaved("pos_customer", { name: "", phone: "", email: "", address: "" }));
@@ -73,6 +76,9 @@ const BillingPOS = () => {
   const [paymentMethods, setPaymentMethods] = useState({ cash: false, upi: false, card: false, cheque: false });
   const [paymentAmounts, setPaymentAmounts] = useState({ cash: 0, upi: 0, card: 0, cheque: 0 });
 
+  // Credit Note Coupon Mode
+  const [isCreditNoteCoupon, setIsCreditNoteCoupon] = useState(() => getSaved("pos_credit_note_mode", false));
+
   // ==========================================
   // 2. STATE CLEARANCE LOGIC
   // ==========================================
@@ -92,10 +98,12 @@ const BillingPOS = () => {
     setIsOtpVerified(false);
     setIsOtpSent(false);
     setOtp("");
+    setResendCountdown(0);
     setIsExchangeApplied(false);
     setExchangeData({ name: "", grams: 0, discount: 0 });
     setPaymentMethods({ cash: false, upi: false, card: false, cheque: false });
     setPaymentAmounts({ cash: 0, upi: 0, card: 0, cheque: 0 });
+    setIsCreditNoteCoupon(false);
     setSearch("");
     setShowDropdown(false);
   }, []);
@@ -109,7 +117,18 @@ const BillingPOS = () => {
     sessionStorage.setItem("pos_otp_verified", JSON.stringify(isOtpVerified));
     sessionStorage.setItem("pos_exchange_active", JSON.stringify(isExchangeApplied));
     sessionStorage.setItem("pos_exchange_data", JSON.stringify(exchangeData));
-  }, [cart, customer, couponData, couponCode, managerDiscountPercent, isOtpVerified, isExchangeApplied, exchangeData]);
+    sessionStorage.setItem("pos_credit_note_mode", JSON.stringify(isCreditNoteCoupon));
+  }, [cart, customer, couponData, couponCode, managerDiscountPercent, isOtpVerified, isExchangeApplied, exchangeData, isCreditNoteCoupon]);
+
+  useEffect(() => {
+    if (resendCountdown <= 0) return;
+
+    const timer = window.setTimeout(() => {
+      setResendCountdown((value) => value - 1);
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [resendCountdown]);
 
   // ==========================================
   // 3. MATH HELPERS
@@ -140,15 +159,45 @@ const BillingPOS = () => {
   }, [liveRates, checkIsSilver]);
 
   const getDynamicPrice = useCallback((item: any) => {
-    if (item.manualPrice !== undefined && item.manualPrice !== null) return Number(item.manualPrice);
+    console.log("getDynamicPrice - Item Details:", {
+      id: item.id,
+      name: item.name,
+      manualBasePrice: item.manualBasePrice,
+      grams: item.grams,
+      netWeight: item.netWeight,
+      carats: item.carats,
+      va: item.va,
+      stoneCost: item.stoneCost
+    });
+
+    if (item.manualBasePrice !== undefined && item.manualBasePrice !== null) {
+      console.log("Using manual base price:", item.manualBasePrice);
+      return Number(item.manualBasePrice);
+    }
     if (!liveRates || !item.grams) return 0;
+
     const rate = getRateForItem(item);
-    const base = rate * item.grams;
+    const netWeight = parseFloat(item.netWeight || item.grams);
+    const baseAmount = rate * netWeight;
     const vaPercent = parseFloat(item.va || 0);
-    return Math.round(base + (base * (vaPercent / 100)));
+    const vaAmount = baseAmount * (vaPercent / 100);
+    const finalPrice = Math.round(baseAmount + vaAmount);
+
+    console.log("Calculated Price:", {
+      rate,
+      netWeight,
+      baseAmount,
+      vaPercent,
+      vaAmount,
+      finalPrice
+    });
+
+    return finalPrice;
   }, [liveRates, getRateForItem]);
 
   const getItemCalculationDetail = (item: any) => {
+    console.log("getItemCalculationDetail - Item:", item);
+
     if (!liveRates) return (
       <div className="flex items-center gap-2">
         <Loader2 size={10} className="animate-spin" />
@@ -156,15 +205,27 @@ const BillingPOS = () => {
       </div>
     );
     const rate = getRateForItem(item);
-    const gross = item.grams * rate;
-    const vaAmt = gross * (parseFloat(item.va || 0) / 100);
+    const netWeight = parseFloat(item.netWeight || item.grams);
+    const baseAmount = netWeight * rate;
+    const vaPercent = parseFloat(item.va || 0);
+    const vaAmt = baseAmount * (vaPercent / 100);
     const isGold22 = checkIs22K(item);
+
+    console.log("Calculation Detail:", {
+      rate,
+      netWeight,
+      baseAmount,
+      vaPercent,
+      vaAmt,
+      isGold22
+    });
 
     return (
       <div className="space-y-1.5 mt-1 border-l-2 border-gold/20 pl-3">
         <p className="tracking-tight text-slate-500 text-[10px]">
-          <span className="font-bold text-slate-700">Formula:</span> ({item.grams}g × ₹{rate.toLocaleString()}) + (VA {item.va}%: ₹{Math.round(vaAmt).toLocaleString()})
-        </p>
+          <span className="font-bold text-slate-700">Formula:</span>{" "}
+          ({netWeight}g × ₹{rate.toLocaleString()}) +
+          (VA {vaPercent}%: ₹{Math.round(vaAmt).toLocaleString()})        </p>
         {!isGold22 && !checkIsSilver(item) && (
           <div className="flex items-center gap-1.5 bg-red-50 px-2 py-0.5 rounded-md w-fit">
             <Lock size={8} className="text-red-500" />
@@ -182,11 +243,29 @@ const BillingPOS = () => {
   // ==========================================
 
   const subtotal = useMemo(() => {
-    return cart.reduce((acc, item) => acc + (getDynamicPrice(item) * item.quantity + item.stoneCost), 0);
+    const calculatedSubtotal = cart.reduce((acc, item) => acc + (getDynamicPrice(item) * item.quantity) + item.stoneCost, 0);
+    console.log("Subtotal Calculation:", {
+      itemCount: cart.length,
+      items: cart.map(item => ({
+        name: item.name,
+        price: getDynamicPrice(item),
+        quantity: item.quantity,
+        stoneCost: item.stoneCost,
+        itemTotal: (getDynamicPrice(item) * item.quantity) + item.stoneCost
+      })),
+      subtotal: calculatedSubtotal
+    });
+    return calculatedSubtotal;
   }, [cart, getDynamicPrice]);
 
   const couponAdjustments = useMemo(() => {
     if (!couponData || cart.length === 0 || !liveRates) return { goldCredit: 0, vaCredit: 0, cashCredit: 0 };
+
+    // Credit Note Coupon: Treat as cash credit
+    if (couponData.isCreditNote || couponData.type === "CREDIT_NOTE") {
+      const appliedCash = Math.min(couponData.value, subtotal);
+      return { goldCredit: 0, vaCredit: 0, cashCredit: appliedCash };
+    }
 
     if (couponData.type === "CASH") {
       const appliedCash = Math.min(couponData.value, subtotal);
@@ -200,25 +279,39 @@ const BillingPOS = () => {
 
     const eligible22K = cart
       .filter(item => checkIs22K(item))
-      .sort((a, b) => parseFloat(b.va) - parseFloat(a.va));
+      .sort((a, b) => parseFloat(b.va || 0) - parseFloat(a.va || 0));
 
     eligible22K.forEach((item) => {
       if (remainingGrams <= 0) return;
-      const weightUsed = Math.min(item.grams, remainingGrams);
+      const netWeight = parseFloat(item.netWeight || item.grams);
+      const weightUsed = Math.min(netWeight, remainingGrams);
       const goldVal = weightUsed * gold22Rate;
       totalGoldSaved += goldVal;
       // Pre-closed coupons: VA benefit is blocked — only weight/gold credit applies
       if (!couponData.isPreClosed) {
-        totalVaSaved += goldVal * (parseFloat(item.va || 0) / 100);
+        const vaPercent = parseFloat(item.va || 0);
+        totalVaSaved += goldVal * (vaPercent / 100);
       }
       remainingGrams -= weightUsed;
+    });
+
+    console.log("Coupon Adjustments:", {
+      totalGoldSaved,
+      totalVaSaved,
+      cashCredit: 0
     });
 
     return { goldCredit: totalGoldSaved, vaCredit: totalVaSaved, cashCredit: 0 };
   }, [couponData, cart, liveRates, subtotal, checkIs22K]);
 
-  // Manager discount reduces the GST base
-  const managerWaiver = isOtpVerified ? (subtotal * (managerDiscountPercent / 100)) : 0;
+  const requiresOwnerApproval = managerDiscountPercent > ADMIN_DISCOUNT_LIMIT;
+  const discountApprovalPending = requiresOwnerApproval && !isOtpVerified;
+
+  // Manager discount reduces the GST base only when it is within the admin cap
+  // or when the owner has explicitly approved a higher discount.
+  const managerWaiver = (managerDiscountPercent > 0 && (!requiresOwnerApproval || isOtpVerified))
+    ? subtotal * (managerDiscountPercent / 100)
+    : 0;
 
   const goldCartWeight = cart.filter(i => !checkIsSilver(i)).reduce((acc, i) => acc + Number(i.grams || 0), 0);
 
@@ -241,6 +334,18 @@ const BillingPOS = () => {
 
   // Final payable = GST base + GST - coupon discount
   const total = Math.max(0, Math.round(gstBase + cgst + sgst - totalCouponDiscount));
+
+  console.log("Final Billing Summary:", {
+    subtotal,
+    managerDiscount: managerWaiver,
+    gstBase,
+    cgst: Math.round(cgst),
+    sgst: Math.round(sgst),
+    couponAdjustments,
+    totalCouponDiscount,
+    totalDeductions,
+    final_total: total
+  });
 
   // Exchange value as payment contribution
   const exchangePaymentValue = isExchangeApplied ? (exchangeData.discount || 0) : 0;
@@ -282,7 +387,9 @@ const BillingPOS = () => {
       setShowToast(true);
       return;
     }
-    setCart(prev => [...prev, { ...product, quantity: 1 }]);
+    const newCartItem = { ...product, quantity: 1 };
+    console.log("Item Added to Cart:", newCartItem);
+    setCart(prev => [...prev, newCartItem]);
     setToastMessage(`${product.name} Secured`);
     setShowToast(true);
     setSearch("");
@@ -323,30 +430,102 @@ const BillingPOS = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [cart, inventory]);
 
+  const handleDiscountChange = (value: string) => {
+    const parsed = Number(value);
+    setManagerDiscountPercent(Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 0);
+  };
+
+  const handleEditItemPrice = (itemId: string, currentPrice: number) => {
+    setEditingItemId(itemId);
+    setEditingPrice(String(currentPrice));
+  };
+
+  const handleSaveItemPrice = (itemId: string) => {
+    const newPrice = parseFloat(editingPrice);
+    if (!isNaN(newPrice) && newPrice >= 0) {
+      console.log("Manual Price Edit:", {
+        itemId,
+        newPrice,
+        timestamp: new Date().toISOString()
+      });
+      setCart(prev => prev.map(item =>
+        item.id === itemId ? { ...item, manualBasePrice: newPrice } : item
+      ));
+      setEditingItemId(null);
+      setEditingPrice("");
+      setToastMessage("Item price updated successfully.");
+      setShowToast(true);
+    } else {
+      setToastMessage("Please enter a valid price.");
+      setShowToast(true);
+    }
+  };
+
   const handleApplyCoupon = async () => {
     if (!couponCode) return;
     setIsApplyingCoupon(true);
     try {
-      const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/payment/coupon/${couponCode.trim()}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
+      if (isCreditNoteCoupon) {
+        // Credit Note Coupon Mode - Fetch from credit-note API
+        const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/reports/credit-note/get/[id]?code=${couponCode.trim()}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
 
-      if (res.ok) {
-        if (data.type === "WEIGHT") {
-          const has22K = cart.some(item => checkIs22K(item));
-          if (!has22K) {
-            setToastMessage("Restriction: Gold Wallet vouchers require 22K Gold in cart.");
+        if (res.ok && data.success && data.coupons && data.coupons.length > 0) {
+          const creditNoteCoupon = data.coupons[0];
+          
+          if (creditNoteCoupon.isUsed) {
+            setToastMessage("Credit Note Coupon has already been redeemed.");
             setShowToast(true);
             setIsApplyingCoupon(false);
             return;
           }
+
+          // Format credit note coupon for consistency
+          setCouponData({
+            type: "CREDIT_NOTE",
+            code: creditNoteCoupon.code,
+            value: creditNoteCoupon.cashAmount,
+            isUsed: creditNoteCoupon.isUsed,
+            invoice: creditNoteCoupon.invoice,
+            pastInvoice: creditNoteCoupon.pastinvoice,
+            creditNotes: creditNoteCoupon.creditNotes,
+            isCreditNote: true
+          });
+          setToastMessage(`Credit Note Coupon ${creditNoteCoupon.code} Applied Successfully!`);
+          setShowToast(true);
+        } else {
+          setToastMessage(data.error || "Credit Note Coupon not found or invalid.");
+          setShowToast(true);
         }
-        setCouponData(data);
       } else {
-        setToastMessage(data.error || "Invalid Coupon Credentials");
-        setShowToast(true);
+        // Scheme Coupon Mode - Original logic
+        const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/payment/coupon/${couponCode.trim()}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+          if (data.type === "WEIGHT") {
+            const has22K = cart.some(item => checkIs22K(item));
+            if (!has22K) {
+              setToastMessage("Restriction: Gold Wallet vouchers require 22K Gold in cart.");
+              setShowToast(true);
+              setIsApplyingCoupon(false);
+              return;
+            }
+          }
+          setCouponData({ ...data, isCreditNote: false });
+        } else {
+          setToastMessage(data.error || "Invalid Coupon Credentials");
+          setShowToast(true);
+        }
       }
+    } catch (error) {
+      console.error("Coupon Application Error:", error);
+      setToastMessage("Error applying coupon. Please try again.");
+      setShowToast(true);
     } finally {
       setIsApplyingCoupon(false);
     }
@@ -360,9 +539,16 @@ const BillingPOS = () => {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (data.success) {
+
+      if (res.ok && data.success) {
         setIsOtpSent(true);
-        setToastMessage("Admin Verification OTP Sent");
+        setIsOtpVerified(false);
+        setOtp("");
+        setResendCountdown(30);
+        setToastMessage("OTP sent to the configured admin email.");
+        setShowToast(true);
+      } else {
+        setToastMessage(data.error || "Unable to send OTP.");
         setShowToast(true);
       }
     } finally {
@@ -371,16 +557,27 @@ const BillingPOS = () => {
   };
 
   const handleVerifyOTP = async () => {
+    if (!otp.trim()) {
+      setToastMessage("Enter the OTP received by the owner.");
+      setShowToast(true);
+      return;
+    }
+
     setOtpLoading(true);
     try {
       const res = await fetch("https://suvarnagold-16e5.vercel.app/api/otp/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ otp }),
+        body: JSON.stringify({ otp: otp.trim() }),
       });
-      if ((await res.json()).success) {
+      const data = await res.json();
+
+      if (res.ok && data.success) {
         setIsOtpVerified(true);
-        setToastMessage("Authorization Confirmed");
+        setToastMessage("Owner approval confirmed.");
+        setShowToast(true);
+      } else {
+        setToastMessage(data.error || "OTP verification failed.");
         setShowToast(true);
       }
     } finally {
@@ -389,6 +586,12 @@ const BillingPOS = () => {
   };
 
   const handleCheckout = async () => {
+    if (discountApprovalPending) {
+      setToastMessage("Owner approval is required for discounts above 10%. Please send and verify the OTP.");
+      setShowToast(true);
+      return;
+    }
+
     if (remainingToPay !== 0 || isFinalizing) {
       setToastMessage("Payment Mismatch: Please settle the full balance.");
       setShowToast(true);
@@ -435,17 +638,27 @@ const BillingPOS = () => {
       const data = await response.json();
       if (data.success) {
         if (couponData) {
-          await fetch(`https://suvarnagold-16e5.vercel.app/api/payment/coupon/${couponCode}/used`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ invoiceNumber: data.invoiceNumber || null }),
-          });
+          if (couponData.isCreditNote) {
+            // Mark credit note coupon as used via PATCH endpoint
+            await fetch("https://suvarnagold-16e5.vercel.app/api/payment/credit-coupon", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ code: couponCode }),
+            });
+          } else {
+            // Mark scheme coupon as used via original endpoint
+            await fetch(`https://suvarnagold-16e5.vercel.app/api/payment/coupon/${couponCode}/used`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ invoiceNumber: data.invoiceNumber || null }),
+            });
+          }
         }
         setToastMessage("Purchase Completed Successfully.");
         setShowToast(true);
         performHardReset();
         setTimeout(() => {
-          window.location.href = "/admin/reports";
+          window.location.href = "/dashboard/reports";
         }, 2000);
       } else {
         throw new Error(data.error || "Verification failed on server side.");
@@ -463,7 +676,7 @@ const BillingPOS = () => {
       try {
         const [r, p] = await Promise.all([
           fetch("https://suvarnagold-16e5.vercel.app/api/rates"),
-          fetch("http://suvarnagold-16e5.vercel.app/api/products/all", { headers: { Authorization: `Bearer ${token}` } })
+          fetch("https://suvarnagold-16e5.vercel.app/api/products/all", { headers: { Authorization: `Bearer ${token}` } })
         ]);
         setLiveRates(await r.json());
         const prodJson = await p.json();
@@ -479,12 +692,12 @@ const BillingPOS = () => {
     if (!search) return [];
     return inventory.filter(p =>
       p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.sku?.toLowerCase().includes(search.toLowerCase())
+      p.sku?.toLowerCase().includes(search.toLowerCase()) ||
+      p.itemCode?.toLowerCase().includes(search.toLowerCase())
     ).slice(0, 5);
   }, [search, inventory]);
 
   // Show loading screen while checking authentication or if not authenticated
-  
 
   return (
     <SidebarProvider>
@@ -557,7 +770,7 @@ const BillingPOS = () => {
               <div className="flex items-center gap-2 px-6 py-2.5 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-full text-[11px] font-black uppercase tracking-[0.2em]">
                 <ScanLine size={16} className="animate-pulse" /> Live
               </div>
-              <Button onClick={() => window.location.href = "/admin/reports"} variant="ghost" className="h-11 rounded-full px-6 text-slate-600 hover:text-gold font-bold">
+              <Button onClick={() => window.location.href = "/dashboard/reports"} variant="ghost" className="h-11 rounded-full px-6 text-slate-600 hover:text-gold font-bold">
                 <LayoutDashboard className="mr-2" size={18} /> Analytics
               </Button>
             </div>
@@ -608,8 +821,55 @@ const BillingPOS = () => {
                         </div>
                         <div className="flex items-center gap-6">
                           <div className="text-right">
-                            <p className="text-xl font-black text-slate-900 italic tracking-tighter">₹{(getDynamicPrice(item) * item.quantity + item.stoneCost).toLocaleString()}</p>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Base Item Cost</p>
+                            {editingItemId === item.id ? (
+                              <div className="flex flex-col gap-2 items-end">
+                                <div className="flex gap-2">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={editingPrice}
+                                    onChange={(e) => setEditingPrice(e.target.value)}
+                                    placeholder="Enter price"
+                                    className="w-24 h-8 text-right border-gold/30"
+                                    autoFocus
+                                  />
+                                  <Button
+                                    onClick={() => handleSaveItemPrice(item.id)}
+                                    variant="default"
+                                    size="sm"
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white h-8"
+                                  >
+                                    Save
+                                  </Button>
+                                  <Button
+                                    onClick={() => {
+                                      setEditingItemId(null);
+                                      setEditingPrice("");
+                                    }}
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8"
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-2 justify-end">
+                                  <p className="text-xl font-black text-slate-900 italic tracking-tighter">₹{(getDynamicPrice(item) * item.quantity + item.stoneCost).toLocaleString()}</p>
+                                  <Button
+                                    onClick={() => handleEditItemPrice(item.id, getDynamicPrice(item) * item.quantity + item.stoneCost)}
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-slate-300 hover:text-gold transition-all print:hidden"
+                                  >
+                                    <Edit2 size={14} />
+                                  </Button>
+                                </div>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Base Item Cost</p>
+                              </>
+                            )}
                           </div>
                           <Button onClick={() => removeItem(item.id)} variant="ghost" size="icon" className="h-12 w-12 rounded-full text-slate-200 hover:text-red-500 transition-all print:hidden">
                             <Trash2 size={20} />
@@ -641,81 +901,100 @@ const BillingPOS = () => {
                     </div>
 
                     <div className="flex-1 overflow-y-auto custom-scrollbar space-y-8 pr-2">
-                      {/* ADMIN OTP SECTION */}
                       <div className="space-y-4">
                         <div className="flex items-center justify-between px-2">
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                            Administrative Bypass
+                            Customer Discount Control
                           </label>
-
-                          {isOtpSent && !isOtpVerified && (
-                            <button
-                              onClick={handleRequestOTP}
-                              disabled={otpLoading || resendCountdown > 0}
-                              className={cn(
-                                "text-[10px] font-black uppercase tracking-tighter transition-all duration-300",
-                                resendCountdown > 0
-                                  ? "text-slate-300 cursor-not-allowed"
-                                  : "text-gold hover:text-amber-600 underline underline-offset-4"
-                              )}
-                            >
-                              {resendCountdown > 0
-                                ? `Resend in ${resendCountdown}s`
-                                : "Resend Code"}
-                            </button>
-                          )}
+                          <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                            Admin cap: 10%
+                          </span>
                         </div>
 
-                        <div className="flex gap-3">
-                          <div className="relative flex-1">
-                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gold/40" size={16} />
-                            <Input
-                              placeholder="ADMIN OTP"
-                              value={otp}
-                              onChange={(e) => setOtp(e.target.value)}
-                              disabled={isOtpVerified}
-                              className="h-14 pl-12 rounded-2xl text-center font-Book Antiqua font-black text-lg tracking-[0.6em] border-2 border-gold/10 focus-visible:ring-gold bg-white"
-                            />
+                        <div className="relative">
+                          <Percent className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600" size={16} />
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            placeholder="TOTAL DISCOUNT %"
+                            value={managerDiscountPercent || ""}
+                            onChange={(e) => handleDiscountChange(e.target.value)}
+                            className="h-14 pl-12 rounded-2xl text-center font-black text-xl text-emerald-700 bg-emerald-50 border-emerald-200"
+                          />
+                        </div>
+
+                        {!requiresOwnerApproval ? (
+                          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3">
+                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700">
+                              Admin may apply up to 10% without OTP.
+                            </p>
                           </div>
+                        ) : (
+                          <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">
+                                  Owner approval required
+                                </p>
+                                <p className="text-[10px] text-amber-800/85 mt-1">
+                                  OTP will be sent to the admin email configured in the backend. After verification, you can enter the total discount you want to apply.
+                                </p>
+                              </div>
+                              {isOtpSent && !isOtpVerified && (
+                                <button
+                                  onClick={handleRequestOTP}
+                                  disabled={otpLoading || resendCountdown > 0}
+                                  className={cn(
+                                    "text-[10px] font-black uppercase tracking-tighter transition-all duration-300",
+                                    resendCountdown > 0
+                                      ? "text-slate-300 cursor-not-allowed"
+                                      : "text-amber-700 hover:text-amber-900 underline underline-offset-4"
+                                  )}
+                                >
+                                  {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : "Resend Code"}
+                                </button>
+                              )}
+                            </div>
 
-                          <Button
-                            onClick={!isOtpSent ? handleRequestOTP : handleVerifyOTP}
-                            disabled={otpLoading || isOtpVerified}
-                            variant="gold"
-                            className="h-14 w-32 rounded-2xl shadow-lg transition-transform active:scale-95"
-                          >
-                            {otpLoading ? (
-                              <Loader2 className="animate-spin w-5 h-5" />
-                            ) : isOtpVerified ? (
-                              <CheckCircle2 size={24} />
-                            ) : isOtpSent ? (
-                              "VERIFY"
-                            ) : (
-                              "GET OTP"
+                            <div className="flex gap-3">
+                              <div className="relative flex-1">
+                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-500" size={16} />
+                                <Input
+                                  placeholder="OWNER OTP"
+                                  value={otp}
+                                  onChange={(e) => setOtp(e.target.value)}
+                                  disabled={isOtpVerified}
+                                  className="h-14 pl-12 rounded-2xl text-center font-Book Antiqua font-black text-lg tracking-[0.6em] border-2 border-amber-200 bg-white"
+                                />
+                              </div>
+
+                              <Button
+                                onClick={!isOtpSent ? handleRequestOTP : handleVerifyOTP}
+                                disabled={otpLoading || isOtpVerified}
+                                variant="gold"
+                                className="h-14 w-32 rounded-2xl shadow-lg transition-transform active:scale-95"
+                              >
+                                {otpLoading ? (
+                                  <Loader2 className="animate-spin w-5 h-5" />
+                                ) : isOtpVerified ? (
+                                  <CheckCircle2 size={24} />
+                                ) : isOtpSent ? (
+                                  "VERIFY"
+                                ) : (
+                                  "GET OTP"
+                                )}
+                              </Button>
+                            </div>
+
+                            {isOtpVerified && (
+                              <div className="flex items-center justify-center gap-2 py-1 bg-emerald-100/50 rounded-lg border border-emerald-100">
+                                <CheckCircle2 size={10} className="text-emerald-600" />
+                                <p className="text-[9px] text-emerald-600 font-black uppercase tracking-widest">
+                                  Owner Discount Approval Confirmed
+                                </p>
+                              </div>
                             )}
-                          </Button>
-                        </div>
-
-                        {/* PRIVILEGED DISCOUNT AREA */}
-                        {isOtpVerified && (
-                          <div className="space-y-2 animate-in slide-in-from-top-2 duration-500">
-                            <div className="relative">
-                              <Percent className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600" size={16} />
-                              <Input
-                                type="number"
-                                min="0"
-                                placeholder="SPECIAL DISCOUNT %"
-                                value={managerDiscountPercent || ""}
-                                onChange={(e) => setManagerDiscountPercent(Number(e.target.value))}
-                                className="h-14 pl-12 rounded-xl text-center font-black text-xl text-emerald-700 bg-emerald-50 border-emerald-200"
-                              />
-                            </div>
-                            <div className="flex items-center justify-center gap-2 py-1 bg-emerald-100/50 rounded-lg border border-emerald-100">
-                              <CheckCircle2 size={10} className="text-emerald-600" />
-                              <p className="text-[9px] text-emerald-600 font-black uppercase tracking-widest">
-                                Privileged Discount Unlocked
-                              </p>
-                            </div>
                           </div>
                         )}
                       </div>
@@ -725,9 +1004,31 @@ const BillingPOS = () => {
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2 flex items-center gap-2">
                           <Wallet size={12} className="text-gold" /> Rewards Voucher
                         </label>
+
+                        {/* Credit Note Toggle */}
+                        <div className="flex items-center gap-3 px-4 py-3 bg-gold/5 rounded-2xl border-2 border-gold/20 hover:border-gold/40 transition-colors">
+                          <input
+                            type="checkbox"
+                            id="creditNoteToggle"
+                            checked={isCreditNoteCoupon}
+                            onChange={(e) => {
+                              setIsCreditNoteCoupon(e.target.checked);
+                              setCouponCode("");
+                              setCouponData(null);
+                            }}
+                            className="w-4 h-4 cursor-pointer accent-gold"
+                          />
+                          <label htmlFor="creditNoteToggle" className="flex-1 text-[9px] font-black text-slate-600 uppercase tracking-widest cursor-pointer">
+                            {isCreditNoteCoupon ? "💳 Credit Note Coupon" : "🎟️ Scheme Coupon"}
+                          </label>
+                          <span className="text-[8px] font-black text-gold uppercase tracking-tighter">
+                            {isCreditNoteCoupon ? "Return Mode" : "Regular Mode"}
+                          </span>
+                        </div>
+
                         <div className="flex gap-3">
                           <Input
-                            placeholder="VOUCHER CODE"
+                            placeholder={isCreditNoteCoupon ? "CREDIT NOTE CODE" : "VOUCHER CODE"}
                             value={couponCode}
                             disabled={!!couponData}
                             onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
@@ -740,13 +1041,18 @@ const BillingPOS = () => {
                           )}
                         </div>
                         {couponData && (
-                          <div className={`p-3 border rounded-xl space-y-1 ${couponData.isPreClosed ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-100'}`}>
-                            <p className={`text-[10px] font-black text-center uppercase tracking-tighter italic ${couponData.isPreClosed ? 'text-red-700' : 'text-blue-700'}`}>
-                              Voucher Type: {couponData.type} - {couponData.type === 'CASH' ? 'Applicable Globally' : '22K Gold Specific'}
+                          <div className={`p-3 border rounded-xl space-y-1 ${couponData.isCreditNote ? 'bg-purple-50 border-purple-200' : couponData.isPreClosed ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-100'}`}>
+                            <p className={`text-[10px] font-black text-center uppercase tracking-tighter italic ${couponData.isCreditNote ? 'text-purple-700' : couponData.isPreClosed ? 'text-red-700' : 'text-blue-700'}`}>
+                              Voucher Type: {couponData.isCreditNote ? 'CREDIT NOTE' : couponData.type} - {couponData.isCreditNote ? 'Cash Credit' : couponData.type === 'CASH' ? 'Applicable Globally' : '22K Gold Specific'}
                             </p>
-                            {couponData.isPreClosed && (
+                            {couponData.isPreClosed && !couponData.isCreditNote && (
                               <p className="text-[10px] font-black text-red-600 text-center uppercase tracking-tighter">
                                 ⚠ Pre-Closed — VA benefit blocked
+                              </p>
+                            )}
+                            {couponData.isCreditNote && (
+                              <p className="text-[10px] font-black text-purple-600 text-center uppercase tracking-tighter">
+                                ✓ Credit Note Applied - Invoice: {couponData.invoice}
                               </p>
                             )}
                           </div>
@@ -794,7 +1100,7 @@ const BillingPOS = () => {
                             <span>Tax (GST 3%)</span>
                             {managerWaiver > 0 && (
                               <span className="text-[9px] text-slate-300 normal-case font-medium tracking-normal">
-                                </span>
+                              </span>
                             )}
                           </span>
                           <span>₹{Math.round(cgst + sgst).toLocaleString()}</span>
@@ -808,7 +1114,7 @@ const BillingPOS = () => {
                         <p className="text-4xl font-Book Antiqua font-black text-slate-900 tracking-tighter">₹{total.toLocaleString()}</p>
                       </div>
                       <Button
-                        disabled={cart.length === 0}
+                        disabled={cart.length === 0 || discountApprovalPending}
                         onClick={() => setCheckoutStep(2)}
                         variant="gold"
                         className="w-full h-16 rounded-[1.5rem] shadow-xl text-lg font-black uppercase tracking-widest"
@@ -989,7 +1295,7 @@ const BillingPOS = () => {
                         onClick={handleCheckout}
                         variant="gold"
                         className="w-full h-18 rounded-3xl text-xl font-black uppercase tracking-widest py-8"
-                        disabled={remainingToPay !== 0 || !customer.name || !customer.phone || isFinalizing}
+                        disabled={remainingToPay !== 0 || !customer.name || !customer.phone || isFinalizing || discountApprovalPending}
                       >
                         {isFinalizing ? (
                           <div className="flex items-center gap-3">

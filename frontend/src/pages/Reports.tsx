@@ -103,7 +103,7 @@ const Reports = () => {
                     grossWt: p.grossWt,
                     netWt: p.netWt,
                     va: p.va,
-                    huid: p.huid,
+                    huid: p.itemCode,
                     itemCost: p.itemCost,
                     grams: p.grams,
                     sku: p.sku,
@@ -241,7 +241,7 @@ const Reports = () => {
                         "Product Name": item.productName, // Separate Column
                         "Category": item.category,       // Separate Column
                         "SKU": item.sku || "N/A",        // Separate Column
-                        "HUID": item.huid || "N/A",      // Separate Column
+                        "HUID": item.itemCode || "N/A",      // Separate Column
                         "Purity": item.purity,           // Separate Column
                         "Gross Wt (g)": item.grossWt,    // Separate Column
                         "Net Wt (g)": item.netWt,        // Separate Column
@@ -433,7 +433,7 @@ const Reports = () => {
 
                 // Email sits immediately below the last address line
                 const emailY = INV_Y + 26 + addrLines * 10 + 2;
-                // draw(`Email: ${purchase.email}`, CUST_X, emailY, 7, grey);
+                draw(`Email: ${purchase.email}`, CUST_X, emailY, 7, grey);
 
                 // Divider sits 12 px below email
                 const sepY = emailY + 12;
@@ -470,6 +470,7 @@ const Reports = () => {
             // ── Single item row ───────────────────────────────────────────────────
             const stampItemRow = (page: any, item: any, afterY: number): number => {
                 const { draw, drawR, hLine, drawWrapped } = makePen(page);
+                console.log("Stamping item:", item);
                 const R = afterY + 18;
 
                 const k = String(item.purity || "").replace(/\D/g, "") || "22";
@@ -490,7 +491,7 @@ const Reports = () => {
                 const skuY = R + nameLines * 11 + 2;
                 const huidY = skuY + 11;
                 draw(`SKU:  ${item.sku || "N/A"}`, col.name, skuY, 7, grey);
-                // draw(`HUID: ${item.huid || "N/A"}`, col.name, huidY, 7, grey);
+                draw(`ItemCode: ${item.huid || "N/A"}`, col.name, huidY, 7, grey);
 
                 // Purity + stone cost — always anchored at row top
                 draw(item.purity, col.purity, R, 9, black);
@@ -614,7 +615,7 @@ const Reports = () => {
                         payRow("UPI", purchase.payments.upi);
                     if (purchase.exchangeDiscount > 0) {
                         const exchLabel = purchase.exchangeName
-                            ? `Exchange (${purchase.exchangeName}${purchase.exchangeGrams ? ` | ${purchase.exchangeGrams}g` : ""})`
+                            ? `Exchange [${purchase.exchangeName}]`
                             : "Exchange";
                         payRow(exchLabel, purchase.exchangeDiscount);
                     }
@@ -691,7 +692,7 @@ const Reports = () => {
                         Authorization: `Bearer ${token}`,
                     },
                     body: JSON.stringify({
-                        email: "adapajayanth131@gmail.com",
+                        email: purchase.email,
                         customerName: purchase.customer,
                         invoice: purchase.invoice,
                         pdfData: pdfBase64,
@@ -700,7 +701,7 @@ const Reports = () => {
             }
 
             // ══════════════════════════════════════════════════════════════════════
-            // 2. PRINT / DOWNLOAD PDF — blank page (data only)
+            // 2. PRINT PDF — blank page (data only)
             // ══════════════════════════════════════════════════════════════════════
             const printDoc = await PDFDocument.create();
             printDoc.registerFontkit(fontkit);
@@ -715,8 +716,26 @@ const Reports = () => {
             const pdfUrl = URL.createObjectURL(blob);
 
             if (mode === "download") {
+                // 3. DOWNLOAD PDF — branded template
+                const downloadDoc = await PDFDocument.create();
+                downloadDoc.registerFontkit(fontkit);
+                customFont = await downloadDoc.embedFont(fontBytes);
+
+                const templateDoc = await PDFDocument.load(templateBytes);
+
+                await buildPages(downloadDoc, async () => {
+                    const [copied] = await downloadDoc.copyPages(templateDoc, [0]);
+                    copied.setSize(A5_W, A5_H);
+                    downloadDoc.addPage(copied);
+                    return copied;
+                });
+
+                const downloadBytes = await downloadDoc.save();
+                const downloadBlob = new Blob([downloadBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+                const downloadUrl = URL.createObjectURL(downloadBlob);
+
                 const link = document.createElement("a");
-                link.href = pdfUrl;
+                link.href = downloadUrl;
                 link.download = `Invoice_${purchase.invoice}.pdf`;
                 link.click();
             } else {

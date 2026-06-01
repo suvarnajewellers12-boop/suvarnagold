@@ -77,10 +77,21 @@ export default function GoldJobWorkPage() {
       const lightGrey = rgb(0.85, 0.85, 0.85);
       const emerald = rgb(0.06, 0.47, 0.23);
 
-      const pdfDoc = await PDFDocument.create();
+      // Use template for download, blank sheet for print
+      let pdfDoc: any;
+      if (mode === "download") {
+        const templateBytes = await fetch("/receipt.pdf").then((res) => res.arrayBuffer());
+        pdfDoc = await PDFDocument.load(templateBytes);
+        const page = pdfDoc.getPages()[0];
+        page.setSize(A5_W, A5_H);
+      } else {
+        pdfDoc = await PDFDocument.create();
+        pdfDoc.addPage([A5_W, A5_H]);
+      }
+
       pdfDoc.registerFontkit(fontkit);
       const customFont = await pdfDoc.embedFont(fontBytes);
-      const page = pdfDoc.addPage([A5_W, A5_H]);
+      const page = pdfDoc.getPages()[0];
 
       const makePen = (page: any) => {
         const draw = (text: string, x: number, yFromTop: number, size = 9, color = black) =>
@@ -112,56 +123,55 @@ export default function GoldJobWorkPage() {
 
       // ── HEADER ──────────────────────────────────────────────────
       const HDR_Y = SAFE_TOP + 10;
-      draw("SUVARNA JEWELLERS", MARGIN_L, HDR_Y, 11, gold);
-      const typeLabel = type === "SETTLEMENT" ? "MANUFACTURING FINAL SETTLEMENT" : "MANUFACTURING DISPATCH SLIP";
-      draw(typeLabel, MARGIN_L, HDR_Y + 14, 8.5, black);
-      drawR(`JOB: ${job.id.substring(0, 8).toUpperCase()}`, MARGIN_R, HDR_Y, 9, black);
-      drawR(`Date: ${format(new Date(), "dd-MM-yyyy")}`, MARGIN_R, HDR_Y + 12, 8, grey);
-      hLine(HDR_Y + 28);
+      const typeLabel = type === "SETTLEMENT" ? "SETTLEMENT SLIP" : "DISPATCH SLIP";
+      draw(typeLabel, MARGIN_L, HDR_Y, 9.5, black);
+      drawR(`JOB: ${job.id.substring(0, 8).toUpperCase()}`, MARGIN_R, HDR_Y, 8, grey);
+      drawR(`Date: ${format(new Date(), "dd-MM-yyyy")}`, MARGIN_R, HDR_Y + 12, 7.5, grey);
+      hLine(HDR_Y + 26);
 
       // ── WORKER DETAILS ───────────────────────────────────────
-      const WORKER_Y = HDR_Y + 42;
-      draw("WORKER ASSIGNED", MARGIN_L, WORKER_Y, 8, grey);
-      draw(job.workerName, MARGIN_L, WORKER_Y + 12, 9, black);
-      draw(`Product: ${job.productType}`, MARGIN_L, WORKER_Y + 24, 8, grey);
-      draw(`Making Charge: ₹${Number(job.makingCharge || 0).toLocaleString()}`, MARGIN_L, WORKER_Y + 36, 8, grey);
-      hLine(WORKER_Y + 50);
+      const WORKER_Y = HDR_Y + 38;
+      draw("WORKER", MARGIN_L, WORKER_Y, 7.5, grey);
+      draw(job.workerName, MARGIN_L, WORKER_Y + 11, 8.5, black);
+      draw(`Product: ${job.productType}`, MARGIN_L, WORKER_Y + 22, 7.5, grey);
+      draw(`Making Charge: ₹${Number(job.makingCharge || 0).toLocaleString()}`, MARGIN_L, WORKER_Y + 32, 7.5, grey);
+      hLine(WORKER_Y + 42);
 
       // ── ASSIGNED ORDERS TABLE ────────────────────────────────
-      const TBL_Y = WORKER_Y + 68;
+      const TBL_Y = WORKER_Y + 58;
       const col = { ordId: MARGIN_L, item: MARGIN_L + 80, weight: MARGIN_R };
 
-      draw("ORDER ID", col.ordId, TBL_Y, 7.5, grey);
-      draw("ITEM NAME", col.item, TBL_Y, 7.5, grey);
-      drawR("NET WT (g)", col.weight, TBL_Y, 7.5, grey);
-      hLine(TBL_Y + 10);
+      draw("ORDER", col.ordId, TBL_Y, 6.5, grey);
+      draw("ITEM", col.item, TBL_Y, 6.5, grey);
+      drawR("NET (g)", col.weight, TBL_Y, 6.5, grey);
+      hLine(TBL_Y + 9);
 
-      let rowY = TBL_Y + 22;
+      let rowY = TBL_Y + 18;
       if (job.assignedOrders && Array.isArray(job.assignedOrders)) {
         job.assignedOrders.forEach((order: any) => {
-          if (rowY > SAFE_BOTTOM - 150) return;
-          draw(order.orderId || "N/A", col.ordId, rowY, 8, black);
-          draw(order.itemName || "Item", col.item, rowY, 8, black);
-          drawR(`${order.netWeight || 0}`, col.weight, rowY, 8, black);
-          rowY += 14;
+          if (rowY > SAFE_BOTTOM - 130) return;
+          draw(order.orderId || "N/A", col.ordId, rowY, 7, black);
+          draw(order.itemName || "Item", col.item, rowY, 7, black);
+          drawR(`${order.netWeight || 0}`, col.weight, rowY, 7, black);
+          rowY += 12;
         });
       }
       hLine(rowY + 5);
 
       // ── GOLD ACCOUNTING ──────────────────────────────────────
-      const ACC_Y = rowY + 25;
-      draw("GOLD ACCOUNTING", MARGIN_L, ACC_Y, 8, gold);
-      draw(`Total Gold Sent: ${totalGrams.toFixed(3)}g`, MARGIN_L, ACC_Y + 14, 8.5, black);
+      const ACC_Y = rowY + 20;
+      draw("ACCOUNTING", MARGIN_L, ACC_Y, 7.5, grey);
+      draw(`Sent: ${totalGrams.toFixed(3)}g`, MARGIN_L, ACC_Y + 11, 7.5, black);
 
       if (type === "SETTLEMENT") {
-        draw(`Gold Returned: ${Number(job.returnedGoldGrams || 0).toFixed(3)}g`, MARGIN_L, ACC_Y + 28, 8.5, emerald);
-        draw(`Wastage Loss: ${Number(job.wastageGrams || 0).toFixed(3)}g`, MARGIN_L, ACC_Y + 42, 8.5, grey);
+        draw(`Returned: ${Number(job.returnedGoldGrams || 0).toFixed(3)}g`, MARGIN_L, ACC_Y + 21, 7.5, emerald);
+        draw(`Wastage: ${Number(job.wastageGrams || 0).toFixed(3)}g`, MARGIN_L, ACC_Y + 31, 7.5, grey);
       }
 
       // ── FINANCIAL BOX ────────────────────────────────────────
-      const FIN_Y = ACC_Y + 65;
-      const finBoxW = 180;
-      const finBoxH = type === "SETTLEMENT" ? 70 : 55;
+      const FIN_Y = ACC_Y + 50;
+      const finBoxW = 160;
+      const finBoxH = type === "SETTLEMENT" ? 65 : 50;
       const finBoxX = MARGIN_R - finBoxW;
       const finBoxBottomY = A5_H - FIN_Y - finBoxH;
 
@@ -175,55 +185,47 @@ export default function GoldJobWorkPage() {
         borderWidth: 1.2,
       });
 
-      page.drawText("FINANCIAL SUMMARY", {
+      page.drawText("SUMMARY", {
         x: finBoxX + 10,
         y: finBoxBottomY + (finBoxH - 12),
-        size: 7.5,
+        size: 6.5,
         font: customFont,
         color: grey,
       });
 
-      const finLine1 = `Total: ₹${totalLabor.toLocaleString()}`;
-      page.drawText(finLine1, {
+      page.drawText(`Total: ₹${totalLabor.toLocaleString()}`, {
         x: finBoxX + 10,
-        y: finBoxBottomY + (finBoxH - 28),
-        size: 8,
+        y: finBoxBottomY + (finBoxH - 26),
+        size: 7,
         font: customFont,
         color: black,
       });
 
-      const finLine2 = `Advance: ₹${advancePaid.toLocaleString()}`;
-      page.drawText(finLine2, {
+      page.drawText(`Advance: ₹${advancePaid.toLocaleString()}`, {
         x: finBoxX + 10,
-        y: finBoxBottomY + (finBoxH - 42),
-        size: 8,
+        y: finBoxBottomY + (finBoxH - 38),
+        size: 7,
         font: customFont,
         color: grey,
       });
 
       if (type === "SETTLEMENT") {
-        const finLine3 = `Balance: ₹0.00 ✓`;
-        page.drawText(finLine3, {
+        page.drawText(`Settled `, {
           x: finBoxX + 10,
           y: finBoxBottomY + 8,
-          size: 8,
+          size: 7,
           font: customFont,
           color: emerald,
         });
       } else {
-        const finLine3 = `Balance Due: ₹${balance.toLocaleString()}`;
-        page.drawText(finLine3, {
+        page.drawText(`Balance: ₹${balance.toLocaleString()}`, {
           x: finBoxX + 10,
-          y: finBoxBottomY + 8,
-          size: 8,
+          y: finBoxBottomY + 5,
+          size: 7,
           font: customFont,
           color: gold,
         });
       }
-
-      // ── FOOTER ──────────────────────────────────────────────
-      const FTR_Y = SAFE_BOTTOM - 25;
-      draw(`Manufacturing Reference: Job${job.id.substring(0, 8)}`, MARGIN_L, FTR_Y, 7, grey);
 
       const pdfBytes = await pdfDoc.save();
       const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
@@ -403,11 +405,15 @@ export default function GoldJobWorkPage() {
              <div className="flex items-center gap-5 relative z-10 text-left">
                 <div><DialogTitle className="text-4xl font-serif font-bold text-gold tracking-tight">{selectedJob?.workerName}</DialogTitle></div>
              </div>
-             <div className="flex gap-4 relative z-10">
-                <Button onClick={() => handleJobReceipt(selectedJob, "print", "ASSIGNMENT")} variant="outline" className="border-white/20 text-white h-12 rounded-xl transition-all">Dispatch Slip</Button>
+             <div className="flex gap-2 relative z-10">
+                <Button onClick={() => handleJobReceipt(selectedJob, "print", "ASSIGNMENT")} variant="outline" className="border-white/20 text-white h-10 px-3 rounded-lg text-sm transition-all"><Printer className="w-4 h-4 mr-1" />Print</Button>
+                <Button onClick={() => handleJobReceipt(selectedJob, "download", "ASSIGNMENT")} variant="outline" className="border-white/20 text-white h-10 px-3 rounded-lg text-sm transition-all"><Download className="w-4 h-4 mr-1" />Save</Button>
                 {/* Fixed the button visibility condition here */}
                 {selectedJob?.status === "COMPLETED" && (
-                  <Button onClick={() => handleJobReceipt(selectedJob, "print", "SETTLEMENT")} className="bg-emerald-600 text-white h-12 rounded-xl font-bold transition-all shadow-lg">Settlement Invoice</Button>
+                  <>
+                    <Button onClick={() => handleJobReceipt(selectedJob, "print", "SETTLEMENT")} className="bg-emerald-600 text-white h-10 px-3 rounded-lg text-sm font-bold transition-all shadow-lg"><Printer className="w-4 h-4 mr-1" />Print</Button>
+                    <Button onClick={() => handleJobReceipt(selectedJob, "download", "SETTLEMENT")} className="bg-emerald-600 text-white h-10 px-3 rounded-lg text-sm font-bold transition-all shadow-lg"><Download className="w-4 h-4 mr-1" />Save</Button>
+                  </>
                 )}
              </div>
           </DialogHeader>
