@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
 
 // 🔹 CORS helper (fully open)
 function corsHeaders() {
@@ -19,35 +18,41 @@ export async function OPTIONS() {
   });
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    // 🔐 Authentication check (but no branch filtering - productImgs doesn't have branchName yet)
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new NextResponse(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: corsHeaders() }
-      );
-    }
+    // 🔓 REMOVED AUTHENTICATION - This route is now fully public
 
-    const token = authHeader.split(" ")[1];
-    verifyToken(token); // Just verify the token is valid
-
-    // For now, return all product images (productImgs table doesn't have branchName field)
-    // TODO: Add branchName to ProductImgs schema and implement branch filtering
+    // Fetch products
     const products = await prisma.productImgs.findMany({
       orderBy: { createdAt: "desc" },
     });
 
-    const formatted = products.map((p) => ({
-      id: p.id,
-      title: p.title,
-      description: p.description,
-      weight: p.weight,
-      image: `data:image/jpeg;base64,${Buffer.from(p.image).toString("base64")}`,
-      metalType: p.metalType,
-      carats: p.carats,
-    }));
+    // Safely handle missing images or different data types
+    const formatted = products.map((p) => {
+      let safeImageString = "";
+      
+      if (p.image) {
+        // Check if the database stored it as a String or a Buffer/Bytes
+        const base64Data = typeof p.image === 'string' 
+            ? p.image 
+            : Buffer.from(p.image).toString("base64");
+            
+        // Prevent double-prefixing if it already has data:image/jpeg;base64,
+        safeImageString = base64Data.startsWith("data:image") 
+            ? base64Data 
+            : `data:image/jpeg;base64,${base64Data}`;
+      }
+
+      return {
+        id: p.id,
+        title: p.title || "Unknown Product",
+        description: p.description || "",
+        weight: p.weight || 0,
+        image: safeImageString, // Will safely be an empty string if image is missing
+        metalType: p.metalType || "gold",
+        carats: p.carats || "22k",
+      };
+    });
 
     return new NextResponse(JSON.stringify(formatted), {
       status: 200,
@@ -55,10 +60,13 @@ export async function GET(req: Request) {
     });
 
   } catch (error) {
-    console.error("Fetch error:", error);
+    console.error("🔥 CRITICAL Fetch error:", error);
 
     return new NextResponse(
-      JSON.stringify({ error: "Failed to fetch" }),
+      JSON.stringify({ 
+        error: "Failed to fetch", 
+        details: error instanceof Error ? error.message : "Unknown error" 
+      }),
       { status: 500, headers: corsHeaders() }
     );
   }
