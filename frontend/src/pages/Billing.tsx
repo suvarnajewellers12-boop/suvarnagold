@@ -205,7 +205,7 @@ const BillingPOS = () => {
       </div>
     );
     const rate = getRateForItem(item);
-    const netWeight = parseFloat(item.netWeight || item.grams);
+    const netWeight = parseFloat(item.grams-(item.stoneWeight || 0) || item.grams);
     const baseAmount = netWeight * rate;
     const vaPercent = parseFloat(item.va || 0);
     const vaAmt = baseAmount * (vaPercent / 100);
