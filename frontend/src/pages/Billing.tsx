@@ -164,7 +164,7 @@ const BillingPOS = () => {
       name: item.name,
       manualBasePrice: item.manualBasePrice,
       grams: item.grams,
-      netWeight: item.netWeight,
+      netWeight: item.grams-(item.stoneWeight || 0),
       carats: item.carats,
       va: item.va,
       stoneCost: item.stoneCost
@@ -177,7 +177,7 @@ const BillingPOS = () => {
     if (!liveRates || !item.grams) return 0;
 
     const rate = getRateForItem(item);
-    const netWeight = parseFloat(item.netWeight || item.grams);
+    const netWeight = parseFloat(item.grams- (item.stoneWeight || 0) || item.grams);
     const baseAmount = rate * netWeight;
     const vaPercent = parseFloat(item.va || 0);
     const vaAmount = baseAmount * (vaPercent / 100);
