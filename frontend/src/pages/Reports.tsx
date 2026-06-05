@@ -476,7 +476,7 @@ const Reports = () => {
                 const k = String(item.purity || "").replace(/\D/g, "") || "22";
                 const rateStr = liveRates[`gold${k}`] || liveRates.gold22;
                 const effectiveRate = parseFloat(String(rateStr).replace(/[^\d.-]/g, "")) || 0;
-                const vaAmount = effectiveRate * item.grams * (item.va / 100);
+                const vaAmount = effectiveRate * (item.grams - (item.stoneWeight || 0)) * (item.va / 100);
 
                 // Product name — wrap within the name column width
                 const NAME_MAXW = col.purity - col.name - 4;
@@ -501,7 +501,7 @@ const Reports = () => {
                 // Numeric columns
                 draw(`${item.grams}g`, col.gross, R, 9);
                 draw(`${item.stoneWeight}g`, col.sWt, R, 9);
-                draw(`${item.netWt}g`, col.net, R, 9);
+                draw(`${item.grams - (item.stoneWeight || 0)}g`, col.net, R, 9);
                 draw(Math.round(effectiveRate).toLocaleString(), col.rate, R, 9);
                 draw(Math.round(vaAmount).toLocaleString(), col.va, R, 9);
                 drawR(item.itemCost.toLocaleString(), col.price, R, 9);
