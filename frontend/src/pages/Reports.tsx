@@ -52,7 +52,7 @@ const Reports = () => {
     // Start with undefined so it doesn't immediately filter by "Today" on load
     const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedPayments, setSelectedPayments] = useState<string[]>(["cash", "upi", "card", "cheque"]);
+    const [selectedPayments, setSelectedPayments] = useState<string[]>(["cash", "upi", "card", "cheque", "exchange"]);
     const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
     const [ALL_PURCHASES, setPurchases] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -95,20 +95,20 @@ const Reports = () => {
 
             const grouped = (data.purchases || []).reduce((acc: any[], p: any) => {
                 const existing = acc.find((x: any) => x.id === p.id);
-                console.log(p.productName)
+                console.log("Processing purchase:", p.invoice, p.customerName);
                 const itemObj = {
-                    productName: p.productName,
-                    category: p.category,
-                    purity: p.purity,
-                    grossWt: p.grossWt,
-                    netWt: p.netWt,
-                    va: p.va,
-                    huid: p.itemCode,
-                    itemCost: p.itemCost,
-                    grams: p.grams,
-                    sku: p.sku,
-                    stoneWeight: p.stoneWeight,
-                    stoneCost: p.stoneCost
+                    productName: p.productName || "Unknown",
+                    category: p.category || "N/A",
+                    purity: p.purity || "N/A",
+                    grossWt: p.grossWt || 0,
+                    netWt: p.netWt || 0,
+                    va: p.va || 0,
+                    huid: p.itemCode || "N/A",
+                    itemCost: p.itemCost || 0,
+                    grams: p.grams || 0,
+                    sku: p.sku || "N/A",
+                    stoneWeight: p.stoneWeight || 0,
+                    stoneCost: p.stoneCost || 0
                 };
 
                 if (existing) {
@@ -117,36 +117,36 @@ const Reports = () => {
                     acc.push({
                         id: p.id,
                         couponDiscount: p.couponDiscount || 0,
-                        customer: p.customerName,
-                        phone: p.phoneNumber,
-                        email: p.emailid,
-                        address: p.Address,
+                        customer: p.customerName || "N/A",
+                        phone: p.phoneNumber || "N/A",
+                        email: p.emailid || "N/A",
+                        address: p.Address || "N/A",
                         date: new Date(p.purchasedAt),
-                        paymentId: p.paymentId,
-                        paymentStatus: p.paymentStatus,
-                        subtotal: Number(p.totalAmount),
-                        cgst: Number(p.cgstAmount),
-                        sgst: Number(p.sgstAmount),
+                        paymentId: p.paymentId || "N/A",
+                        paymentStatus: p.paymentStatus || "Pending",
+                        subtotal: Number(p.totalAmount) || 0,
+                        cgst: Number(p.cgstAmount) || 0,
+                        sgst: Number(p.sgstAmount) || 0,
                         discount: Number(p.discountAmount) || 0,
                         exchangeDiscount: Number(p.jewelleryexchangediscount || 0),
-                        exchangeName: p.excahngejewellryname,
-                        exchangeGrams: p.excahngejewellrygrams,
-                        grandTotal: Number(p.finalAmount),
-                        sku: p.sku,
-                        invoice: p.invoice,
+                        exchangeName: p.excahngejewellryname || "None",
+                        exchangeGrams: p.excahngejewellrygrams || 0,
+                        grandTotal: Number(p.finalAmount) || 0,
+                        sku: p.sku || "N/A",
+                        invoice: p.invoice || "N/A",
                         payments: {
                             cash: Number(p.cashAmount || 0),
                             upi: Number(p.upiAmount || 0),
                             card: Number(p.cardAmount || 0),
                             cheque: Number(p.chequeAmount || 0),
-
+                            exchange: Number(p.jewelleryexchangediscount || 0),
                         },
                         items: [itemObj],
                     });
                 }
                 return acc;
             }, []);
-            console.log("Grouped Data:", grouped);
+            console.log("Grouped Data - Total records:", grouped.length, grouped);
 
             setPurchases(grouped);
             reportsCache = grouped;
@@ -163,13 +163,16 @@ const Reports = () => {
 
     const filteredData = useMemo(() => {
         const now = new Date();
-        return ALL_PURCHASES.filter((item) => {
-            // 1. Search Filter (Customer Name or Phone)
-            const matchesSearch =
-                item.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                item.phone.includes(searchQuery) ||
-                item.invoice.includes(searchQuery);
-            if (!matchesSearch) return false;
+        const filtered = ALL_PURCHASES.filter((item) => {
+            // 1. Search Filter (Customer Name or Phone) - with null safety
+            if (searchQuery.trim() !== "") {
+                const q = searchQuery.toLowerCase();
+                const matchesSearch =
+                    (item.customer?.toString().toLowerCase() || "").includes(q) ||
+                    (item.phone?.toString() || "").includes(q) ||
+                    (item.invoice?.toString().toLowerCase() || "").includes(q);
+                if (!matchesSearch) return false;
+            }
 
             // 2. Time Filtering
             const itemDate = item.date;
@@ -195,16 +198,22 @@ const Reports = () => {
                     matchesTime = isWithinInterval(itemDate, { start, end });
                 }
             }
-            // console.log("ALL_PURCHASES", ALL_PURCHASES);
 
             if (!matchesTime) return false;
 
             // 3. Payment Type Filtering
             if (selectedPayments.length === 0) return false;
-            const hasSelectedPayment = selectedPayments.some(type => item.payments[type as keyof typeof item.payments] > 0);
+            const hasSelectedPayment = selectedPayments.some(type => {
+                const amount = item.payments[type as keyof typeof item.payments];
+                return amount > 0;
+            });
 
             return hasSelectedPayment;
         });
+
+        // Debug: log filtering results
+        console.log(`Filtered: ${filtered.length} out of ${ALL_PURCHASES.length}`);
+        return filtered;
     }, [timeRange, dateRange, selectedPayments, searchQuery, ALL_PURCHASES]);
 
     const financialSummary = useMemo(() => {
@@ -213,10 +222,11 @@ const Reports = () => {
             acc.totalUpi += curr.payments.upi;
             acc.totalCard += curr.payments.card;
             acc.totalCheque += curr.payments.cheque;
+            acc.totalExchange += curr.payments.exchange;
             acc.grandTotal += curr.grandTotal;
 
             return acc;
-        }, { totalCash: 0, totalUpi: 0, totalCard: 0, totalCheque: 0, grandTotal: 0 });
+        }, { totalCash: 0, totalUpi: 0, totalCard: 0, totalCheque: 0, totalExchange: 0, grandTotal: 0 });
     }, [filteredData]);
 
 
@@ -838,7 +848,7 @@ const Reports = () => {
                             <div className="flex flex-col gap-2">
                                 <span className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Filter className="w-3 h-3" /> Payment Methods</span>
                                 <div className="flex gap-4 items-center bg-secondary/30 px-4 py-2 rounded-lg border border-primary/5">
-                                    {["cash", "upi", "card", "cheque"].map((type) => (
+                                    {["cash", "upi", "card", "cheque", "exchange"].map((type) => (
                                         <label key={type} className="flex items-center gap-2 cursor-pointer group">
                                             <Checkbox
                                                 checked={selectedPayments.includes(type)}
@@ -879,6 +889,13 @@ const Reports = () => {
                                     <ScrollText className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">CHEQUE</span>
                                 </div>
                                 <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalCheque.toLocaleString()}</div>
+                            </LuxuryCard>
+
+                            <LuxuryCard className="p-4 border-l-4 border-amber-600 bg-white shadow-sm">
+                                <div className="flex items-center gap-2 text-amber-700 mb-1">
+                                    <Repeat className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">EXCHANGE</span>
+                                </div>
+                                <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalExchange.toLocaleString()}</div>
                             </LuxuryCard>
 
                             <LuxuryCard className="p-4 bg-primary text-primary-foreground shadow-lg">

@@ -291,7 +291,7 @@ export const ProductCard = ({
               <div className="bg-amber-50 px-3 py-2 rounded-2xl border border-amber-200/50">
                 <p className="text-[9px] font-bold text-amber-600 uppercase">Total Net Weight</p>
                 <p className="text-xl font-mono font-black text-amber-900">
-                  {Number(product.netWeight).toFixed(3)}g
+                  {Number((product.grams || 0) - (product.stoneWeight || 0)).toFixed(3)}g
                 </p>
               </div>
               <Button

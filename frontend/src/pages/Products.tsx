@@ -539,7 +539,8 @@ const Products = () => {
       cleanMatch(p.branchName, filters.branch) &&
       (!q || (p.sku?.toString().toLowerCase() || "").includes(q) ||
         (p.name?.toString().toLowerCase() || "").includes(q) ||
-        (p.itemCode?.toString().toLowerCase() || "").includes(q))
+        (p.itemCode?.toString().toLowerCase() || "").includes(q) ||
+        (p.grams?.toString().toLowerCase() || "").includes(q))
     );
   }, [products, filters, searchQuery]);
 
@@ -657,7 +658,7 @@ const Products = () => {
                   <div className="flex justify-between items-center">
                     <div>
                       <p className="text-[8px] uppercase font-black text-amber-600 tracking-widest">Aggregated Net Weight</p>
-                      <p className="text-2xl font-mono font-black text-amber-900 tracking-tighter">{formData.netWeight} <span className="text-xs font-serif">g</span></p>
+                      <p className="text-2xl font-mono font-black text-amber-900 tracking-tighter">{Number((formData.grams || 0) - (formData.stoneWeight || 0)).toFixed(3)} <span className="text-xs font-serif">g</span></p>
                     </div>
                     <Layers className="w-6 h-6 text-amber-200/50" />
                   </div>

@@ -88,8 +88,7 @@ REFERENCE 0,0
         const netWeightFormatted = Number(item.netWeight).toFixed(3);
         fullTspl += `TEXT ${textX},${startY},"1",0,1,1,"G: ${item.grams}"\n`;
         fullTspl += `TEXT ${textX},${startY + lineSpacing},"1",0,1,1,"SW: ${item.stoneWeight}"\n`;
-        fullTspl += `TEXT ${textX},${startY + (lineSpacing * 2)},"1",0,1,1,"NW: ${netWeightFormatted}        ${item.itemCode || ''}  ${item.sku || ''}"\n`;
-
+        fullTspl += `TEXT ${textX},${startY + (lineSpacing * 2)},"1",0,1,1,"NW: ${((item.grams || 0) - (item.stoneWeight || 0)).toFixed(3)}        ${item.itemCode || ''}  ${item.sku || ''}"\n`;
         // --- Right Side: Barcode ---
         // Narrow/Wide set to 1,1 to keep it compact
         fullTspl += `BARCODE ${barcodeX},${startY},"128",40,0,0,1,1,"${item.sku}"\n`;
