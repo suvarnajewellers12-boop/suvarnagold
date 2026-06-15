@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import {
   Edit2, Save, X, QrCode, Anchor, Weight, Fingerprint,
-  Layers, IndianRupee, Loader2, Check
+  Layers, IndianRupee, Loader2, Check, Trash2, AlertCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +38,7 @@ interface ProductCardProps {
   onUpdated?: () => void;
   showToast?: (msg: string) => void;
   onShowQR?: (code: string) => void;
+  onDeleted?: () => void;
   // Selection props for bulk printing
   isSelected?: boolean;
   onToggle?: (product: Product) => void;
@@ -65,6 +66,7 @@ export const ProductCard = ({
   onUpdated,
   showToast,
   onShowQR,
+  onDeleted,
   isSelected = false,
   onToggle,
   productIndex = 0,
@@ -74,6 +76,8 @@ export const ProductCard = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editedProduct, setEditedProduct] = useState(product);
   const [isLoadingQR, setIsLoadingQR] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
@@ -119,6 +123,36 @@ export const ProductCard = ({
       }
     } catch (error) {
       console.error(error);
+    }
+  };
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const res = await fetch(
+        `https://suvarnagold-16e5.vercel.app/api/products/delete/${product.id}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (res.ok) {
+        showToast?.("Product deleted successfully!");
+        setShowDeleteConfirm(false);
+        onDeleted?.();
+      } else {
+        const data = await res.json();
+        alert(data.error || "Delete failed");
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Delete failed");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -220,14 +254,24 @@ export const ProductCard = ({
               )}>
                 {metalLabel} • {product.carats}
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="hover:bg-amber-50 rounded-full"
-                onClick={() => setIsEditing(true)}
-              >
-                <Edit2 className="w-4 h-4 text-amber-700" />
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="hover:bg-red-50 rounded-full"
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  <Trash2 className="w-4 h-4 text-red-600" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="hover:bg-amber-50 rounded-full"
+                  onClick={() => setIsEditing(true)}
+                >
+                  <Edit2 className="w-4 h-4 text-amber-700" />
+                </Button>
+              </div>
             </div>
 
             {/* Name + SKU */}
@@ -437,6 +481,52 @@ export const ProductCard = ({
           </div>
         </div>
       </div>
+
+      {/* DELETE CONFIRMATION DIALOG */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 border border-red-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-red-100 p-3 rounded-full">
+                <AlertCircle className="w-6 h-6 text-red-600" />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900">Delete Product?</h2>
+            </div>
+            <p className="text-gray-600 mb-2">
+              Are you sure you want to delete <span className="font-semibold text-gray-900">{product.name}</span>?
+            </p>
+            <p className="text-sm text-gray-500 mb-6">
+              This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="bg-red-600 hover:bg-red-700 text-white rounded-xl"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

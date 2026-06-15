@@ -52,6 +52,7 @@ const ORNAMENT_MAPPING: Record<string, string[]> = {
   arms: ["Armlet, Arm Band, Upper Arm Cuff", "Arm Chain"],
   wrists: ["Bangle, Bracelet, Cuff", "Tennis, Charm, Chain Bracelet", "Slave Bracelet (hand chain)"],
   hands_fingers: ["Signet, Engagement, Wedding Band", "Cocktail, Eternity, Stackable Rings", "Knuckle Ring, Hand Harness/Chain"],
+  others:["other"]
 };
 
 let productsCache: any[] | null = null;
@@ -93,6 +94,7 @@ interface VirtualGridProps {
   onSelectRow: (startIndex: number) => void;
   onRemoveRow: (startIndex: number) => void;
   onUpdated: () => void;
+  onDeleted: () => void;
   showToast: (msg: string) => void;
   columnsCount: number; // determined by container width
 }
@@ -104,6 +106,7 @@ const VirtualGrid: React.FC<VirtualGridProps> = ({
   onSelectRow,
   onRemoveRow,
   onUpdated,
+  onDeleted,
   showToast,
   columnsCount,
 }) => {
@@ -246,6 +249,7 @@ const VirtualGrid: React.FC<VirtualGridProps> = ({
             <ProductCard
               product={product}
               onUpdated={onUpdated}
+              onDeleted={onDeleted}
               showToast={showToast}
               isSelected={printQueueIds.has(product.id)}
               onToggle={onToggle}
@@ -627,8 +631,8 @@ const Products = () => {
                       <SelectTrigger className="h-10 border-amber-50 rounded-lg text-xs"><SelectValue placeholder="Quality" /></SelectTrigger>
                       <SelectContent className="z-[130]">
                         {formData.type === "gold"
-                          ? ["24K","22K","18K","14K","9K"].map(k => <SelectItem key={k} value={k} className="text-xs">{k}</SelectItem>)
-                          : ["99.9%","92.5%","70%"].map(p => <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>)
+                          ? ["24K", "22K", "18K", "14K", "9K"].map(k => <SelectItem key={k} value={k} className="text-xs">{k}</SelectItem>)
+                          : ["99.9%", "92.5%", "70%", "Others"].map(p => <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>)
                         }
                       </SelectContent>
                     </Select>
@@ -742,7 +746,7 @@ const Products = () => {
                   <Filter className="w-3.5 h-3.5" /> Filter: Metal Base
                 </label>
                 <div className="flex gap-2 p-1 bg-amber-50/50 rounded-xl border border-amber-100">
-                  {["all","gold","silver"].map(t => (
+                  {["all", "gold", "silver"].map(t => (
                     <button key={t} onClick={() => setFilters(f => ({ ...f, metal: t }))}
                       className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
                         filters.metal === t ? "bg-amber-600 text-white shadow-lg shadow-amber-200 scale-105" : "text-amber-800/60 hover:text-amber-600")}>
@@ -775,6 +779,8 @@ const Products = () => {
                     <SelectItem value="neck">Neck</SelectItem>
                     <SelectItem value="wrist">Wrist</SelectItem>
                     <SelectItem value="fingers">Fingers</SelectItem>
+                    <SelectItem value="others">Others</SelectItem>
+
                   </SelectContent>
                 </Select>
               </div>
@@ -843,6 +849,7 @@ const Products = () => {
                     onSelectRow={selectOrToggleRow}
                     onRemoveRow={removeRowFromQueue}
                     onUpdated={() => fetchProducts(true)}
+                    onDeleted={() => fetchProducts(true)}
                     showToast={fireToast}
                     columnsCount={columnsCount}
                   />

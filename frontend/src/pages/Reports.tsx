@@ -224,7 +224,7 @@ const Reports = () => {
             acc.totalCheque += curr.payments.cheque;
             acc.totalExchange += curr.payments.exchange;
             acc.grandTotal += curr.grandTotal;
-
+   
             return acc;
         }, { totalCash: 0, totalUpi: 0, totalCard: 0, totalCheque: 0, totalExchange: 0, grandTotal: 0 });
     }, [filteredData]);
