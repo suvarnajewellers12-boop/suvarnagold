@@ -1266,7 +1266,7 @@ const BillingPOS = () => {
                               <div className="flex justify-between text-[11px] font-black text-amber-700 uppercase bg-amber-50 px-4 py-2 rounded-xl border border-amber-100">
                                 <span className="flex items-center gap-2">
                                   <RefreshCcw size={10} className="text-amber-600" />
-                                  Old Gold Exchange
+                                  Old Jewellery Exchange
                                   {exchangeData.name && <span className="text-amber-500 normal-case font-medium">({exchangeData.name})</span>}
                                 </span>
                                 <span>₹{exchangePaymentValue.toLocaleString()}</span>
