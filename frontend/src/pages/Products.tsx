@@ -527,7 +527,7 @@ const Products = () => {
     setIsLoading(true);
     try {
       const currentDate = new Date().toISOString().split("T")[0];
-      const res = await fetch("https:s/api/products/create", {
+      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/products/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
