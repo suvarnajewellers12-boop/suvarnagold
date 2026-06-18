@@ -19,7 +19,6 @@ export async function OPTIONS() {
 
 export async function GET(req: Request) {
   try {
-
     const authHeader = req.headers.get("authorization");
 
     if (!authHeader) {
@@ -61,40 +60,40 @@ export async function GET(req: Request) {
     // If SUPER_ADMIN without filter, return all (whereClause only has isSold: false)
 
     // ✅ Explicitly fetch the new fields
-const products = await prisma.product.findMany({
-  where: whereClause,
-  select: {
-    id: true,
-    sku: true,
-    name: true,
-    metalType: true,
-    grams: true,
-    carats: true,
-    category: true,
-    bodyPart: true,
-    itemCode: true,
-    stoneWeight: true,
-    netWeight: true,
-    isSold: true,
-    manufactureDate: true,
-    createdAt: true,
-    uniqueCode: true,
-    stoneCost: true, // 🔹 NEW FIELD
-    // 🔹 ADD THESE TWO LINES
-    branchName: true,
-    va: true,
-  },
-  orderBy: {
-    createdAt: "desc",
-  },
-});
+    const products = await prisma.product.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        sku: true,
+        name: true,
+        metalType: true,
+        grams: true,
+        carats: true,
+        category: true,
+        bodyPart: true,
+        itemCode: true,
+        stoneWeight: true,
+        netWeight: true,
+        isSold: true,
+        manufactureDate: true,
+        createdAt: true,
+        uniqueCode: true,
+        stoneCost: true, 
+        branchName: true,
+        va: true,
+        pieceCost: true, // <-- ADDED THIS LINE
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
     return new NextResponse(
       JSON.stringify({ products }),
       { status: 200, headers: corsHeaders() }
     );
 
   } catch (error) {
-
     console.error("FETCH PRODUCTS ERROR:", error);
 
     return new NextResponse(

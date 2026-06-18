@@ -52,7 +52,7 @@ const ORNAMENT_MAPPING: Record<string, string[]> = {
   arms: ["Armlet, Arm Band, Upper Arm Cuff", "Arm Chain"],
   wrists: ["Bangle, Bracelet, Cuff", "Tennis, Charm, Chain Bracelet", "Slave Bracelet (hand chain)"],
   hands_fingers: ["Signet, Engagement, Wedding Band", "Cocktail, Eternity, Stackable Rings", "Knuckle Ring, Hand Harness/Chain"],
-  others:["other"]
+  others: ["other"]
 };
 
 let productsCache: any[] | null = null;
@@ -315,9 +315,22 @@ const Products = () => {
   const columnsCount = useColumnsCount(gridRef);
 
   const [formData, setFormData] = useState({
-    name: "", type: "gold", grams: "", carats: "", quantity: "1",
-    huid: "", stoneWeight: "0", netWeight: "0", va: "0",
-    bodyPart: "", category: "", branchName: "", stoneCost: "0",
+    name: "",
+    type: "gold",
+    grams: "",
+    carats: "",
+    quantity: "1",
+    huid: "",
+    stoneWeight: "0",
+    netWeight: "0",
+    va: "0",
+    bodyPart: "",
+    category: "",
+    branchName: "",
+    stoneCost: "0",
+    // New fields added below for the Silver 92.5% logic:
+    pricingBasis: "grams",
+    pieceCost: ""
   });
 
   // ── toast helper ──────────────────────────────────────
@@ -484,28 +497,51 @@ const Products = () => {
     fetchProducts();
     fetchBranches();
   }, []);
-
-  // ── create product ────────────────────────────────────
+// ── create product ────────────────────────────────────
   const handleCreateProduct = useCallback(async () => {
-    if (!formData.name || !formData.grams) {
-      fireToast("Please provide at least Name and Weight.");
+    // 1. Check if the user is in 92.5% Silver "Piece Cost" mode
+    const isPieceCostMode = 
+      formData.type === "silver" && 
+      formData.carats === "92.5%" && 
+      formData.pricingBasis === "piece";
+
+    // 2. Enforce Name validation (always required)
+    if (!formData.name) {
+      fireToast("Please provide a Display Name.");
       return;
     }
+
+    // 3. Enforce Grams validation ONLY if not using Piece Cost
+    if (!isPieceCostMode && (!formData.grams || parseFloat(formData.grams) <= 0)) {
+      fireToast("Please provide the Metal Weight (g).");
+      return;
+    }
+
+    // 4. Enforce Piece Cost validation ONLY if using Piece Cost
+    if (isPieceCostMode && (!formData.pieceCost || parseFloat(formData.pieceCost) <= 0)) {
+      fireToast("Please provide the Piece Cost.");
+      return;
+    }
+
     setIsSubmitting(true);
     setIsLoading(true);
     try {
       const currentDate = new Date().toISOString().split("T")[0];
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/products/create", {
+      const res = await fetch("https:s/api/products/create", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
         body: JSON.stringify({
           ...formData,
-          grams: parseFloat(formData.grams),
-          quantity: Number(formData.quantity),
-          stoneWeight: parseFloat(formData.stoneWeight),
-          netWeight: parseFloat(formData.netWeight),
-          va: parseFloat(formData.va),
-          stoneCost: parseFloat(formData.stoneCost),
+          grams: parseFloat(formData.grams) || 0,
+          quantity: Number(formData.quantity) || 1,
+          stoneWeight: parseFloat(formData.stoneWeight) || 0,
+          netWeight: parseFloat(formData.netWeight) || 0,
+          va: parseFloat(formData.va) || 0,
+          stoneCost: parseFloat(formData.stoneCost) || 0,
+          pieceCost: parseFloat(formData.pieceCost) || 0, // Sending the piece cost
           manufactureDate: currentDate,
           branchName: formData.branchName,
           metalType: formData.type,
@@ -516,19 +552,25 @@ const Products = () => {
         fireToast("Masterpiece added to collection");
         setShowForm(false);
         await fetchProducts(true);
+        // Reset form, including the new Piece Cost states
         setFormData({
           name: "", type: "gold", grams: "", carats: "", bodyPart: "",
           category: "", quantity: "1", huid: "", stoneWeight: "0", netWeight: "0",
           va: "0", branchName: branches[0] || "", stoneCost: "0",
+          pricingBasis: "grams", pieceCost: "" // <-- Added reset here
         });
       } else {
         const err = await res.json();
         fireToast(`Error: ${err.error}`);
       }
-    } catch (e) { console.error("Creation Error:", e); }
-    finally { setIsSubmitting(false); setIsLoading(false); }
+    } catch (e) { 
+      console.error("Creation Error:", e); 
+      fireToast("Failed to create masterpiece.");
+    } finally { 
+      setIsSubmitting(false); 
+      setIsLoading(false); 
+    }
   }, [formData, token, branches, fetchProducts, fireToast]);
-
   // ── filtering (memoised) ──────────────────────────────
   const filteredProducts = useMemo(() => {
     const cleanMatch = (val: any, filterVal: string) => {
@@ -617,7 +659,7 @@ const Products = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Metal Base</label>
-                    <Select value={formData.type} onValueChange={(val) => setFormData(p => ({ ...p, type: val, carats: "" }))}>
+                    <Select value={formData.type} onValueChange={(val) => setFormData(p => ({ ...p, type: val, carats: "", pricingBasis: "grams" }))}>
                       <SelectTrigger className="h-10 border-amber-50 rounded-lg text-xs"><SelectValue placeholder="Metal" /></SelectTrigger>
                       <SelectContent className="z-[130]">
                         <SelectItem value="gold" className="font-bold text-amber-600 text-xs">Gold</SelectItem>
@@ -627,27 +669,48 @@ const Products = () => {
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Purity</label>
-                    <Select value={formData.carats} onValueChange={(val) => setFormData(p => ({ ...p, carats: val }))}>
+                    <Select value={formData.carats} onValueChange={(val) => setFormData(p => ({ ...p, carats: val, pricingBasis: "grams" }))}>
                       <SelectTrigger className="h-10 border-amber-50 rounded-lg text-xs"><SelectValue placeholder="Quality" /></SelectTrigger>
                       <SelectContent className="z-[130]">
                         {formData.type === "gold"
                           ? ["24K", "22K", "18K", "14K", "9K"].map(k => <SelectItem key={k} value={k} className="text-xs">{k}</SelectItem>)
-                          : ["99.9%", "92.5%", "70%", "Others"].map(p => <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>)
-                        }
+                          : ["99.9%", "92.5%", "70%", "Others"].map(p => <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>
+                          )}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
+
+                {/* Updated Dynamic Metal Input Field (Grams vs Piece Cost) */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Metal Wt (g)</label>
-                    <Input type="number" min="0" placeholder="0.000" value={formData.grams} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData(p => ({ ...p, grams: e.target.value }))} />
+                    <div className="flex justify-between items-center ml-1 pr-1">
+                      <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest">
+                        {formData.pricingBasis === "piece" ? "Piece Cost" : "Metal Wt (g)"}
+                      </label>
+                      <select
+                        value={formData.pricingBasis || "grams"}
+                        onChange={(e) => setFormData(p => ({ ...p, pricingBasis: e.target.value }))}
+                        className="text-[9px] font-black text-amber-600 bg-transparent border-none outline-none cursor-pointer uppercase tracking-tight hover:text-amber-700"
+                      >
+                        <option value="grams">Grams</option>
+                        {formData.type === "silver" && formData.carats === "92.5%" && (
+                          <option value="piece">Piece Cost</option>
+                        )}
+                      </select>
+                    </div>
+                    {formData.pricingBasis === "piece" ? (
+                      <Input type="number" min="0" placeholder="₹0.00" value={formData.pieceCost || ""} className="h-10 border-amber-50 rounded-lg text-xs animate-in fade-in duration-150" onChange={(e) => setFormData(p => ({ ...p, pieceCost: e.target.value }))} />
+                    ) : (
+                      <Input type="number" min="0" placeholder="0.000" value={formData.grams || ""} className="h-10 border-amber-50 rounded-lg text-xs animate-in fade-in duration-150" onChange={(e) => setFormData(p => ({ ...p, grams: e.target.value }))} />
+                    )}
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">Stone Wt (g)</label>
                     <Input type="number" min="0" placeholder="0.000" value={formData.stoneWeight} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData(p => ({ ...p, stoneWeight: e.target.value }))} />
                   </div>
                 </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-[9px] font-black text-amber-800 uppercase tracking-widest ml-1">VA %</label>
@@ -658,11 +721,23 @@ const Products = () => {
                     <Input type="number" min="0" placeholder="₹0" value={formData.stoneCost} className="h-10 border-amber-50 rounded-lg text-xs" onChange={(e) => setFormData(p => ({ ...p, stoneCost: e.target.value }))} />
                   </div>
                 </div>
+
+                {/* Updated Dynamic Weight Aggregator Box */}
                 <div className="bg-gradient-to-br from-amber-50 to-yellow-50 p-3 rounded-xl border border-amber-100">
                   <div className="flex justify-between items-center">
                     <div>
-                      <p className="text-[8px] uppercase font-black text-amber-600 tracking-widest">Aggregated Net Weight</p>
-                      <p className="text-2xl font-mono font-black text-amber-900 tracking-tighter">{Number((formData.grams || 0) - (formData.stoneWeight || 0)).toFixed(3)} <span className="text-xs font-serif">g</span></p>
+                      <p className="text-[8px] uppercase font-black text-amber-600 tracking-widest">
+                        {formData.pricingBasis === "piece" ? "Pricing Summary Structure" : "Aggregated Net Weight"}
+                      </p>
+                      {formData.pricingBasis === "piece" ? (
+                        <p className="text-xl font-mono font-black text-amber-900 tracking-tighter">
+                          ₹{Number(formData.pieceCost || 0).toLocaleString('en-IN')} <span className="text-xs font-serif">Fixed</span>
+                        </p>
+                      ) : (
+                        <p className="text-2xl font-mono font-black text-amber-900 tracking-tighter">
+                          {Number((formData.grams || 0) - (formData.stoneWeight || 0)).toFixed(3)} <span className="text-xs font-serif">g</span>
+                        </p>
+                      )}
                     </div>
                     <Layers className="w-6 h-6 text-amber-200/50" />
                   </div>
@@ -681,7 +756,6 @@ const Products = () => {
             </div>
           </div>
         )}
-
         {/* BULK PRINTER WIDGET */}
         {printQueue.length > 0 && (
           <BulkBarcodePrinter

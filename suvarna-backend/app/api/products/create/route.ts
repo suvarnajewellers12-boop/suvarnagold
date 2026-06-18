@@ -47,7 +47,8 @@ export async function POST(req: Request) {
       bodyPart,
       branchName,
       stoneCost,
-      va
+      va,
+      pieceCost // <-- Extracted new field
     } = body;
 
     // --- ROBUST SKU GENERATION ---
@@ -93,6 +94,7 @@ export async function POST(req: Request) {
         branchName: branchName || "Main",
         stoneCost: parseFloat(stoneCost) || 0,
         va: parseFloat(va) || 0,
+        pieceCost: pieceCost ? parseFloat(pieceCost) : 0, // <-- Added to Prisma payload
       },
     });
 

@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 interface Product {
   id: string;
   name: string;
-  metalType: string; // Accept any case: "gold" | "GOLD" | "Gold" etc.
+  metalType: string; 
   grams: number;
   carats: string;
   itemCode?: string;
@@ -31,6 +31,7 @@ interface Product {
   sku: string;
   stoneCost: number;
   va: number;
+  pieceCost: number; // <-- Added Piece Cost
 }
 
 interface ProductCardProps {
@@ -39,23 +40,19 @@ interface ProductCardProps {
   showToast?: (msg: string) => void;
   onShowQR?: (code: string) => void;
   onDeleted?: () => void;
-  // Selection props for bulk printing
   isSelected?: boolean;
   onToggle?: (product: Product) => void;
-  // Row selection props
   productIndex?: number;
   onSelectRow?: (index: number) => void;
   onRemoveRow?: (index: number) => void;
 }
 
-// ── Badge colour map — keyed in lowercase, always normalise before lookup ──
 const TYPE_COLORS: Record<string, string> = {
   gold:   "from-amber-600 to-yellow-400 text-amber-950",
   silver: "from-slate-400 to-slate-200 text-slate-900",
   other:  "from-rose-700 to-rose-500 text-white",
 };
 
-/** Normalise any API-returned metalType to a TYPE_COLORS key. */
 const resolveTypeColor = (metalType: string): string => {
   const key = metalType?.trim().toLowerCase();
   return TYPE_COLORS[key] ?? TYPE_COLORS["other"];
@@ -83,7 +80,7 @@ export const ProductCard = ({
 
   // Auto-calculate net weight when grams or stoneWeight change
   useEffect(() => {
-    const total = (Number(editedProduct.grams) + Number(editedProduct.stoneWeight)).toFixed(3);
+    const total = (Number(editedProduct.grams || 0) + Number(editedProduct.stoneWeight || 0)).toFixed(3);
     setEditedProduct(prev => ({ ...prev, netWeight: Number(total) }));
   }, [editedProduct.grams, editedProduct.stoneWeight]);
 
@@ -109,6 +106,7 @@ export const ProductCard = ({
             metalType: editedProduct.metalType,
             stoneCost: editedProduct.stoneCost,
             va: editedProduct.va,
+            pieceCost: editedProduct.pieceCost, // <-- Sent in update payload
           }),
         }
       );
@@ -156,15 +154,11 @@ export const ProductCard = ({
     }
   };
 
-  // Resolve badge colour once per render — handles any casing from the API
   const badgeColor = resolveTypeColor(product.metalType);
-  // Display label: normalise to Title Case for the badge
   const metalLabel = product.metalType
     ? product.metalType.charAt(0).toUpperCase() + product.metalType.slice(1).toLowerCase()
     : "Other";
 
-  // Row button: if onRemoveRow is provided AND the card is already selected,
-  // clicking the Row button removes the row; otherwise it selects.
   const handleRowClick = () => {
     if (isSelected && onRemoveRow) {
       onRemoveRow(productIndex);
@@ -173,18 +167,18 @@ export const ProductCard = ({
     }
   };
 
+  // Condition to check if this item uses Piece Pricing
+  const isPieceMode = product.metalType?.toLowerCase() === "silver" && (!product.grams || product.grams === 0);
+
   return (
     <div className={cn(
       "flip-card h-[400px] w-full group relative transition-all duration-300",
       isSelected && "scale-[0.98]"
     )}>
 
-      {/* ROW SELECTION BUTTON (Top Left) — only shown when handler is provided */}
+      {/* ROW SELECTION BUTTON */}
       {!isEditing && (onSelectRow || onRemoveRow) && (
-        <div
-          onClick={handleRowClick}
-          className="absolute top-0 left-0 z-40 cursor-pointer"
-        >
+        <div onClick={handleRowClick} className="absolute top-0 left-0 z-40 cursor-pointer">
           <div className={cn(
             "px-4 py-2 rounded-br-2xl border-r-2 border-b-2 flex items-center gap-2 transition-all shadow-md",
             isSelected
@@ -204,12 +198,9 @@ export const ProductCard = ({
         </div>
       )}
 
-      {/* INDIVIDUAL SELECTION CHECKBOX (Bottom Right) — only shown when handler is provided */}
+      {/* INDIVIDUAL SELECTION CHECKBOX */}
       {!isEditing && onToggle && (
-        <div
-          onClick={() => onToggle(product)}
-          className="absolute bottom-0 right-0 z-40 cursor-pointer"
-        >
+        <div onClick={() => onToggle(product)} className="absolute bottom-0 right-0 z-40 cursor-pointer">
           <div className={cn(
             "px-4 py-2 rounded-tl-2xl border-l-2 border-t-2 flex items-center gap-2 transition-all shadow-md",
             isSelected
@@ -234,10 +225,7 @@ export const ProductCard = ({
         </div>
       )}
 
-      <div className={cn(
-        "flip-card-inner relative w-full h-full transition-all duration-700",
-        isEditing && "flipped"
-      )}>
+      <div className={cn("flip-card-inner relative w-full h-full transition-all duration-700", isEditing && "flipped")}>
 
         {/* ── FRONT: DISPLAY ── */}
         <div className="flip-card-front absolute w-full h-full">
@@ -246,29 +234,19 @@ export const ProductCard = ({
             isSelected ? "border-amber-500 ring-2 ring-amber-500/20" : "border-amber-100"
           )}>
 
-            {/* Header row: badge + edit button */}
+            {/* Header row */}
             <div className="flex items-center justify-between mb-4 pl-8">
               <div className={cn(
                 "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm bg-gradient-to-r",
-                badgeColor   // ← always resolves correctly regardless of API casing
+                badgeColor
               )}>
                 {metalLabel} • {product.carats}
               </div>
               <div className="flex gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="hover:bg-red-50 rounded-full"
-                  onClick={() => setShowDeleteConfirm(true)}
-                >
+                <Button variant="ghost" size="icon" className="hover:bg-red-50 rounded-full" onClick={() => setShowDeleteConfirm(true)}>
                   <Trash2 className="w-4 h-4 text-red-600" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="hover:bg-amber-50 rounded-full"
-                  onClick={() => setIsEditing(true)}
-                >
+                <Button variant="ghost" size="icon" className="hover:bg-amber-50 rounded-full" onClick={() => setIsEditing(true)}>
                   <Edit2 className="w-4 h-4 text-amber-700" />
                 </Button>
               </div>
@@ -286,13 +264,20 @@ export const ProductCard = ({
 
             {/* Stats grid */}
             <div className="grid grid-cols-2 gap-y-4 gap-x-2 border-t border-amber-50 pt-4">
+              
+              {/* Dynamic Weight or Piece Cost */}
               <div className="flex items-center gap-2">
-                <Weight className="w-3.5 h-3.5 text-amber-500" />
+                {isPieceMode ? <IndianRupee className="w-3.5 h-3.5 text-amber-500" /> : <Weight className="w-3.5 h-3.5 text-amber-500" />}
                 <div>
-                  <p className="text-[9px] uppercase text-muted-foreground font-bold">Metal Grams</p>
-                  <p className="text-sm font-semibold">{product.grams}g</p>
+                  <p className="text-[9px] uppercase text-muted-foreground font-bold">
+                    {isPieceMode ? "Piece Price" : "Metal Grams"}
+                  </p>
+                  <p className="text-sm font-semibold">
+                    {isPieceMode ? `₹${product.pieceCost?.toLocaleString('en-IN') || 0}` : `${product.grams}g`}
+                  </p>
                 </div>
               </div>
+
               <div className="flex items-center gap-2 border-l border-amber-50 pl-2">
                 <Layers className="w-3.5 h-3.5 text-amber-500" />
                 <div>
@@ -330,12 +315,17 @@ export const ProductCard = ({
               </div>
             </div>
 
-            {/* Footer: net weight + QR */}
+            {/* Footer: Dynamic net weight / Fixed Price + QR */}
             <div className="mt-auto pt-4 flex items-end justify-between border-t border-amber-100">
               <div className="bg-amber-50 px-3 py-2 rounded-2xl border border-amber-200/50">
-                <p className="text-[9px] font-bold text-amber-600 uppercase">Total Net Weight</p>
+                <p className="text-[9px] font-bold text-amber-600 uppercase">
+                  {isPieceMode ? "Fixed Pricing" : "Total Net Weight"}
+                </p>
                 <p className="text-xl font-mono font-black text-amber-900">
-                  {Number((product.grams || 0) - (product.stoneWeight || 0)).toFixed(3)}g
+                  {isPieceMode 
+                    ? `₹${product.pieceCost?.toLocaleString('en-IN') || 0}`
+                    : `${Number((product.grams || 0) - (product.stoneWeight || 0)).toFixed(3)}g`
+                  }
                 </p>
               </div>
               <Button
@@ -366,18 +356,10 @@ export const ProductCard = ({
                 Edit Masterpiece
               </h4>
               <div className="flex gap-1">
-                <Button
-                  variant="ghost" size="icon"
-                  className="h-7 w-7 text-green-400 hover:bg-white/5"
-                  onClick={handleSave}
-                >
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-green-400 hover:bg-white/5" onClick={handleSave}>
                   <Save className="w-4 h-4" />
                 </Button>
-                <Button
-                  variant="ghost" size="icon"
-                  className="h-7 w-7 text-red-400 hover:bg-white/5"
-                  onClick={() => { setIsEditing(false); setEditedProduct(product); }}
-                >
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:bg-white/5" onClick={() => { setIsEditing(false); setEditedProduct(product); }}>
                   <X className="w-4 h-4" />
                 </Button>
               </div>
@@ -464,16 +446,30 @@ export const ProductCard = ({
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[8px] text-white/40 uppercase font-bold ml-1">HUID Tag</label>
-                <Input
-                  className="bg-white/5 border-white/10 text-white h-7 text-xs"
-                  value={editedProduct.itemCode || ""}
-                  onChange={(e) => setEditedProduct({ ...editedProduct, itemCode: e.target.value })}
-                />
+              {/* Dynamic row: HUID Tag and Piece Cost (if Silver) */}
+              <div className={cn("grid gap-2", editedProduct.metalType?.toLowerCase() === "silver" ? "grid-cols-2" : "grid-cols-1")}>
+                <div className="space-y-1">
+                  <label className="text-[8px] text-white/40 uppercase font-bold ml-1">HUID Tag</label>
+                  <Input
+                    className="bg-white/5 border-white/10 text-white h-7 text-xs"
+                    value={editedProduct.itemCode || ""}
+                    onChange={(e) => setEditedProduct({ ...editedProduct, itemCode: e.target.value })}
+                  />
+                </div>
+                {editedProduct.metalType?.toLowerCase() === "silver" && (
+                  <div className="space-y-1">
+                    <label className="text-[8px] text-white/40 uppercase font-bold ml-1">Pc Cost (₹)</label>
+                    <Input
+                      type="number" min="0"
+                      className="bg-white/5 border-white/10 text-white h-7 text-xs"
+                      value={editedProduct.pieceCost || 0}
+                      onChange={(e) => setEditedProduct({ ...editedProduct, pieceCost: Number(e.target.value) })}
+                    />
+                  </div>
+                )}
               </div>
 
-              <div className="bg-amber-400/10 p-2 rounded-lg border border-amber-400/20">
+              <div className="bg-amber-400/10 p-2 rounded-lg border border-amber-400/20 mt-1">
                 <p className="text-[8px] text-amber-400/60 uppercase font-bold">Auto Net (G+SW)</p>
                 <p className="text-sm font-mono text-amber-400 font-bold">{editedProduct.netWeight}g</p>
               </div>
@@ -499,18 +495,10 @@ export const ProductCard = ({
               This action cannot be undone.
             </p>
             <div className="flex gap-3 justify-end">
-              <Button
-                variant="outline"
-                onClick={() => setShowDeleteConfirm(false)}
-                className="rounded-xl"
-              >
+              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)} className="rounded-xl">
                 Cancel
               </Button>
-              <Button
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="bg-red-600 hover:bg-red-700 text-white rounded-xl"
-              >
+              <Button onClick={handleDelete} disabled={isDeleting} className="bg-red-600 hover:bg-red-700 text-white rounded-xl">
                 {isDeleting ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -531,7 +519,6 @@ export const ProductCard = ({
   );
 };
 
-// Inline icon — avoids external dependency
 const BadgePercent = ({ className }: { className?: string }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg" width="24" height="24"

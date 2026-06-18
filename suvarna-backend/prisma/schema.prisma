@@ -142,9 +142,9 @@ model Product {
   branchName      String         @default("Gajuwaka")
   va              Float          @default(2.5)
   stoneCost       Float          @default(0)
+  pieceCost       Float          @default(0) // <-- Added this line
   purchaseItems   PurchaseItem[]
 }
-
 
 
 
