@@ -17,6 +17,7 @@ interface Product {
   netWeight: number;
   grams: number;
   itemCode?: string;
+  pieceCost?: number; // <-- Added to interface
 }
 
 interface BulkBarcodePrinterProps {
@@ -85,10 +86,22 @@ REFERENCE 0,0
 `;
 
         // --- Left Side: Product Details ---
-        const netWeightFormatted = Number(item.netWeight).toFixed(3);
-        fullTspl += `TEXT ${textX},${startY},"1",0,1,1,"G: ${item.grams}"\n`;
-        fullTspl += `TEXT ${textX},${startY + lineSpacing},"1",0,1,1,"SW: ${item.stoneWeight}"\n`;
-        fullTspl += `TEXT ${textX},${startY + (lineSpacing * 2)},"1",0,1,1,"NW: ${((item.grams || 0) - (item.stoneWeight || 0)).toFixed(3)}        ${item.itemCode || ''}  ${item.sku || ''}"\n`;
+        const isPieceMode = !item.grams || item.grams === 0;
+
+        if (isPieceMode) {
+          // Fixed Pricing Mode (e.g., 92.5 Silver)
+          fullTspl += `TEXT ${textX},${startY},"1",0,1,1,"STC"\n`;
+          fullTspl += `TEXT ${textX},${startY + lineSpacing},"1",0,1,1,"Rs: ${item.pieceCost?.toLocaleString('en-IN') || 0}"\n`;
+          // Keeping HUID and SKU offset similarly so layout doesn't break
+          fullTspl += `TEXT ${textX},${startY + (lineSpacing * 2)},"1",0,1,1,"            ${item.itemCode || ''}  ${item.sku || ''}"\n`;
+        } else {
+          // Weight Based Mode
+          const netWeightFormatted = Number(item.netWeight).toFixed(3);
+          fullTspl += `TEXT ${textX},${startY},"1",0,1,1,"G: ${item.grams}"\n`;
+          fullTspl += `TEXT ${textX},${startY + lineSpacing},"1",0,1,1,"SW: ${item.stoneWeight}"\n`;
+          fullTspl += `TEXT ${textX},${startY + (lineSpacing * 2)},"1",0,1,1,"NW: ${((item.grams || 0) - (item.stoneWeight || 0)).toFixed(3)}        ${item.itemCode || ''}  ${item.sku || ''}"\n`;
+        }
+
         // --- Right Side: Barcode ---
         // Narrow/Wide set to 1,1 to keep it compact
         fullTspl += `BARCODE ${barcodeX},${startY},"128",40,0,0,1,1,"${item.sku}"\n`;
@@ -161,7 +174,10 @@ REFERENCE 0,0
                   <p className="text-[10px] font-black text-slate-800 uppercase leading-tight truncate w-40">{item.name}</p>
                   <div className="flex gap-2 mt-0.5">
                     <span className="text-[8px] font-bold text-amber-600 font-mono">{item.sku}</span>
-                    <span className="text-[8px] font-bold text-slate-400 uppercase">{item.grams}g</span>
+                    {/* Updated UI to reflect piece cost vs weight format */}
+                    <span className="text-[8px] font-bold text-slate-400 uppercase">
+                      {(!item.grams || item.grams === 0) ? `₹${item.pieceCost?.toLocaleString('en-IN') || 0}` : `${item.grams}g`}
+                    </span>
                   </div>
                 </div>
               </div>

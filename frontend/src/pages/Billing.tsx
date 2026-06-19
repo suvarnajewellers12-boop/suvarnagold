@@ -685,7 +685,7 @@ const BillingPOS = () => {
         console.error("Initialization Critical Error", e);
       }
     };
-    if (token) init();
+    if (token) init();   
   }, [token]);
 
   const filteredProducts = useMemo(() => {
@@ -1205,7 +1205,7 @@ const BillingPOS = () => {
                                   className="accent-gold h-5 w-5 cursor-pointer rounded"
                                 />
                                 <RefreshCcw className={cn("text-amber-600", isExchangeApplied && "animate-spin-slow")} size={14} />
-                                <span className="text-[10px] font-black uppercase tracking-tighter">Old Gold Exchange</span>
+                                <span className="text-[10px] font-black uppercase tracking-tighter">Old Jewellery Exchange</span>
                               </div>
                               {/* Show exchange value as payment contribution when entered */}
                               {isExchangeApplied && exchangePaymentValue > 0 && (
