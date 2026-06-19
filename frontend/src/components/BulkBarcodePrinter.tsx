@@ -17,7 +17,7 @@ interface Product {
   netWeight: number;
   grams: number;
   itemCode?: string;
-  pieceCost?: number; // <-- Added to interface
+  pieceCost?: number; 
 }
 
 interface BulkBarcodePrinterProps {
@@ -91,26 +91,26 @@ REFERENCE 0,0
         if (isPieceMode) {
           // Fixed Pricing Mode (e.g., 92.5 Silver)
           fullTspl += `TEXT ${textX},${startY},"1",0,1,1,"STC"\n`;
-          fullTspl += `TEXT ${textX},${startY + lineSpacing},"1",0,1,1,"Rs: ${item.pieceCost?.toLocaleString('en-IN') || 0}"\n`;
-          // Keeping HUID and SKU offset similarly so layout doesn't break
-          fullTspl += `TEXT ${textX},${startY + (lineSpacing * 2)},"1",0,1,1,"            ${item.itemCode || ''}  ${item.sku || ''}"\n`;
+          // Explicitly passing raw number so there are NO commas printed (e.g., "1500")
+          fullTspl += `TEXT ${textX},${startY + lineSpacing},"1",0,1,1,"Rs: ${item.pieceCost || 0}"\n`;
+          // Changed X coordinate to 150 to hard-push it to the right, avoiding stripped spaces issue
+          fullTspl += `TEXT 150,${startY + (lineSpacing * 2)},"1",0,1,1,"${item.itemCode || ''}  ${item.sku || ''}"\n`;
         } else {
           // Weight Based Mode
-          const netWeightFormatted = Number(item.netWeight).toFixed(3);
           fullTspl += `TEXT ${textX},${startY},"1",0,1,1,"G: ${item.grams}"\n`;
           fullTspl += `TEXT ${textX},${startY + lineSpacing},"1",0,1,1,"SW: ${item.stoneWeight}"\n`;
           fullTspl += `TEXT ${textX},${startY + (lineSpacing * 2)},"1",0,1,1,"NW: ${((item.grams || 0) - (item.stoneWeight || 0)).toFixed(3)}        ${item.itemCode || ''}  ${item.sku || ''}"\n`;
         }
 
         // --- Right Side: Barcode ---
-        // Narrow/Wide set to 1,1 to keep it compact
         fullTspl += `BARCODE ${barcodeX},${startY},"128",40,0,0,1,1,"${item.sku}"\n`;
 
-        // SKU/HUID text placed directly under the barcode
+        // SKU/HUID text placed directly under the barcode (untouched)
         fullTspl += `TEXT ${barcodeX},${startY + 45},"1",0,1,1,"\n`;
 
         fullTspl += `PRINT 1\n`;
       });
+      
       const data = [{ type: "raw", format: "command", data: fullTspl }];
       await qz.print(config, data);
       logStatus(`Success: ${queue.length} labels printed.`);
@@ -174,9 +174,8 @@ REFERENCE 0,0
                   <p className="text-[10px] font-black text-slate-800 uppercase leading-tight truncate w-40">{item.name}</p>
                   <div className="flex gap-2 mt-0.5">
                     <span className="text-[8px] font-bold text-amber-600 font-mono">{item.sku}</span>
-                    {/* Updated UI to reflect piece cost vs weight format */}
                     <span className="text-[8px] font-bold text-slate-400 uppercase">
-                      {(!item.grams || item.grams === 0) ? `₹${item.pieceCost?.toLocaleString('en-IN') || 0}` : `${item.grams}g`}
+                      {(!item.grams || item.grams === 0) ? `₹${item.pieceCost || 0}` : `${item.grams}g`}
                     </span>
                   </div>
                 </div>
