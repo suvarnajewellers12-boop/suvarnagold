@@ -255,7 +255,7 @@ const Reports = () => {
                         "Product Name": item.productName, // Separate Column
                         "Category": item.category,       // Separate Column
                         "SKU": item.sku || "N/A",        // Separate Column
-                        "HUID": item.itemCode || "N/A",      // Separate Column
+                        "HUID": item.huid || "N/A",      // Separate Column
                         "Purity": item.purity,           // Separate Column
                         "Gross Wt (g)": item.grossWt,    // Separate Column
                         "Net Wt (g)": item.netWt,        // Separate Column
@@ -304,7 +304,7 @@ const exportToPDF = () => {
                     item.productName,
                     item.category,
                     item.sku || "N/A",
-                    item.itemCode || "N/A",
+                    item.huid || "N/A",
                     item.purity,
                     item.grossWt,
                     item.netWt,
