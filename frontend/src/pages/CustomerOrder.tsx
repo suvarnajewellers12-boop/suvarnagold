@@ -48,6 +48,8 @@ export default function OrderManagementPage() {
     phoneNumber: "",
     itemName: "",
     itemDescription: "",
+    exchangeJewelleryName: "",
+    exchangeJewelleryGrams: "",
     purity: "22",
     liveRate: "",
     givenMetalGrams: "",
@@ -55,7 +57,7 @@ export default function OrderManagementPage() {
     stoneWeight: "",
     vaPercentage: "",
     stoneCost: "",
-    discountAmount: "", 
+    discountAmount: "",
     advanceCash: "",
     deadlineDate: "",
   });
@@ -127,6 +129,9 @@ export default function OrderManagementPage() {
       const stoneC = Number(order.stoneCost) || 0;
       const discAmt = Number(order.discountAmount) || 0;
       const advance = Number(order.advanceCash) || 0;
+      const originalCartValue = Number(order.originalCartValue) || 0;
+      const exchangeJewelleryName = String(order.exchangeJewelleryName || "");
+      const exchangeJewelleryGrams = Number(order.exchangeJewelleryGrams) || 0;
 
       const goldValue = netWt * rate;
       const vaAmount = goldValue * (vaPer / 100);
@@ -154,7 +159,7 @@ export default function OrderManagementPage() {
       // ── ITEM DETAILS TABLE ───────────────────────────────────
       const TBL_Y = CUST_Y + 50;
       const col = { name: MARGIN_L, gross: 130, stone: 185, net: 245, va: 305, total: MARGIN_R };
-      
+
       draw("ITEM", col.name, TBL_Y, 7, grey);
       draw("GROSS", col.gross, TBL_Y, 7, grey);
       draw("STONE", col.stone, TBL_Y, 7, grey);
@@ -169,11 +174,35 @@ export default function OrderManagementPage() {
       draw(`${stoneWt}g`, col.stone, ROW_Y, 7.5, black);
       draw(`${netWt}g`, col.net, ROW_Y, 7.5, black);
       draw(`₹${Math.round(vaAmount).toLocaleString()}`, col.va, ROW_Y, 7.5, black);
-      drawR(`₹${Math.round(grandTotal).toLocaleString()}`, col.total, ROW_Y, 7.5, black);
+      drawR(`₹${Math.round(originalCartValue).toLocaleString()}`, col.total, ROW_Y, 7.5, black);
       hLine(ROW_Y + 13);
 
+      // ── CART SUMMARY ────────────────────────────────────────
+      const CART_Y = ROW_Y + 22;
+      draw("CART SUMMARY", MARGIN_L, CART_Y, 7.5, grey);
+      hLine(CART_Y + 8);
+
+      const cartRow = (label: string, value: string, y: number, valueColor = black) => {
+        draw(label, MARGIN_L, y, 6.5, grey);
+        drawR(value, MARGIN_R, y, 6.5, valueColor);
+      };
+
+      const storedOriginalCartValue = originalCartValue || ((subtotalBeforeDisc + subtotalBeforeDisc * 0.03));
+
+      cartRow("Original Cart Value", `₹${Math.round(storedOriginalCartValue).toLocaleString()}`, CART_Y + 14, gold);
+      
+      cartRow(
+        `Exchange Value [${order.exchangeJewelleryName || "N/A"}]`,
+        `₹${Math.round(discAmt||0).toLocaleString()}`,
+        CART_Y + 21,
+        gold
+      ); cartRow("Taxable Total", `₹${Math.round(subtotalAfterDisc).toLocaleString()}`, CART_Y + 28);
+      cartRow("GST (3%)", `₹${Math.round(halfGst * 2).toLocaleString()}`, CART_Y + 35);
+      cartRow("Final Payable", `₹${Math.round(grandTotal).toLocaleString()}`, CART_Y + 42, emerald);
+      hLine(CART_Y + 48);
+
       // ── METAL COMPOSITION ───────────────────────────────────
-      const FIN_Y = ROW_Y + 28;
+      const FIN_Y = CART_Y + 58;
       draw("METAL COMPOSITION", MARGIN_L, FIN_Y, 7.5, grey);
       hLine(FIN_Y + 8);
 
@@ -195,7 +224,7 @@ export default function OrderManagementPage() {
       // const WGT_Y = FIN_Y + 44;
       // draw("WEIGHT DETAILS", MARGIN_L, WGT_Y, 7.5, grey);
       // hLine(WGT_Y + 8);
-      
+
       // finRow(`Stone Weight`, `${stoneWt}g`, WGT_Y + 14);
       // finRow(`Gross Weight`, `${grossWt}g`, WGT_Y + 21);
       // finRow(`Net Weight`, `${netWt}g`, WGT_Y + 28);
@@ -209,7 +238,7 @@ export default function OrderManagementPage() {
       // // finRow(`Metal Value @ ₹${rate}/g`, `₹${Math.round(goldValue).toLocaleString()}`, FIN2_Y + 14);
       // // finRow(`VA/Making (${vaPer}%)`, `₹${Math.round(vaAmount).toLocaleString()}`, FIN2_Y + 21);
       // finRow(`Stone Cost`, `₹${Math.round(stoneC).toLocaleString()}`, FIN2_Y + 28);
-      
+
       // if (discAmt > 0) {
       //   finRow(`Discount`, `-₹${Math.round(discAmt).toLocaleString()}`, FIN2_Y + 35);
       //   finRow(`CGST (1.5%)`, `₹${Math.round(halfGst).toLocaleString()}`, FIN2_Y + 42);
@@ -221,15 +250,15 @@ export default function OrderManagementPage() {
       // hLine(FIN2_Y + 56);
 
       // ── PAYMENT STATUS ──────────────────────────────────────
-      const PAY_Y = 255 + 66;
+      const PAY_Y = FIN_Y + 52;
       draw("PAYMENT STATUS", MARGIN_L, PAY_Y, 7.5, grey);
       hLine(PAY_Y + 8);
 
       finRow(`Total Bill`, `₹${Math.round(grandTotal).toLocaleString()}`, PAY_Y + 14);
       finRow(`Advance Paid`, `₹${Math.round(advance).toLocaleString()}`, PAY_Y + 21);
-      
+
       if (type === "DELIVERY") {
-        finRow(`Balance Due`, `₹ ${Math.round(grandTotal)- Math.round(advance)} (Paid)`, PAY_Y + 30);
+        finRow(`Balance Due`, `₹ 0 (Paid)`, PAY_Y + 30);
       } else {
         finRow(`Balance Due`, `₹${Math.round(balance).toLocaleString()}`, PAY_Y + 28);
       }
@@ -347,10 +376,12 @@ export default function OrderManagementPage() {
     const gstAmount = subtotalAfterDisc * 0.03;
     const totalWithGST = subtotalAfterDisc + gstAmount;
     const balanceAmount = totalWithGST - advance;
+    const originalCartValue = subtotalBase + (subtotalBase * 0.03);
 
     return {
       netWeight, goldValue, vaAmount, discount: disc,
       gstAmount, totalWithGST, balanceAmount, stoneCost: sCost,
+      originalCartValue,
       grossWeight: netWeight + stoneW
     };
   }, [form]);
@@ -372,6 +403,7 @@ export default function OrderManagementPage() {
           netWeight: totals.netWeight,
           grossWeight: totals.grossWeight,
           gstAmount: totals.gstAmount,
+          originalCartValue: totals.originalCartValue,
           totalAmount: totals.totalWithGST,
           balanceAmount: totals.balanceAmount
         })
@@ -383,6 +415,7 @@ export default function OrderManagementPage() {
         setIsFormOpen(false);
         setForm({
           customerName: "", phoneNumber: "", itemName: "", itemDescription: "",
+          exchangeJewelleryName: "", exchangeJewelleryGrams: "",
           purity: "22", liveRate: "", givenMetalGrams: "", addedMetalGrams: "",
           stoneWeight: "", vaPercentage: "", stoneCost: "", discountAmount: "",
           advanceCash: "", deadlineDate: ""
@@ -416,7 +449,7 @@ export default function OrderManagementPage() {
   // 4. RENDERING UI
   // ---------------------------------------------------------------------------
   // Show loading screen while checking authentication
-  
+
 
   return (
     <SidebarProvider>
@@ -439,8 +472,8 @@ export default function OrderManagementPage() {
               <Button variant="outline" size="icon" onClick={fetchOrders} className="h-14 w-14 rounded-2xl border-gold/20 text-gold hover:bg-gold/5 transition-all">
                 <RefreshCw className={cn("w-5 h-5", isLoading && "animate-spin")} />
               </Button>
-              <Button 
-                onClick={() => setIsFormOpen(true)} 
+              <Button
+                onClick={() => setIsFormOpen(true)}
                 className="bg-slate-900 hover:bg-black text-gold gap-3 px-8 h-14 rounded-2xl font-serif font-bold shadow-2xl shadow-slate-200 transition-all active:scale-95"
               >
                 <Plus className="w-6 h-6" /> New Booking
@@ -466,9 +499,9 @@ export default function OrderManagementPage() {
                     {isLoading ? (
                       <tr><td colSpan={5} className="py-40 text-center"><Loader2 className="animate-spin w-10 h-10 text-gold mx-auto" /><p className="text-slate-400 mt-4 italic font-serif">Synchronizing Ledger...</p></td></tr>
                     ) : orders.length > 0 ? orders.map((o) => (
-                      <tr 
-                        key={o.id} 
-                        className="group hover:bg-slate-50/50 cursor-pointer transition-all duration-300" 
+                      <tr
+                        key={o.id}
+                        className="group hover:bg-slate-50/50 cursor-pointer transition-all duration-300"
                         onClick={() => setViewingOrder(o)}
                       >
                         <td className="px-8 py-6">
@@ -484,36 +517,40 @@ export default function OrderManagementPage() {
                             {o.itemName}
                           </span>
                           <div className="flex items-center gap-4 text-xs font-medium text-slate-500">
-                             <div className="flex items-center gap-1"><Scale className="w-3 h-3"/> {o.netWeight}g</div>
-                             <div className="flex items-center gap-1"><Gem className="w-3 h-3"/> {o.purity}K {o.metalType}</div>
+                            <div className="flex items-center gap-1"><Scale className="w-3 h-3" /> {o.netWeight}g</div>
+                            <div className="flex items-center gap-1"><Gem className="w-3 h-3" /> {o.purity}K {o.metalType}</div>
                           </div>
                         </td>
                         <td className="px-8 py-6">
                           <p className="text-lg font-serif font-bold text-slate-900">₹{Number(o.totalAmount).toLocaleString()}</p>
+                          <p className="text-xs text-slate-400 mt-1">Original: ₹{Number(o.originalCartValue || 0).toLocaleString()}</p>
+                          {(o.exchangeJewelleryName || o.exchangeJewelleryGrams) && (
+                            <p className="text-xs text-slate-400 mt-1">Exchange: {o.exchangeJewelleryName || "Item"} · {Number(o.exchangeJewelleryGrams || 0)}g</p>
+                          )}
                           <div className={cn(
                             "flex items-center gap-1.5 text-[11px] font-bold mt-1",
                             o.status === "DELIVERED" ? "text-emerald-500" : "text-rose-500"
                           )}>
-                            {o.status === "DELIVERED" ? <CheckCircle2 className="w-3 h-3"/> : <Wallet className="w-3 h-3"/>}
+                            {o.status === "DELIVERED" ? <CheckCircle2 className="w-3 h-3" /> : <Wallet className="w-3 h-3" />}
                             {o.status === "DELIVERED" ? "Payment Completed" : `Balance: ₹${Number(o.balanceAmount).toLocaleString()}`}
                           </div>
                         </td>
                         <td className="px-8 py-6">
                           <span className={cn(
                             "inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all",
-                            o.status === "DELIVERED" 
-                              ? "bg-emerald-50 text-emerald-600 border-emerald-100 shadow-sm" 
+                            o.status === "DELIVERED"
+                              ? "bg-emerald-50 text-emerald-600 border-emerald-100 shadow-sm"
                               : o.status === "COMPLETED"
                                 ? "bg-amber-50 text-amber-600 border-amber-200"
                                 : "bg-slate-50 text-slate-400 border-slate-200"
                           )}>
-                            {o.status === "DELIVERED" ? <PackageCheck className="w-3 h-3"/> : <Clock className="w-3 h-3"/>}
+                            {o.status === "DELIVERED" ? <PackageCheck className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
                             {o.status}
                           </span>
                         </td>
                         <td className="px-8 py-6 text-right">
                           <div className="h-10 w-10 rounded-full border border-slate-100 flex items-center justify-center ml-auto group-hover:border-gold group-hover:bg-gold/5 transition-all">
-                             <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-gold" />
+                            <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-gold" />
                           </div>
                         </td>
                       </tr>
@@ -543,22 +580,22 @@ export default function OrderManagementPage() {
               <DialogTitle className="text-4xl font-serif font-bold italic tracking-tight">Booking Ledger</DialogTitle>
               <p className="text-slate-400 text-xs mt-2 uppercase tracking-[0.1em] font-bold">Client Transaction Record</p>
             </div>
-            
+
             <div className="flex gap-4 relative z-10">
               <div className="flex flex-col gap-2">
-                 <p className="text-[10px] uppercase text-gold font-bold tracking-widest text-center">Booking Slip</p>
-                 <div className="flex gap-2">
-                    <Button onClick={() => handleOrderReceipt(viewingOrder, "print", "BOOKING")} variant="outline" className="h-14 w-14 border-white/20 text-white hover:bg-white/10 rounded-2xl"><Printer className="w-5 h-5"/></Button>
-                    <Button onClick={() => handleOrderReceipt(viewingOrder, "download", "BOOKING")} variant="outline" className="h-14 w-14 border-white/20 text-white hover:bg-white/10 rounded-2xl"><Download className="w-5 h-5"/></Button>
-                 </div>
+                <p className="text-[10px] uppercase text-gold font-bold tracking-widest text-center">Booking Slip</p>
+                <div className="flex gap-2">
+                  <Button onClick={() => handleOrderReceipt(viewingOrder, "print", "BOOKING")} variant="outline" className="h-14 w-14 border-white/20 text-white hover:bg-white/10 rounded-2xl"><Printer className="w-5 h-5" /></Button>
+                  <Button onClick={() => handleOrderReceipt(viewingOrder, "download", "BOOKING")} variant="outline" className="h-14 w-14 border-white/20 text-white hover:bg-white/10 rounded-2xl"><Download className="w-5 h-5" /></Button>
+                </div>
               </div>
               {viewingOrder?.status === "DELIVERED" && (
                 <div className="flex flex-col gap-2 transition-all animate-in fade-in slide-in-from-right-4">
-                   <p className="text-[10px] uppercase text-emerald-400 font-bold tracking-widest text-center">Settlement</p>
-                   <div className="flex gap-2">
-                      <Button onClick={() => handleOrderReceipt(viewingOrder, "print", "DELIVERY")} className="h-14 w-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl shadow-lg"><Printer className="w-5 h-5"/></Button>
-                      <Button onClick={() => handleOrderReceipt(viewingOrder, "download", "DELIVERY")} className="h-14 w-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl shadow-lg"><Download className="w-5 h-5"/></Button>
-                   </div>
+                  <p className="text-[10px] uppercase text-emerald-400 font-bold tracking-widest text-center">Settlement</p>
+                  <div className="flex gap-2">
+                    <Button onClick={() => handleOrderReceipt(viewingOrder, "print", "DELIVERY")} className="h-14 w-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl shadow-lg"><Printer className="w-5 h-5" /></Button>
+                    <Button onClick={() => handleOrderReceipt(viewingOrder, "download", "DELIVERY")} className="h-14 w-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl shadow-lg"><Download className="w-5 h-5" /></Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -620,6 +657,13 @@ export default function OrderManagementPage() {
                   <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Item</p>
                   <p className="text-lg font-serif font-bold text-slate-900">{viewingOrder?.itemName}</p>
                 </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <div className="flex justify-between text-xs text-slate-600 mb-1"><span>Exchange Jewellery</span><span className="font-bold">{viewingOrder?.exchangeJewelleryName || "-"}</span></div>
+                  <div className="flex justify-between text-xs text-slate-500"><span>Exchange Grams</span><span className="font-bold">{Number(viewingOrder?.exchangeJewelleryGrams || 0)}g</span></div>
+                </div>
+                <div className="p-3 bg-gold/5 rounded-xl border border-gold/10">
+                  <div className="flex justify-between text-xs text-slate-600 mb-1"><span>Original Cart</span><span className="font-bold">₹{Number(viewingOrder?.originalCartValue || 0).toLocaleString()}</span></div>
+                </div>
                 <div className="p-3 bg-slate-50 rounded-xl">
                   <div className="flex justify-between text-xs text-slate-600 mb-1"><span>Pure Metal</span><span className="font-bold">₹{(Number(viewingOrder?.netWeight) * Number(viewingOrder?.liveRate)).toLocaleString()}</span></div>
                 </div>
@@ -634,6 +678,9 @@ export default function OrderManagementPage() {
                     <div className="flex justify-between text-xs text-rose-600 font-bold"><span>Discount</span><span>-₹{Number(viewingOrder?.discountAmount).toLocaleString()}</span></div>
                   </div>
                 )}
+                <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                  <div className="flex justify-between text-xs text-emerald-700 font-bold"><span>Payable After Discount</span><span>₹{Number(viewingOrder?.totalAmount).toLocaleString()}</span></div>
+                </div>
               </div>
             </div>
 
@@ -649,14 +696,14 @@ export default function OrderManagementPage() {
                     <p className="text-[10px] text-slate-400 uppercase font-bold mb-2">Total Bill</p>
                     <p className="text-3xl font-serif font-bold text-white">₹{Number(viewingOrder?.totalAmount).toLocaleString()}</p>
                   </div>
-                  
+
                   <div className="pt-4 border-t border-white/10">
                     <p className="text-[10px] text-slate-300 uppercase font-bold mb-2">Advance Paid</p>
                     <p className="text-2xl font-serif font-bold text-emerald-400">₹{Number(viewingOrder?.advanceCash).toLocaleString()}</p>
                   </div>
 
                   <GoldDivider className="opacity-20" />
-                  
+
                   <div>
                     <p className="text-[10px] font-bold text-gold uppercase tracking-[0.2em] mb-2">Balance Due</p>
                     <p className="text-4xl font-serif font-bold text-white tracking-tighter">₹{viewingOrder?.status === "DELIVERED" ? "0" : Number(viewingOrder?.balanceAmount).toLocaleString()}</p>
@@ -676,9 +723,9 @@ export default function OrderManagementPage() {
                       <p className="text-[10px] font-bold uppercase leading-tight">Settlement Locked: Order must be marked "COMPLETED" from manufacturing vault first.</p>
                     </div>
                   )}
-                  <Button 
-                    onClick={handleIssueOrderToClient} 
-                    disabled={isSubmitting || viewingOrder?.status !== "COMPLETED"} 
+                  <Button
+                    onClick={handleIssueOrderToClient}
+                    disabled={isSubmitting || viewingOrder?.status !== "COMPLETED"}
                     className={cn(
                       "w-full h-20 rounded-[2rem] font-serif font-bold text-lg flex items-center justify-center gap-3 shadow-2xl transition-all shadow-gold/20",
                       viewingOrder?.status === "COMPLETED" ? "bg-gold text-slate-900 hover:bg-white active:scale-95" : "bg-slate-100 text-slate-300 cursor-not-allowed opacity-50"
@@ -733,27 +780,31 @@ export default function OrderManagementPage() {
               <section className="bg-slate-50/50 p-8 rounded-[2.5rem] border border-gold/10 space-y-8">
                 <div className="flex items-center gap-3 border-b border-gold/5 pb-3"><Scale className="w-5 h-5 text-slate-400" /><h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Analysis</h3></div>
                 <div className="space-y-6">
-                   <div className="grid grid-cols-2 gap-5">
-                      <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase">Customer Deposit</label><Input placeholder="Metal Given" type="number" min="0" value={form.givenMetalGrams} onChange={(e) => handleInputChange("givenMetalGrams", e.target.value)} className="h-12 bg-white" /></div>
-                      <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase">Vault Addition</label><Input placeholder="Metal Added" type="number" min="0" value={form.addedMetalGrams} onChange={(e) => handleInputChange("addedMetalGrams", e.target.value)} className="h-12 bg-white" /></div>
-                   </div>
-                   <Input placeholder="Stone Weight" type="number" min="0" value={form.stoneWeight} onChange={(e) => handleInputChange("stoneWeight", e.target.value)} className="h-12 bg-white" />
-                   <div className="p-8 bg-white border border-gold/20 rounded-3xl flex justify-between items-center shadow-xl border-dashed">
-                     <span className="text-[11px] font-bold text-gold uppercase tracking-widest">Net Projection</span>
-                     <span className="text-3xl font-serif font-bold text-slate-900">{totals.netWeight.toFixed(3)}g</span>
-                   </div>
+                  <div className="grid grid-cols-2 gap-5">
+                    <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase">Customer Deposit</label><Input placeholder="Metal Given" type="number" min="0" value={form.givenMetalGrams} onChange={(e) => handleInputChange("givenMetalGrams", e.target.value)} className="h-12 bg-white" /></div>
+                    <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase">Vault Addition</label><Input placeholder="Metal Added" type="number" min="0" value={form.addedMetalGrams} onChange={(e) => handleInputChange("addedMetalGrams", e.target.value)} className="h-12 bg-white" /></div>
+                  </div>
+                  <Input placeholder="Stone Weight" type="number" min="0" value={form.stoneWeight} onChange={(e) => handleInputChange("stoneWeight", e.target.value)} className="h-12 bg-white" />
+                  <div className="p-8 bg-white border border-gold/20 rounded-3xl flex justify-between items-center shadow-xl border-dashed">
+                    <span className="text-[11px] font-bold text-gold uppercase tracking-widest">Net Projection</span>
+                    <span className="text-3xl font-serif font-bold text-slate-900">{totals.netWeight.toFixed(3)}g</span>
+                  </div>
                 </div>
               </section>
               <section className="space-y-8">
                 <div className="flex items-center gap-3 border-b border-slate-100 pb-3"><Tag className="w-5 h-5 text-gold" /><h3 className="text-xs font-bold uppercase tracking-widest text-slate-800">Commercials</h3></div>
                 <div className="grid grid-cols-2 gap-5">
-                   <Input type="number" min="0" value={form.vaPercentage} onChange={(e) => handleInputChange("vaPercentage", e.target.value)} placeholder="VA %" className="h-12" />
-                   <Input type="number" min="0" value={form.stoneCost} onChange={(e) => handleInputChange("stoneCost", e.target.value)} placeholder="Stone ₹" className="h-12" />
+                  <Input type="number" min="0" value={form.vaPercentage} onChange={(e) => handleInputChange("vaPercentage", e.target.value)} placeholder="VA %" className="h-12" />
+                  <Input type="number" min="0" value={form.stoneCost} onChange={(e) => handleInputChange("stoneCost", e.target.value)} placeholder="Stone ₹" className="h-12" />
                 </div>
-                <div className="relative"><div className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-rose-50 rounded-lg"><Tag className="w-4 h-4 text-rose-500" /></div><Input placeholder="Discount Allowance (₹)" type="number" min="0" className="h-14 pl-14 border-rose-100 font-bold text-rose-600" value={form.discountAmount} onChange={(e) => handleInputChange("discountAmount", e.target.value)} /></div>
+                <div className="relative"><div className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-rose-50 rounded-lg"><Tag className="w-4 h-4 text-rose-500" /></div><Input placeholder="Jewellery Exchange value (₹)" type="number" min="0" className="h-14 pl-14 border-rose-100 font-bold text-rose-600" value={form.discountAmount} onChange={(e) => handleInputChange("discountAmount", e.target.value)} /></div>
                 <div className="grid grid-cols-2 gap-5">
-                   <Input type="date" value={form.deadlineDate} onChange={(e) => handleInputChange("deadlineDate", e.target.value)} className="h-12" />
-                   <Input placeholder="Advance Cash" type="number" min="0" value={form.advanceCash} onChange={(e) => handleInputChange("advanceCash", e.target.value)} className="h-12 border-emerald-100 text-emerald-600 font-bold" />
+                  <Input placeholder="Exchange Jewellery Name" value={form.exchangeJewelleryName} onChange={(e) => handleInputChange("exchangeJewelleryName", e.target.value)} className="h-12" />
+                  <Input placeholder="Exchange Grams" type="number" min="0" value={form.exchangeJewelleryGrams} onChange={(e) => handleInputChange("exchangeJewelleryGrams", e.target.value)} className="h-12" />
+                </div>
+                <div className="grid grid-cols-2 gap-5">
+                  <Input type="date" value={form.deadlineDate} onChange={(e) => handleInputChange("deadlineDate", e.target.value)} className="h-12" />
+                  <Input placeholder="Advance Cash" type="number" min="0" value={form.advanceCash} onChange={(e) => handleInputChange("advanceCash", e.target.value)} className="h-12 border-emerald-100 text-emerald-600 font-bold" />
                 </div>
               </section>
             </div>
@@ -765,7 +816,7 @@ export default function OrderManagementPage() {
                   <div className="space-y-4 pt-4">
                     <div className="flex justify-between text-sm"><span className="text-slate-400">Metal Value</span><span>₹{totals.goldValue.toLocaleString()}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-slate-400">VA + Gem</span><span className="text-gold">+ ₹{(totals.vaAmount + totals.stoneCost).toLocaleString()}</span></div>
-                    {totals.discount > 0 && <div className="flex justify-between text-sm font-bold text-rose-400 bg-rose-400/5 p-2 rounded-lg border border-rose-400/20"><span>Discount</span><span>- ₹{totals.discount.toLocaleString()}</span></div>}
+                    {totals.discount > 0 && <div className="flex justify-between text-sm font-bold text-rose-400 bg-rose-400/5 p-2 rounded-lg border border-rose-400/20"><span>Exchange value</span><span>- ₹{totals.discount.toLocaleString()}</span></div>}
                     <div className="flex justify-between text-sm"><span className="text-slate-400 italic">GST (3%)</span><span className="text-slate-300">+ ₹{Math.round(totals.gstAmount).toLocaleString()}</span></div>
                   </div>
                   <GoldDivider className="opacity-20 my-8" />

@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     }
 
     const token = authHeader.split(" ")[1];
-    const decoded: any = verifyToken(token);
+    const decoded = verifyToken(token) as { id: string; role: string };
 
     if (decoded.role !== "SUPER_ADMIN") {
       return new NextResponse(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: corsHeaders() });
@@ -49,6 +49,9 @@ export async function POST(req: Request) {
       vaPercentage,
       stoneCost,
       gstAmount, // Ensure your frontend sends 'gstAmount'
+      originalCartValue,
+      exchangeJewelleryName,
+      exchangeJewelleryGrams,
       totalAmount,
       advanceCash,
       balanceAmount,
@@ -65,6 +68,17 @@ export async function POST(req: Request) {
     const nextNumber = lastOrder ? parseInt(lastOrder.orderId.replace("OR-", "")) + 1 : 1001;
     const orderId = `OR-${nextNumber}`;
 
+    const liveRateValue = parseFloat(liveRate) || 0;
+    const netWeightValue = parseFloat(netWeight) || 0;
+    const vaPercentageValue = parseFloat(vaPercentage) || 0;
+    const stoneCostValue = parseFloat(stoneCost) || 0;
+    const discountAmountValue = parseFloat(discountAmount) || 0;
+    const derivedOriginalCartValue =
+      (netWeightValue * liveRateValue) +
+      ((netWeightValue * liveRateValue) * (vaPercentageValue / 100)) +
+      stoneCostValue +
+      (((netWeightValue * liveRateValue) + ((netWeightValue * liveRateValue) * (vaPercentageValue / 100)) + stoneCostValue) * 0.03);
+
     // --- SAVE TO DB ---
     const order = await prisma.order.create({
       data: {
@@ -75,21 +89,24 @@ export async function POST(req: Request) {
         itemDescription: itemDescription || null,
         metalType,
         purity,
-        liveRate: parseFloat(liveRate) || 0,
+        liveRate: liveRateValue,
         givenMetalGrams: parseFloat(givenMetalGrams) || 0,
         addedMetalGrams: parseFloat(addedMetalGrams) || 0,
         stoneWeight: parseFloat(stoneWeight) || 0,
-        netWeight: parseFloat(netWeight) || 0,
+        netWeight: netWeightValue,
         grossWeight: parseFloat(grossWeight) || 0,
-        vaPercentage: parseFloat(vaPercentage) || 0,
-        stoneCost: parseFloat(stoneCost) || 0,
+        vaPercentage: vaPercentageValue,
+        stoneCost: stoneCostValue,
         gst: parseFloat(gstAmount) || 0, // 👈 Check if your schema uses 'gst' or 'gstAmount'
+        originalCartValue: parseFloat(originalCartValue) || derivedOriginalCartValue,
+        exchangeJewelleryName: exchangeJewelleryName || null,
+        exchangeJewelleryGrams: parseFloat(exchangeJewelleryGrams) || 0,
         totalAmount: parseFloat(totalAmount) || 0,
         advanceCash: parseFloat(advanceCash) || 0,
         balanceAmount: parseFloat(balanceAmount) || 0,
         deadlineDate: new Date(deadlineDate),
         status: "NOT ASSIGNED",
-        discountAmount: parseFloat(discountAmount) || 0,
+        discountAmount: discountAmountValue,
         createdBy: decoded.id
       },
     });
@@ -99,10 +116,11 @@ export async function POST(req: Request) {
       { status: 201, headers: corsHeaders() }
     );
 
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Data collection error:", error);
     return new NextResponse(
-      JSON.stringify({ error: "Internal server error", details: error.message }),
+      JSON.stringify({ error: "Internal server error", details: message }),
       { status: 500, headers: corsHeaders() }
     );
   }

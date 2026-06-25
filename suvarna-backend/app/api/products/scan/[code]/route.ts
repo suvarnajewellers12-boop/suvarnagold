@@ -23,7 +23,7 @@ export async function GET(
 
   if (!code) {
     return NextResponse.json(
-      { error: "Invalid QR code" },
+      { error: "Invalid bar code" },
       { status: 400, headers: corsHeaders }
     );
   }

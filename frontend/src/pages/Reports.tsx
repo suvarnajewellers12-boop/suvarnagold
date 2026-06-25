@@ -228,7 +228,7 @@ const Reports = () => {
             acc.totalCheque += curr.payments.cheque;
             acc.totalExchange += curr.payments.exchange;
             acc.grandTotal += curr.grandTotal;
-   
+
             return acc;
         }, { totalCash: 0, totalUpi: 0, totalCard: 0, totalCheque: 0, totalExchange: 0, grandTotal: 0 });
     }, [filteredData]);
@@ -288,94 +288,94 @@ const Reports = () => {
         }
     };
 
-const exportToPDF = () => {
-    try {
-        // 1. Initialize empty array for rows
-        const tableRows: any[][] = [];
+    const exportToPDF = () => {
+        try {
+            // 1. Initialize empty array for rows
+            const tableRows: any[][] = [];
 
-        // 2. Flatten data (Same logic as Excel, but as an array of arrays for jsPDF)
-        filteredData.forEach((p: any) => {
-            p.items.forEach((item: any) => {
-                const rowData = [
-                    format(p.date, "dd-MM-yyyy"),
-                    p.invoice,
-                    p.customer,
-                    p.phone,
-                    item.productName,
-                    item.category,
-                    item.sku || "N/A",
-                    item.huid || "N/A",
-                    item.purity,
-                    item.grossWt,
-                    item.netWt,
-                    item.va,
-                    item.itemCost,
-                    p.subtotal,
-                    p.cgst,
-                    p.sgst,
-                    p.discount || 0,
-                    p.exchangeName || "None",
-                    p.exchangeDiscount,
-                    p.grandTotal,
-                    p.paymentStatus,
-                    p.stoneWeight,
-                    p.stoneCost,
-                ];
-                tableRows.push(rowData);
+            // 2. Flatten data (Same logic as Excel, but as an array of arrays for jsPDF)
+            filteredData.forEach((p: any) => {
+                p.items.forEach((item: any) => {
+                    const rowData = [
+                        format(p.date, "dd-MM-yyyy"),
+                        p.invoice,
+                        p.customer,
+                        p.phone,
+                        item.productName,
+                        item.category,
+                        item.sku || "N/A",
+                        item.huid || "N/A",
+                        item.purity,
+                        item.grossWt,
+                        item.netWt,
+                        item.va,
+                        item.itemCost,
+                        p.subtotal,
+                        p.cgst,
+                        p.sgst,
+                        p.discount || 0,
+                        p.exchangeName || "None",
+                        p.exchangeDiscount,
+                        p.grandTotal,
+                        p.paymentStatus,
+                        p.stoneWeight,
+                        p.stoneCost,
+                    ];
+                    tableRows.push(rowData);
+                });
             });
-        });
 
-        // 3. Define Table Headers
-        const tableHeaders = [
-            [
-                "Date", "Invoice", "Customer", "Phone", "Product Name", 
-                "Category", "SKU", "HUID", "Purity", "Gross Wt(g)", 
-                "Net Wt(g)", "VA(%)", "Item Cost", "Subtotal", "CGST", 
-                "SGST", "Discount", "Exchange Item", "Ex. Value", "Total", 
-                "Status", "Stone Wt", "Stone Cost"
-            ]
-        ];
+            // 3. Define Table Headers
+            const tableHeaders = [
+                [
+                    "Date", "Invoice", "Customer", "Phone", "Product Name",
+                    "Category", "SKU", "HUID", "Purity", "Gross Wt(g)",
+                    "Net Wt(g)", "VA(%)", "Item Cost", "Subtotal", "CGST",
+                    "SGST", "Discount", "Exchange Item", "Ex. Value", "Total",
+                    "Status", "Stone Wt", "Stone Cost"
+                ]
+            ];
 
-        // 4. Create jsPDF instance
-        // 'l' = landscape orientation, 'pt' = points as unit, 'a3' = paper size (A3 provides more width for 23 columns)
-        const doc = new jsPDF('l', 'pt', 'a3'); 
+            // 4. Create jsPDF instance
+            // 'l' = landscape orientation, 'pt' = points as unit, 'a3' = paper size (A3 provides more width for 23 columns)
+            const doc = new jsPDF('l', 'pt', 'a3');
 
-        // Add a title to the document
-        doc.setFontSize(14);
-        doc.text("Detailed Sales Report", 40, 40);
+            // Add a title to the document
+            doc.setFontSize(14);
+            doc.text("Detailed Sales Report", 40, 40);
 
-        // 5. Generate the Table
-        autoTable(doc, {
-            head: tableHeaders,
-            body: tableRows,
-            startY: 50, // Start below the title
-            styles: { 
-                fontSize: 7, // Small font needed to fit 23 columns
-                cellPadding: 3,
-                overflow: 'linebreak' 
-            },
-            headStyles: { 
-                fillColor: [41, 128, 185], // Optional: Blue header background
-                textColor: 255,
-                fontStyle: 'bold'
-            },
-            alternateRowStyles: {
-                fillColor: [245, 245, 245] // Optional: Zebra striping for readability
-            }
-        });
+            // 5. Generate the Table
+            autoTable(doc, {
+                head: tableHeaders,
+                body: tableRows,
+                startY: 50, // Start below the title
+                styles: {
+                    fontSize: 7, // Small font needed to fit 23 columns
+                    cellPadding: 3,
+                    overflow: 'linebreak'
+                },
+                headStyles: {
+                    fillColor: [41, 128, 185], // Optional: Blue header background
+                    textColor: 255,
+                    fontStyle: 'bold'
+                },
+                alternateRowStyles: {
+                    fillColor: [245, 245, 245] // Optional: Zebra striping for readability
+                }
+            });
 
-        // 6. Download the PDF
-        const fileName = `Suvarna_Detailed_Export_${format(new Date(), "ddMMyy")}.pdf`;
-        doc.save(fileName);
+            // 6. Download the PDF
+            const fileName = `Suvarna_Detailed_Export_${format(new Date(), "ddMMyy")}.pdf`;
+            doc.save(fileName);
 
-        // 7. Update UI State
-        setToastMessage("PDF exported with separate item columns");
-        setShowToast(true);
+            // 7. Update UI State
+            setToastMessage("PDF exported with separate item columns");
+            setShowToast(true);
 
-    } catch (err) {
-        console.error("PDF Export Error:", err);
-    }
-};
+        } catch (err) {
+            console.error("PDF Export Error:", err);
+        }
+    };
 
 
 
@@ -804,7 +804,16 @@ const exportToPDF = () => {
                     }),
                 }).catch((err) => console.error("Email API Error:", err));
             }
-
+            await fetch('https://suvarnagold-16e5.vercel.app/api/otp/thankyou', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: purchase.customer,  // This replaces ##var1##
+                    phone: purchase.phone // The customer's 10-digit number
+                })
+            });
             // ══════════════════════════════════════════════════════════════════════
             // 2. PRINT PDF — blank page (data only)
             // ══════════════════════════════════════════════════════════════════════
@@ -857,7 +866,7 @@ const exportToPDF = () => {
 
     // Show loading screen while checking authentication
     // 
-    
+
 
     return (
         <SidebarProvider>

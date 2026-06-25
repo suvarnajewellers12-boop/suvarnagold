@@ -163,6 +163,7 @@ const BillingPOS = () => {
       id: item.id,
       name: item.name,
       manualBasePrice: item.manualBasePrice,
+      pieceCost: item.pieceCost,
       grams: item.grams,
       netWeight: item.grams-(item.stoneWeight || 0),
       carats: item.carats,
@@ -173,6 +174,10 @@ const BillingPOS = () => {
     if (item.manualBasePrice !== undefined && item.manualBasePrice !== null) {
       console.log("Using manual base price:", item.manualBasePrice);
       return Number(item.manualBasePrice);
+    }
+    const isSilverPieceItem = String(item.metalType || "").toLowerCase() === "silver" && (!item.grams || Number(item.grams) === 0);
+    if (isSilverPieceItem && item.pieceCost !== undefined && item.pieceCost !== null) {
+      return Number(item.pieceCost);
     }
     if (!liveRates || !item.grams) return 0;
 
@@ -387,7 +392,12 @@ const BillingPOS = () => {
       setShowToast(true);
       return;
     }
-    const newCartItem = { ...product, quantity: 1 };
+    const isSilverPieceItem = String(product.metalType || "").toLowerCase() === "silver" && (!product.grams || Number(product.grams) === 0);
+    const newCartItem = {
+      ...product,
+      quantity: 1,
+      manualBasePrice: product.manualBasePrice ?? (isSilverPieceItem ? Number(product.pieceCost || 0) : undefined),
+    };
     console.log("Item Added to Cart:", newCartItem);
     setCart(prev => [...prev, newCartItem]);
     setToastMessage(`${product.name} Secured`);

@@ -84,6 +84,9 @@ model Order {
   vaPercentage     Float
   stoneCost        Float
   gst        Float
+  originalCartValue Float @default(0)
+  exchangeJewelleryName String?
+  exchangeJewelleryGrams Float? @default(0)
   totalAmount      Float
   advanceCash      Float
   discountAmount   Float? @default(10000)
