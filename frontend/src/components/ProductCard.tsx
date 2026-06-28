@@ -106,7 +106,7 @@ export const ProductCard = ({
             metalType: editedProduct.metalType,
             stoneCost: editedProduct.stoneCost,
             va: editedProduct.va,
-            pieceCost: editedProduct.pieceCost, // <-- Sent in update payload
+            pieceCost: Number(editedProduct.pieceCost || 0),
           }),
         }
       );
