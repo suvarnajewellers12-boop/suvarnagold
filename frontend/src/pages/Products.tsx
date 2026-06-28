@@ -395,6 +395,11 @@ const Products = () => {
   // ── exports ───────────────────────────────────────────
   const exportToExcel = useCallback(() => {
     const fp = filteredProductsRef.current;
+    const getWeightValue = (p: any) => {
+      const isSilver925 = p.metalType === "silver" && String(p.carats).trim() === "92.5%";
+      return isSilver925 && Number(p.pieceCost) > 0 ? p.pieceCost : p.grams;
+    };
+
     const dataToExport = fp.map(p => ({
       "SKU": p.sku || "N/A",
       "Product Name": p.name,
@@ -403,11 +408,11 @@ const Products = () => {
       "Branch": p.branchName,
       "Category": p.category,
       "Body Part": p.bodyPart,
-      "Grams": p.grams,
+      "Grams / Piece Cost": getWeightValue(p),
       "Stone Wt": p.stoneWeight,
       "Net Weight": p.netWeight,
       "VA (%)": p.va,
-      "HUID": p.huid || "N/A",
+      "HUID": p.itemCode || "N/A",
       "Quantity": p.quantity,
       "Stone Cost": p.stoneCost || "0",
     }));
@@ -420,6 +425,11 @@ const Products = () => {
 
   const exportToPDF = useCallback(() => {
     const fp = filteredProductsRef.current;
+    const getWeightValue = (p: any) => {
+      const isSilver925 = p.metalType === "silver" && String(p.carats).trim() === "92.5%";
+      return isSilver925 && Number(p.pieceCost) > 0 ? p.pieceCost : p.grams;
+    };
+
     const doc = new jsPDF('landscape');
     doc.setFontSize(22);
     doc.setTextColor(120, 80, 20);
@@ -428,11 +438,11 @@ const Products = () => {
     doc.setTextColor(100);
     doc.text(`${STORE_INFO.hq} | Inventory Registry`, 14, 25);
     doc.text(`Exported: ${new Date().toLocaleString()} | Items: ${fp.length}`, 14, 30);
-    const tableColumn = ["SKU", "Name", "Branch", "Metal", "Grams", "Stone Weight", "Net Wt", "VA", "HUID", "Qty", "Stone Cost"];
+    const tableColumn = ["SKU", "Name", "Branch", "Metal", "Grams / Piece Cost", "Stone Weight", "Net Wt", "VA", "HUID", "Qty", "Stone Cost"];
     const tableRows = fp.map(p => [
       p.sku || "-", p.name.toUpperCase(), p.branchName,
-      `${p.metalType} (${p.carats})`, p.grams, p.stoneWeight,
-      p.netWeight, `${p.va}%`, p.huid || "-", p.quantity, p.stoneCost || "0"
+      `${p.metalType} (${p.carats})`, getWeightValue(p), p.stoneWeight,
+      p.netWeight, `${p.va}%`, p.itemCode || "-", p.quantity, p.stoneCost || "0"
     ]);
     autoTable(doc, {
       head: [tableColumn], body: tableRows, startY: 38, theme: 'grid',
@@ -573,13 +583,16 @@ const Products = () => {
   }, [formData, token, branches, fetchProducts, fireToast]);
   // ── filtering (memoised) ──────────────────────────────
   const filteredProducts = useMemo(() => {
-    const cleanMatch = (val: any, filterVal: string) => {
+    const cleanMatch = (val: any, filterVal: string, secondVal?: any) => {
       if (filterVal === "all") return true;
+      if (filterVal === "silver-92.5") {
+        return String(val).trim().toLowerCase() === "silver" && String(secondVal).trim() === "92.5%";
+      }
       return (val?.toString().trim().toLowerCase() || "") === filterVal.trim().toLowerCase();
     };
     const q = searchQuery.trim().toLowerCase();
     return products.filter(p =>
-      cleanMatch(p.metalType, filters.metal) &&
+      cleanMatch(p.metalType, filters.metal, p.carats) &&
       cleanMatch(p.bodyPart, filters.bodyPart) &&
       cleanMatch(p.category, filters.category) &&
       cleanMatch(p.branchName, filters.branch) &&
@@ -819,12 +832,12 @@ const Products = () => {
                 <label className="text-[10px] font-black text-amber-900/40 uppercase flex items-center gap-2 tracking-[0.2em] ml-1">
                   <Filter className="w-3.5 h-3.5" /> Filter: Metal Base
                 </label>
-                <div className="flex gap-2 p-1 bg-amber-50/50 rounded-xl border border-amber-100">
-                  {["all", "gold", "silver"].map(t => (
+                <div className="flex flex-wrap gap-2 p-1 bg-amber-50/50 rounded-xl border border-amber-100">
+                  {["all", "gold", "silver", "silver-92.5"].map(t => (
                     <button key={t} onClick={() => setFilters(f => ({ ...f, metal: t }))}
                       className={cn("px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
                         filters.metal === t ? "bg-amber-600 text-white shadow-lg shadow-amber-200 scale-105" : "text-amber-800/60 hover:text-amber-600")}>
-                      {t}
+                      {t === "silver-92.5" ? "92.5% Silver" : t}
                     </button>
                   ))}
                 </div>
