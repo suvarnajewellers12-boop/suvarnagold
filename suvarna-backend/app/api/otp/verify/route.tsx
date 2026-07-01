@@ -20,17 +20,17 @@ export async function OPTIONS() {
 export async function POST(req: Request) {
   try {
 
-    const authHeader = req.headers.get("authorization");
+    // const authHeader = req.headers.get("authorization");
 
-    if (!authHeader) {
-      return new NextResponse(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: corsHeaders() }
-      );
-    }
+    // if (!authHeader) {
+    //   return new NextResponse(
+    //     JSON.stringify({ error: "Unauthorized" }),
+    //     { status: 401, headers: corsHeaders() }
+    //   );
+    // }
 
-    const token = authHeader.split(" ")[1];
-    verifyToken(token);
+    // const token = authHeader.split(" ")[1];
+    // verifyToken(token);
 
     const body = await req.json();
 
