@@ -578,9 +578,39 @@ const Reports = () => {
                 console.log("Stamping item:", item);
                 const R = afterY + 18;
 
-                const k = String(item.purity || "").replace(/\D/g, "") || "22";
-                const rateStr = liveRates[`gold${k}`] || liveRates.gold22;
-                const effectiveRate = parseFloat(String(rateStr).replace(/[^\d.-]/g, "")) || 0;
+                const purityRaw = String(item.purity || "").toLowerCase();
+                const categoryRaw = String(item.category || "").toLowerCase();
+
+                // Detect if item is silver by checking purity or category keywords
+                const isSilver = purityRaw.includes("silver") || categoryRaw.includes("silver") || purityRaw.includes("ag") || purityRaw.includes("sterling") || /925|900/.test(purityRaw);
+
+                // Normalize purity to common gold-k format (e.g. 24, 22, 18)
+                const purityDigits = String(item.purity || "").replace(/\D/g, "");
+                let k = "22"; // default fallback
+                if (isSilver) {
+                    // For silver items we'll use the silver rate directly
+                    k = "silver";
+                } else if (purityDigits.length === 2) {
+                    k = purityDigits;
+                } else if (purityDigits.length === 3) {
+                    // Map common millesimal marks to karat equivalents
+                    const map3: any = { '999': '24', '916': '22', '750': '18', '585': '14' };
+                    k = map3[purityDigits] || '22';
+                } else if (purityRaw.includes('24k') || purityRaw.includes('24')) {
+                    k = '24';
+                } else if (purityRaw.includes('18k') || purityRaw.includes('18')) {
+                    k = '18';
+                }
+
+                // Choose the live rate depending on metal
+                let rateStr: any;
+                if (k === 'silver') {
+                    rateStr = liveRates?.silver;
+                } else {
+                    rateStr = liveRates ? (liveRates[`gold${k}`] || liveRates.gold22) : undefined;
+                }
+
+                const effectiveRate = parseFloat(String(rateStr || 0).replace(/[^\d.-]/g, "")) || 0;
                 const vaAmount = effectiveRate * (item.grams - (item.stoneWeight || 0)) * (item.va / 100);
 
                 // Product name — wrap within the name column width
@@ -606,8 +636,15 @@ const Reports = () => {
                 // Numeric columns
                 draw(`${item.grams}g`, col.gross, R, 9);
                 draw(`${item.stoneWeight}g`, col.sWt, R, 9);
-                draw(`${item.grams - (item.stoneWeight || 0)}g`, col.net, R, 9);
-                draw(Math.round(effectiveRate).toLocaleString(), col.rate, R, 9);
+                draw(`${item.grams - (item.stoneWeight || 0)}g`, col.net-10, R, 9);
+
+                // Draw the main rate centered in the RATE column (single print only)
+                const rateText = Math.round(effectiveRate).toLocaleString();
+                const rateW = customFont.widthOfTextAtSize(rateText, 9);
+                const rateX = col.rate - rateW / 2;
+                draw(rateText, rateX, R, 9);
+
+                // VA and price
                 draw(Math.round(vaAmount).toLocaleString(), col.va, R, 9);
                 drawR(item.itemCost.toLocaleString(), col.price, R, 9);
 
