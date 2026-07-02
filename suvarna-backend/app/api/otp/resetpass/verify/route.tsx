@@ -8,14 +8,13 @@ const corsHeaders = {
 };
 
 export async function OPTIONS() {
-    return NextResponse.json({}, { headers: corsHeaders });
+    return new NextResponse(null, { status: 200, headers: corsHeaders });
 }
 
 export async function POST(req: NextRequest) {
     try {
-        const { phone, otp } = await req.json();
+        const { phone, otp, purpose } = await req.json();
 
-        // 1. Validate Input
         if (!phone || !otp) {
             return NextResponse.json(
                 { error: "Phone number and OTP are required" }, 
@@ -23,19 +22,19 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // 2. Fetch the most recent OTP for this phone number
-        // We use findFirst and sort by descending creation time in case they requested multiple OTPs
+        const targetPurpose = purpose || "forgot_password";
+
+        // 1. Fetch the most recent OTP
         const otpRecord = await prisma.otpVerification.findFirst({
             where: {
                 phoneNumber: phone,
-                purpose: "password_reset", // Ensures it's verifying for the correct context
+                purpose: targetPurpose,
             },
             orderBy: {
-                expiresAt: 'desc', // Gets the latest generated OTP
+                expiresAt: 'desc',
             },
         });
 
-        // 3. Check if an OTP record was found
         if (!otpRecord) {
             return NextResponse.json(
                 { error: "No OTP request found for this number" },
@@ -43,7 +42,7 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // 4. Verify the OTP matches
+        // 2. Verify the OTP matches
         if (otpRecord.otpCode !== otp.toString()) {
             return NextResponse.json(
                 { error: "Invalid OTP code" },
@@ -51,7 +50,7 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // 5. Check Expiration Date
+        // 3. Check Expiration Date
         const now = new Date();
         if (now > otpRecord.expiresAt) {
             return NextResponse.json(
@@ -60,28 +59,24 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // 6. Success! Clean up the used OTP so it can't be reused
-        await prisma.otpVerification.delete({
-            where: {
-                id: otpRecord.id, // Assuming your Prisma model has an 'id' primary key
+        // 4. Update the record to state it was successfully verified instead of deleting it!
+        await prisma.otpVerification.update({
+            where: { id: otpRecord.id },
+            data: {
+                isUsed: true,
+                verifiedAt: new Date()
             }
         });
 
-        // Optional: At this step, you can also return an authentication token (JWT) 
-        // or a temporary reset token if they need to proceed to a "New Password" screen.
-
         return NextResponse.json(
-            { success: true, message: "OTP verified successfully" },
+            { type: "success", success: true, message: "OTP verified successfully" },
             { status: 200, headers: corsHeaders }
         );
 
     } catch (error: any) {
         console.error("OTP Verification Error:", error);
         return NextResponse.json(
-            { 
-                error: "Failed to process OTP verification", 
-                details: error.message || error 
-            }, 
+            { error: "Failed to process OTP verification" }, 
             { status: 500, headers: corsHeaders }
         );
     }

@@ -8,15 +8,14 @@ const corsHeaders = {
 };
 
 export async function OPTIONS() {
-    return NextResponse.json({}, { headers: corsHeaders });
+    return new NextResponse(null, { status: 200, headers: corsHeaders });
 }
 
 export async function POST(req: NextRequest) {
-    // Keep track of the payload outside the try block for error reporting
     let msg91Payload: any = null;
 
     try {
-        const { phone } = await req.json();
+        const { phone, purpose } = await req.json();
 
         if (!phone) {
             return NextResponse.json(
@@ -24,6 +23,9 @@ export async function POST(req: NextRequest) {
                 { status: 400, headers: corsHeaders }
             );
         }
+
+        // Use purpose from request if present (falls back to forgot_password)
+        const targetPurpose = purpose || "forgot_password";
 
         // 1. Generate OTP and Expiration
         const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
             data: {
                 phoneNumber: phone,
                 otpCode: otpCode,
-                purpose: "password_reset",
+                purpose: targetPurpose,
                 expiresAt: expiresAt,
             },
         });
@@ -61,37 +63,24 @@ export async function POST(req: NextRequest) {
             body: JSON.stringify(msg91Payload),
         });
 
-        // Capture raw status code from MSG91
         const msg91Status = response.status;
         const data = await response.json();
 
-        // Log everything to your backend terminal for verification
-        console.log("--- MSG91 DEBUGGING LOGS ---");
-        console.log("Sent Payload:", JSON.stringify(msg91Payload, null, 2));
-        console.log("MSG91 HTTP Status:", msg91Status);
-        console.log("MSG91 Response Data:", JSON.stringify(data, null, 2));
-
-        // If MSG91 returned a bad HTTP status or an internal error object
         if (msg91Status !== 200 || data.type === "error") {
             return NextResponse.json(
                 {
                     error: "MSG91 API rejected the request",
                     msg91Status,
                     msg91Response: data,
-                    debugRequestPayload: msg91Payload
                 },
                 { status: 400, headers: corsHeaders }
             );
         }
 
-        // Success Response (Includes the sent request payload for frontend debugging)
         return NextResponse.json(
             {
                 success: true,
                 message: "OTP saved and request sent to MSG91",
-                msg91Status,
-                msg91Response: data,
-                debugRequestPayload: msg91Payload
             },
             { status: 200, headers: corsHeaders }
         );
@@ -102,7 +91,6 @@ export async function POST(req: NextRequest) {
             {
                 error: "Failed to process OTP request",
                 details: error.message || error,
-                debugRequestPayload: msg91Payload // Will show what was built before the crash occurred
             },
             { status: 500, headers: corsHeaders }
         );
