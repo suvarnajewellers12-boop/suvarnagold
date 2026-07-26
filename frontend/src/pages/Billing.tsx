@@ -75,6 +75,9 @@ const BillingPOS = () => {
 
   const [paymentMethods, setPaymentMethods] = useState({ cash: false, upi: false, card: false, cheque: false });
   const [paymentAmounts, setPaymentAmounts] = useState({ cash: 0, upi: 0, card: 0, cheque: 0 });
+  const [staffList, setStaffList] = useState<any[]>(() => getSaved("pos_staff_list", []));
+  const [selectedSalesmanId, setSelectedSalesmanId] = useState<string>(() => getSaved("pos_selected_salesman", ""));
+  const [selectedCashierId, setSelectedCashierId] = useState<string>(() => getSaved("pos_selected_cashier", ""));
 
   // Credit Note Coupon Mode
   const [isCreditNoteCoupon, setIsCreditNoteCoupon] = useState(() => getSaved("pos_credit_note_mode", false));
@@ -103,6 +106,8 @@ const BillingPOS = () => {
     setExchangeData({ name: "", grams: 0, discount: 0 });
     setPaymentMethods({ cash: false, upi: false, card: false, cheque: false });
     setPaymentAmounts({ cash: 0, upi: 0, card: 0, cheque: 0 });
+    setSelectedSalesmanId("");
+    setSelectedCashierId("");
     setIsCreditNoteCoupon(false);
     setSearch("");
     setShowDropdown(false);
@@ -118,7 +123,9 @@ const BillingPOS = () => {
     sessionStorage.setItem("pos_exchange_active", JSON.stringify(isExchangeApplied));
     sessionStorage.setItem("pos_exchange_data", JSON.stringify(exchangeData));
     sessionStorage.setItem("pos_credit_note_mode", JSON.stringify(isCreditNoteCoupon));
-  }, [cart, customer, couponData, couponCode, managerDiscountPercent, isOtpVerified, isExchangeApplied, exchangeData, isCreditNoteCoupon]);
+    sessionStorage.setItem("pos_selected_salesman", JSON.stringify(selectedSalesmanId));
+    sessionStorage.setItem("pos_selected_cashier", JSON.stringify(selectedCashierId));
+  }, [cart, customer, couponData, couponCode, managerDiscountPercent, isOtpVerified, isExchangeApplied, exchangeData, isCreditNoteCoupon, selectedSalesmanId, selectedCashierId]);
 
   useEffect(() => {
     if (resendCountdown <= 0) return;
@@ -627,6 +634,10 @@ const BillingPOS = () => {
             discountAmount: managerWaiver || 0,
             finalAmount: total,
             couponDiscount: totalCouponDiscount || 0,
+            salesmanId: selectedSalesmanId || null,
+            salesmanName: staffList.find(s => s.id === selectedSalesmanId)?.fullName || null,
+            cashierId: selectedCashierId || null,
+            cashierName: staffList.find(s => s.id === selectedCashierId)?.fullName || null,
             items: cart.map(item => ({
               productId: item.id,
               name: item.name,
@@ -682,12 +693,24 @@ const BillingPOS = () => {
   };
 
   useEffect(() => {
+    const fetchStaffList = async () => {
+      try {
+        if (!token) return;
+        const res = await fetch("https://suvarnagold-16e5.vercel.app/api/staff/all", { headers: { Authorization: `Bearer ${token}` } });
+        const data = await res.json();
+        setStaffList(data.staff || []);
+      } catch (error) {
+        console.error("Error fetching staff list:", error);
+      }
+    };
+
     const init = async () => {
       try {
         const [r, p] = await Promise.all([
           fetch("https://suvarnagold-16e5.vercel.app/api/rates"),
           fetch("https://suvarnagold-16e5.vercel.app/api/products/all", { headers: { Authorization: `Bearer ${token}` } })
         ]);
+        await fetchStaffList();
         setLiveRates(await r.json());
         const prodJson = await p.json();
         setInventory(prodJson.products || []);
@@ -1284,6 +1307,41 @@ const BillingPOS = () => {
                             )}
                           </div>
                         )}
+
+                        <div className="space-y-6 pt-4 border-t-2 border-gold/10">
+                          <div className="flex items-center gap-2 text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                            <User size={14} /> Assign Staff
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <label className="space-y-2 text-[11px] font-black uppercase text-slate-600">
+                              Salesman
+                              <select
+                                value={selectedSalesmanId}
+                                onChange={(e) => setSelectedSalesmanId(e.target.value)}
+                                className="w-full h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm"
+                              >
+                                <option value="">Select Salesman</option>
+                                {staffList.map((staff) => (
+                                  <option key={staff.id} value={staff.id}>{staff.fullName}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="space-y-2 text-[11px] font-black uppercase text-slate-600">
+                              Cashier
+                              <select
+                                value={selectedCashierId}
+                                onChange={(e) => setSelectedCashierId(e.target.value)}
+                                className="w-full h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm"
+                              >
+                                <option value="">Select Cashier</option>
+                                {staffList.map((staff) => (
+                                  <option key={staff.id} value={staff.id}>{staff.fullName}</option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                        </div>
+
                       </div>
                     </div>
 

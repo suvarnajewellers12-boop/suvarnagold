@@ -75,6 +75,12 @@ export async function POST(req: Request) {
       cardAmount: Number(paymentBreakdown.card) || 0,
       chequeAmount: Number(paymentBreakdown.cheque) || 0,
 
+      // Staff / Sales tracking
+      salesmanId: purchaseData.salesmanId || null,
+      salesmanName: purchaseData.salesmanName || null,
+      cashierId: purchaseData.cashierId || null,
+      cashierName: purchaseData.cashierName || null,
+
       // POS Metadata
       paymentStatus: "SUCCESS",
       paymentId: `POS-${Date.now()}-${Math.floor(Math.random() * 1000)}`,

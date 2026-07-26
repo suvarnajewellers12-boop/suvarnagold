@@ -175,6 +175,10 @@ model Purchase {
   cashAmount                Float          @default(0)
   chequeAmount              Float          @default(0)
   upiAmount                 Float          @default(0)
+  salesmanId                String?
+  salesmanName              String?
+  cashierId                 String?
+  cashierName               String?
   invoice                   String         @default("svj-234")
   admin                     Admin?         @relation(fields: [adminId], references: [id])
   superAdmin                SuperAdmin?    @relation(fields: [superAdminId], references: [id])

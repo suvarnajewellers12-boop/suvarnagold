@@ -113,6 +113,10 @@ export async function GET(req: Request) {
             couponDiscount: purchase.couponDiscount,
             finalAmount: purchase.finalAmount,
             invoice: purchase.invoice,
+            salesmanId: purchase.salesmanId,
+            salesmanName: purchase.salesmanName,
+            cashierId: purchase.cashierId,
+            cashierName: purchase.cashierName,
 
             // Item specific fields
             productName: product.name,

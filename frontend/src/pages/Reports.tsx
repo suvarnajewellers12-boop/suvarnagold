@@ -138,6 +138,8 @@ const Reports = () => {
                         grandTotal: Number(p.finalAmount) || 0,
                         sku: p.sku || "N/A",
                         invoice: p.invoice || "N/A",
+                        salesman: p.salesmanName || p.salesman || "Unassigned",
+                        cashier: p.cashierName || p.cashier || "Unassigned",
                         payments: {
                             cash: Number(p.cashAmount || 0),
                             upi: Number(p.upiAmount || 0),
@@ -252,15 +254,17 @@ const Reports = () => {
                         "Invoice": p.invoice,
                         "Customer": p.customer,
                         "Phone": p.phone,
+                        "Salesman": p.salesman || "Unassigned",
+                        "Cashier": p.cashier || "Unassigned",
                         "Product Name": item.productName, // Separate Column
-                        "Category": item.category,       // Separate Column
-                        "SKU": item.sku || "N/A",        // Separate Column
-                        "HUID": item.huid || "N/A",      // Separate Column
-                        "Purity": item.purity,           // Separate Column
-                        "Gross Wt (g)": item.grossWt,    // Separate Column
-                        "Net Wt (g)": item.netWt,        // Separate Column
-                        "VA (%)": item.va,               // Separate Column
-                        "Item Cost": item.itemCost,      // Separate Column
+                        "Category": item.category, // Separate Column
+                        "SKU": item.sku || "N/A", // Separate Column
+                        "HUID": item.huid || "N/A", // Separate Column
+                        "Purity": item.purity, // Separate Column
+                        "Gross Wt (g)": item.grossWt, // Separate Column
+                        "Net Wt (g)": item.netWt, // Separate Column
+                        "VA (%)": item.va, // Separate Column
+                        "Item Cost": item.itemCost, // Separate Column
                         "Subtotal": p.subtotal,
                         "CGST": p.cgst,
                         "SGST": p.sgst,
@@ -767,6 +771,34 @@ const Reports = () => {
                     tY += 6;
                 }
 
+                const hasStaff = Boolean(
+                    purchase.salesman && purchase.salesman !== "Unassigned"
+                ) || Boolean(
+                    purchase.cashier && purchase.cashier !== "Unassigned"
+                );
+
+                if (hasStaff && tY <= SAFE_BOTTOM - 24) {
+                    hLine(tY);
+                    tY += 10;
+
+                    draw("ASSIGNED STAFF", col.name, tY, 8, gold);
+                    tY += 13;
+
+                    const STAFF_VAL_X = 220;
+
+                    if (purchase.salesman && purchase.salesman !== "Unassigned") {
+                        draw("Salesman", col.name + 6, tY, 8, grey);
+                        drawR(purchase.salesman, STAFF_VAL_X, tY, 8, black);
+                        tY += 12;
+                    }
+
+                    if (purchase.cashier && purchase.cashier !== "Unassigned") {
+                        draw("Cashier", col.name + 6, tY, 8, grey);
+                        drawR(purchase.cashier, STAFF_VAL_X, tY, 8, black);
+                        tY += 12;
+                    }
+                }
+
                 // ── Footer ────────────────────────────────────────────────────────
                 if (tY <= SAFE_BOTTOM - 28) {
                     draw("Thank you for shopping with Suvarna Jewellers!", col.name, tY, 8, grey);
@@ -1234,6 +1266,16 @@ const Reports = () => {
                                                 <span className="text-right font-bold text-red-600">-₹{selectedCustomer.exchangeDiscount.toLocaleString()}</span>
                                             </>
                                         )}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 text-[11px] uppercase text-slate-500 mt-4">
+                                        <div className="bg-slate-50 rounded-2xl p-3">
+                                            <div className="text-[9px] font-bold uppercase text-slate-400">Salesman</div>
+                                            <div className="text-sm font-bold text-slate-800">{selectedCustomer.salesman || "Unassigned"}</div>
+                                        </div>
+                                        <div className="bg-slate-50 rounded-2xl p-3">
+                                            <div className="text-[9px] font-bold uppercase text-slate-400">Cashier</div>
+                                            <div className="text-sm font-bold text-slate-800">{selectedCustomer.cashier || "Unassigned"}</div>
+                                        </div>
                                     </div>
                                     <div className="pt-3 border-t border-primary/20 flex justify-between items-end">
                                         <span className="text-xs font-bold uppercase text-primary tracking-widest">Total Amount</span>

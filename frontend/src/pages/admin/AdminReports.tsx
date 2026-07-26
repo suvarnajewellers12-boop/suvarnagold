@@ -621,6 +621,34 @@ const Reports = () => {
                     tY += 6;
                 }
 
+                const hasStaff = Boolean(
+                    purchase.salesman && purchase.salesman !== "Unassigned"
+                ) || Boolean(
+                    purchase.cashier && purchase.cashier !== "Unassigned"
+                );
+
+                if (hasStaff && tY <= SAFE_BOTTOM - 24) {
+                    hLine(tY);
+                    tY += 10;
+
+                    draw("ASSIGNED STAFF", col.name, tY, 8, gold);
+                    tY += 13;
+
+                    const STAFF_VAL_X = 220;
+
+                    if (purchase.salesman && purchase.salesman !== "Unassigned") {
+                        draw("Salesman", col.name + 6, tY, 8, grey);
+                        drawR(purchase.salesman, STAFF_VAL_X, tY, 8, black);
+                        tY += 12;
+                    }
+
+                    if (purchase.cashier && purchase.cashier !== "Unassigned") {
+                        draw("Cashier", col.name + 6, tY, 8, grey);
+                        drawR(purchase.cashier, STAFF_VAL_X, tY, 8, black);
+                        tY += 12;
+                    }
+                }
+
                 // ── Footer ────────────────────────────────────────────────────────
                 if (tY <= SAFE_BOTTOM - 28) {
                     draw("Thank you for shopping with Suvarna Jewellers!", col.name, tY, 8, grey);
