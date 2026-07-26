@@ -56,8 +56,46 @@ export async function GET(req: Request) {
       },
     });
 
+    const salesmanMetrics = await prisma.purchase.groupBy({
+      by: ["salesmanId"],
+      where: { salesmanId: { not: null } },
+      _sum: {
+        finalAmount: true,
+      },
+      _count: {
+        id: true,
+      },
+    });
+
+    const cashierMetrics = await prisma.purchase.groupBy({
+      by: ["cashierId"],
+      where: { cashierId: { not: null } },
+      _sum: {
+        cashAmount: true,
+      },
+      _count: {
+        id: true,
+      },
+    });
+
+    const salesmanMap = new Map(salesmanMetrics.map((item) => [item.salesmanId, item]));
+    const cashierMap = new Map(cashierMetrics.map((item) => [item.cashierId, item]));
+
+    const enrichedStaff = staff.map((staffMember) => {
+      const sales = salesmanMap.get(staffMember.id);
+      const cashier = cashierMap.get(staffMember.id);
+
+      return {
+        ...staffMember,
+        salesAmount: sales?._sum.finalAmount ?? 0,
+        salesCount: sales?._count.id ?? 0,
+        cashCollected: cashier?._sum.cashAmount ?? 0,
+        cashierCount: cashier?._count.id ?? 0,
+      };
+    });
+
     return new NextResponse(
-      JSON.stringify({ staff }),
+      JSON.stringify({ staff: enrichedStaff }),
       { status: 200, headers: corsHeaders() }
     );
 

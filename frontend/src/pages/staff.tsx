@@ -54,6 +54,10 @@ export default function StaffManagement() {
     const [searchQuery, setSearchQuery] = useState("");
     const [genderFilter, setGenderFilter] = useState("all");
     const [salarySort, setSalarySort] = useState("none");
+    const [performanceSort, setPerformanceSort] = useState("none");
+    const [performanceOrder, setPerformanceOrder] = useState("desc");
+    const [minAmountFilter, setMinAmountFilter] = useState("");
+    const [minCountFilter, setMinCountFilter] = useState("");
 
     const [form, setForm] = useState({
         fullName: "",
@@ -78,6 +82,10 @@ export default function StaffManagement() {
             "Aadhar Number": s.aadharNumber,
             "Pan Card": s.panCardNumber || "N/A",
             "Monthly Salary (INR)": s.monthlySalary,
+            "Sales Amount (INR)": s.salesAmount ?? 0,
+            "Sales Count": s.salesCount ?? 0,
+            "Cash Collected (INR)": s.cashCollected ?? 0,
+            "Cashier Count": s.cashierCount ?? 0,
             "Date of Joining": new Date(s.dateOfJoining).toLocaleDateString("en-GB"),
             "Nominee Name": s.nomineeName,
             "Nominee Relation": s.nomineeRelation,
@@ -105,7 +113,20 @@ export default function StaffManagement() {
         doc.setTextColor(100);
         doc.text(`Total Staff: ${filteredStaff.length} | Generated on: ${new Date().toLocaleString()}`, 14, 30);
 
-        const tableColumn = ["Name", "Gender", "Phone", "Aadhar", "Pan", "Salary", "Nominee", "Relation"];
+        const tableColumn = [
+            "Name",
+            "Gender",
+            "Phone",
+            "Aadhar",
+            "Pan",
+            "Salary",
+            "Sales Amount",
+            "Sales Count",
+            "Cash Collected",
+            "Cashier Count",
+            "Nominee",
+            "Relation"
+        ];
         const tableRows = filteredStaff.map(s => [
             s.fullName,
             s.gender,
@@ -113,6 +134,10 @@ export default function StaffManagement() {
             s.aadharNumber,
             s.panCardNumber || "N/A",
             `Rs. ${s.monthlySalary}`,
+            `Rs. ${s.salesAmount ?? 0}`,
+            s.salesCount ?? 0,
+            `Rs. ${s.cashCollected ?? 0}`,
+            s.cashierCount ?? 0,
             s.nomineeName,
             s.nomineeRelation
         ]);
@@ -187,8 +212,38 @@ export default function StaffManagement() {
         if (salarySort === "asc") result.sort((a, b) => Number(a.monthlySalary) - Number(b.monthlySalary));
         if (salarySort === "desc") result.sort((a, b) => Number(b.monthlySalary) - Number(a.monthlySalary));
 
-        return result;
-    }, [staff, searchQuery, genderFilter, salarySort]);
+        if (performanceSort === "salesAmount") {
+            result.sort((a, b) => Number(a.salesAmount ?? 0) - Number(b.salesAmount ?? 0));
+        }
+        if (performanceSort === "cashCollected") {
+            result.sort((a, b) => Number(a.cashCollected ?? 0) - Number(b.cashCollected ?? 0));
+        }
+        if (performanceSort === "salesCount") {
+            result.sort((a, b) => Number(a.salesCount ?? 0) - Number(b.salesCount ?? 0));
+        }
+        if (performanceSort === "cashierCount") {
+            result.sort((a, b) => Number(a.cashierCount ?? 0) - Number(b.cashierCount ?? 0));
+        }
+
+        if (performanceSort !== "none" && performanceOrder === "desc") {
+            result.reverse();
+        }
+
+        return result.filter((s) => {
+            const minAmount = Number(minAmountFilter) || 0;
+            const minCount = Number(minCountFilter) || 0;
+
+            if (minAmount > 0 && !(Number(s.salesAmount ?? 0) >= minAmount || Number(s.cashCollected ?? 0) >= minAmount)) {
+                return false;
+            }
+
+            if (minCount > 0 && !(Number(s.salesCount ?? 0) >= minCount || Number(s.cashierCount ?? 0) >= minCount)) {
+                return false;
+            }
+
+            return true;
+        });
+    }, [staff, searchQuery, genderFilter, salarySort, performanceSort, performanceOrder, minAmountFilter, minCountFilter]);
 
     const createStaff = async () => {
         if (form.phoneNumber.length !== 10) return alert("Phone must be 10 digits");
@@ -314,6 +369,10 @@ export default function StaffManagement() {
                                         {selectedStaff.panCardNumber && <div className="flex justify-between"><span>Pan Card</span><span className="font-mono text-xs">{selectedStaff.panCardNumber}</span></div>}
                                         <div className="flex justify-between"><span>Gender</span><span className="font-bold">{selectedStaff.gender}</span></div>
                                         <div className="flex justify-between"><span>Salary</span><span className="text-amber-700 font-bold">₹{selectedStaff.monthlySalary}</span></div>
+                                        <div className="flex justify-between"><span>Sales Amount</span><span className="text-slate-700 font-bold">₹{selectedStaff.salesAmount ?? 0}</span></div>
+                                        <div className="flex justify-between"><span>Sales Count</span><span className="text-slate-700 font-bold">{selectedStaff.salesCount ?? 0}</span></div>
+                                        <div className="flex justify-between"><span>Cash Collected</span><span className="text-slate-700 font-bold">₹{selectedStaff.cashCollected ?? 0}</span></div>
+                                        <div className="flex justify-between"><span>Cashier Count</span><span className="text-slate-700 font-bold">{selectedStaff.cashierCount ?? 0}</span></div>
                                         <div className="flex justify-between"><span>Joined</span><span className="font-medium">{new Date(selectedStaff.dateOfJoining).toLocaleDateString("en-GB")}</span></div>
                                     </div>
                                 </div>
@@ -571,7 +630,7 @@ export default function StaffManagement() {
                                             onChange={(e) => setSearchQuery(e.target.value)}
                                         />
                                     </div>
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-col gap-2 sm:gap-3 sm:flex-row">
                                         <select
                                             className="h-10 rounded-md border border-gold/10 bg-white px-3 text-xs outline-none"
                                             value={genderFilter}
@@ -590,6 +649,43 @@ export default function StaffManagement() {
                                             <ArrowUpDown className="w-3 h-3" /> Salary
                                         </Button>
                                     </div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                                    <select
+                                        className="h-10 rounded-md border border-gold/10 bg-white px-3 text-xs outline-none"
+                                        value={performanceSort}
+                                        onChange={(e) => setPerformanceSort(e.target.value)}
+                                    >
+                                        <option value="none">Sort by Performance</option>
+                                        <option value="salesAmount">Sales Amount</option>
+                                        <option value="cashCollected">Cash Collected</option>
+                                        <option value="salesCount">Sales Count</option>
+                                        <option value="cashierCount">Cashier Count</option>
+                                    </select>
+                                    <select
+                                        className="h-10 rounded-md border border-gold/10 bg-white px-3 text-xs outline-none"
+                                        value={performanceOrder}
+                                        onChange={(e) => setPerformanceOrder(e.target.value)}
+                                    >
+                                        <option value="desc">Descending</option>
+                                        <option value="asc">Ascending</option>
+                                    </select>
+                                    <Input
+                                        type="number"
+                                        min="0"
+                                        placeholder="Min Amount"
+                                        className="h-10 border-gold/10 text-xs"
+                                        value={minAmountFilter}
+                                        onChange={(e) => setMinAmountFilter(e.target.value)}
+                                    />
+                                    <Input
+                                        type="number"
+                                        min="0"
+                                        placeholder="Min Count"
+                                        className="h-10 border-gold/10 text-xs"
+                                        value={minCountFilter}
+                                        onChange={(e) => setMinCountFilter(e.target.value)}
+                                    />
                                 </div>
                             </div>
 
@@ -612,6 +708,12 @@ export default function StaffManagement() {
                                                 <div>
                                                     <p className="font-serif font-bold text-slate-800">{s.fullName}</p>
                                                     <p className="text-xs text-slate-400">{s.phoneNumber}</p>
+                                                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                                                        <span className="rounded-full bg-amber-50 px-2 py-1">Sales ₹{s.salesAmount ?? 0}</span>
+                                                        <span className="rounded-full bg-slate-50 px-2 py-1">Cnt {s.salesCount ?? 0}</span>
+                                                        <span className="rounded-full bg-emerald-50 px-2 py-1">Cash ₹{s.cashCollected ?? 0}</span>
+                                                        <span className="rounded-full bg-slate-50 px-2 py-1">Cnt {s.cashierCount ?? 0}</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div className="text-right flex items-center gap-6 text-sm">
