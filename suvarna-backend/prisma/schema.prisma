@@ -50,9 +50,9 @@ model GoldJobWork {
   totalGrams        Float?
   productType       String?
   advancePaid       Float     @default(0)
-  makingCharge      Float?    // This is the "Rate" or "Total Labor"
-  totalAmount       Float?    @default(0) // Total bill for the worker
-  balanceAmount     Float?    @default(0) // Remaining to pay the worker
+  makingCharge      Float?
+  totalAmount       Float?    @default(0)
+  balanceAmount     Float?    @default(0)
   status            String    @default("PENDING")
   dateGiven         DateTime  @default(now())
   dateReceived      DateTime?
@@ -62,66 +62,57 @@ model GoldJobWork {
   createdBy         String
   createdAt         DateTime  @default(now())
   totalPaid         Float?    @default(0)
-  
-  assignedOrders    Order[]   
+  assignedOrders    Order[]
 }
 
 model Order {
-  id               String        @id @default(uuid())
-  orderId          String        @unique // e.g., OR-2026-1001
-  customerName     String
-  phoneNumber      String
-  itemName         String
-  itemDescription  String?
-  metalType        String        // GOLD / SILVER
-  purity           String
-  liveRate         Float
-  givenMetalGrams  Float
-  addedMetalGrams  Float
-  stoneWeight      Float
-  netWeight        Float
-  grossWeight      Float
-  vaPercentage     Float
-  stoneCost        Float
-  gst        Float
-  originalCartValue Float @default(0)
-  exchangeJewelleryName String?
-  exchangeJewelleryGrams Float? @default(0)
-  totalAmount      Float
-  advanceCash      Float
-  discountAmount   Float? @default(10000)
-  balanceAmount    Float
-  deadlineDate     DateTime
-  createdAt        DateTime      @default(now())
-  createdBy        String
-
-  // ================= WORKFLOW & RELATIONSHIP FIELDS =================
-  
-  // 1. Status tracks the lifecycle of the customer's item
-  // Values: "NOT ASSIGNED" | "ASSIGNED" | "COMPLETED" | "DELIVERED"
-  status           String        @default("NOT ASSIGNED") 
-
-  // 2. The Foreign Key: Stores the ID of the JobWork record when assigned
-  jobWorkId        String?       
-
-  // 3. The Relation: This allows you to do: prisma.order.findUnique().jobWork()
-  jobWork          GoldJobWork?  @relation(fields: [jobWorkId], references: [id])
+  id                     String       @id @default(uuid())
+  orderId                String       @unique
+  customerName           String
+  phoneNumber            String
+  itemName               String
+  itemDescription        String?
+  metalType              String
+  purity                 String
+  liveRate               Float
+  givenMetalGrams        Float
+  addedMetalGrams        Float
+  stoneWeight            Float
+  netWeight              Float
+  grossWeight            Float
+  vaPercentage           Float
+  stoneCost              Float
+  gst                    Float
+  totalAmount            Float
+  advanceCash            Float
+  discountAmount         Float?       @default(10000)
+  balanceAmount          Float
+  deadlineDate           DateTime
+  createdAt              DateTime     @default(now())
+  createdBy              String
+  status                 String       @default("NOT ASSIGNED")
+  jobWorkId              String?
+  originalCartValue      Float        @default(0)
+  exchangeJewelleryGrams Float?       @default(0)
+  exchangeJewelleryName  String?
+  jobWork                GoldJobWork? @relation(fields: [jobWorkId], references: [id])
 }
+
 model Staff {
-  id                  String   @id @default(uuid())
-  fullName            String
-  dateOfJoining       DateTime
-  monthlySalary       Float
-  gender              String
-  phoneNumber         String   @unique
-  aadharNumber        String   @unique
-  panCardNumber       String?  @unique
-  nomineeName         String
-  nomineeRelation     String
-  nomineePhoneNumber  String   @unique
-  nomineeAddress      String
-  createdAt           DateTime @default(now())
-  createdBy           String
+  id                 String   @id
+  fullName           String
+  dateOfJoining      DateTime
+  monthlySalary      Float
+  gender             String
+  phoneNumber        String   @unique
+  aadharNumber       String   @unique
+  panCardNumber      String?  @unique
+  nomineeName        String
+  nomineeRelation    String
+  nomineePhoneNumber String   @unique
+  nomineeAddress     String
+  createdAt          DateTime @default(now())
+  createdBy          String
 }
 
 model Product {
@@ -132,7 +123,7 @@ model Product {
   category        String         @default("others")
   bodyPart        String         @default("others")
   grams           Float
-  grossWeight     Float          
+  grossWeight     Float
   stoneWeight     Float          @default(0)
   netWeight       Float          @default(0)
   itemCode        String?
@@ -145,11 +136,9 @@ model Product {
   branchName      String         @default("Gajuwaka")
   va              Float          @default(2.5)
   stoneCost       Float          @default(0)
-  pieceCost       Float          @default(0) // <-- Added this line
+  pieceCost       Float          @default(0)
   purchaseItems   PurchaseItem[]
 }
-
-
 
 model Purchase {
   id                        String         @id @default(uuid())
@@ -175,11 +164,11 @@ model Purchase {
   cashAmount                Float          @default(0)
   chequeAmount              Float          @default(0)
   upiAmount                 Float          @default(0)
-  salesmanId                String?
-  salesmanName              String?
+  invoice                   String         @default("svj-234")
   cashierId                 String?
   cashierName               String?
-  invoice                   String         @default("svj-234")
+  salesmanId                String?
+  salesmanName              String?
   admin                     Admin?         @relation(fields: [adminId], references: [id])
   superAdmin                SuperAdmin?    @relation(fields: [superAdminId], references: [id])
   items                     PurchaseItem[]
@@ -218,8 +207,8 @@ model CreditNote {
   overallCost Float
   couponId    String
   createdAt   DateTime     @default(now())
-  coupon      ReturnCoupon @relation(fields: [couponId], references: [id])
   isUsed      Boolean      @default(false)
+  coupon      ReturnCoupon @relation(fields: [couponId], references: [id])
 }
 
 model CustomerScheme {
@@ -233,6 +222,11 @@ model CustomerScheme {
   isCompleted      Boolean          @default(false)
   startDate        DateTime         @default(now())
   accumulatedGrams Float            @default(0)
+  customerAddress  String?
+  nomineeAddress   String?
+  nomineeName      String           @default("")
+  nomineePhone     String           @default("")
+  nomineeRelation  String           @default("")
   coupon           Coupon?
   customer         Customer         @relation(fields: [customerId], references: [id])
   scheme           Scheme           @relation(fields: [schemeId], references: [id])
@@ -309,7 +303,6 @@ model ReturnCoupon {
   createdAt   DateTime     @default(now())
   invoice     String       @default("#svn")
   pastinvoice String       @default("svn-invoice")
-
   creditNotes CreditNote[]
 }
 

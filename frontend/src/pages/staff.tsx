@@ -10,7 +10,7 @@ import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import {
     Users, Plus, X, Phone, CreditCard, Calendar,
-    UserCircle, Loader2, Search, ArrowUpDown, FileDown, Table as TableIcon, Edit2
+    UserCircle, Loader2, Search, ArrowUpDown, FileDown, Table as TableIcon, Edit2, Trash2, AlertCircle
 } from "lucide-react";
 
 // Library imports for exporting
@@ -37,6 +37,79 @@ const StaffSkeleton = () => (
     </div>
 );
 
+// ================= CONFIRMATION DIALOG COMPONENT =================
+const DeleteConfirmationDialog = ({ 
+    isOpen, 
+    staffName, 
+    isDeleting, 
+    onConfirm, 
+    onCancel 
+}: { 
+    isOpen: boolean; 
+    staffName: string; 
+    isDeleting: boolean; 
+    onConfirm: () => void; 
+    onCancel: () => void;
+}) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[130] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200">
+                <div className="p-6 space-y-4">
+                    {/* Icon and Title */}
+                    <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                            <AlertCircle className="w-6 h-6 text-red-600" />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-serif font-bold text-slate-900">Delete Staff Member?</h3>
+                            <p className="text-sm text-slate-500 mt-1">This action cannot be undone</p>
+                        </div>
+                    </div>
+
+                    {/* Warning Message */}
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                        <p className="text-sm text-red-700">
+                            Are you sure you want to delete <span className="font-bold">{staffName}</span>? All associated data will be permanently removed from the system.
+                        </p>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex gap-3 pt-4 border-t border-slate-200">
+                        <Button
+                            variant="outline"
+                            className="flex-1 border-slate-300 text-slate-700 hover:bg-slate-100 h-10"
+                            onClick={onCancel}
+                            disabled={isDeleting}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            className="flex-1 h-10 font-bold bg-red-600 hover:bg-red-700 text-white"
+                            onClick={onConfirm}
+                            disabled={isDeleting}
+                        >
+                            {isDeleting ? (
+                                <>
+                                    <Loader2 className="animate-spin w-4 h-4 mr-2" />
+                                    Deleting...
+                                </>
+                            ) : (
+                                <>
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Delete Permanently
+                                </>
+                            )}
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export default function StaffManagement() {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
@@ -50,6 +123,14 @@ export default function StaffManagement() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentUser, setCurrentUser] = useState<any | null>(null);
     const [isAuthChecking, setIsAuthChecking] = useState(true);
+
+    // Delete confirmation state
+    const [deleteConfirmation, setDeleteConfirmation] = useState({
+        isOpen: false,
+        staffId: null as string | null,
+        staffName: "",
+        isDeleting: false
+    });
 
     const [searchQuery, setSearchQuery] = useState("");
     const [genderFilter, setGenderFilter] = useState("all");
@@ -96,19 +177,19 @@ export default function StaffManagement() {
         const worksheet = XLSX.utils.json_to_sheet(dataToExport);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Staff Registry");
-        
+
         // Export with current date in filename
         XLSX.writeFile(workbook, `Staff_Registry_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
     const exportToPDF = () => {
         const doc = new jsPDF();
-        
+
         // Add Title and Header info
         doc.setFontSize(20);
         doc.setTextColor(40);
         doc.text("Suvarna Jewellery - Staff Registry", 14, 22);
-        
+
         doc.setFontSize(10);
         doc.setTextColor(100);
         doc.text(`Total Staff: ${filteredStaff.length} | Generated on: ${new Date().toLocaleString()}`, 14, 30);
@@ -259,7 +340,7 @@ export default function StaffManagement() {
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                 body: JSON.stringify(form)
             });
-            
+
             if (res.ok) {
                 setMessage("Staff Registered Successfully");
                 setToast(true);
@@ -323,7 +404,7 @@ export default function StaffManagement() {
                     nomineeAddress: editingStaff.nomineeAddress,
                 })
             });
-            
+
             if (res.ok) {
                 setMessage("Staff Updated Successfully");
                 setToast(true);
@@ -342,11 +423,77 @@ export default function StaffManagement() {
         }
     };
 
-   
+    // ================= DELETE STAFF FUNCTION =================
+    const openDeleteConfirmation = (staffMember: any) => {
+        setDeleteConfirmation({
+            isOpen: true,
+            staffId: staffMember.id,
+            staffName: staffMember.fullName,
+            isDeleting: false
+        });
+    };
+
+    const deleteStaff = async () => {
+        if (!deleteConfirmation.staffId) return;
+
+        setDeleteConfirmation(prev => ({ ...prev, isDeleting: true }));
+
+        try {
+            const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/staff/delete/${deleteConfirmation.staffId}`, {
+                method: "DELETE",
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            if (res.ok) {
+                setMessage(`${deleteConfirmation.staffName} has been deleted successfully`);
+                setToast(true);
+                
+                // Close confirmation dialog
+                setDeleteConfirmation({
+                    isOpen: false,
+                    staffId: null,
+                    staffName: "",
+                    isDeleting: false
+                });
+
+                // Close detail modal if open
+                if (selectedStaff?.id === deleteConfirmation.staffId) {
+                    setSelectedStaff(null);
+                }
+
+                // Refresh the staff list
+                staffCache = null; // Clear cache to force fresh fetch
+                await fetchStaff(true);
+            } else {
+                const errorData = await res.json();
+                alert(errorData.error || "Failed to delete staff member");
+                setDeleteConfirmation(prev => ({ ...prev, isDeleting: false }));
+            }
+        } catch (error) {
+            console.error("Delete Error:", error);
+            alert("Connection error. Please try again.");
+            setDeleteConfirmation(prev => ({ ...prev, isDeleting: false }));
+        }
+    };
+
     return (
         <SidebarProvider>
             <div className="min-h-screen flex w-full bg-[#FCFBF7] font-sans">
                 <DashboardSidebar />
+
+                {/* Delete Confirmation Dialog */}
+                <DeleteConfirmationDialog
+                    isOpen={deleteConfirmation.isOpen}
+                    staffName={deleteConfirmation.staffName}
+                    isDeleting={deleteConfirmation.isDeleting}
+                    onConfirm={deleteStaff}
+                    onCancel={() => setDeleteConfirmation({
+                        isOpen: false,
+                        staffId: null,
+                        staffName: "",
+                        isDeleting: false
+                    })}
+                />
 
                 {/* Staff Detail Modal */}
                 {selectedStaff && (
@@ -389,8 +536,8 @@ export default function StaffManagement() {
                                 </div>
 
                                 <div className="flex gap-3 mt-6">
-                                    <Button 
-                                        variant="outline" 
+                                    <Button
+                                        variant="outline"
                                         className="flex-1 border-gold/20 text-gold hover:bg-gold/5"
                                         onClick={() => {
                                             setSelectedStaff(null);
@@ -398,6 +545,17 @@ export default function StaffManagement() {
                                         }}
                                     >
                                         Edit
+                                    </Button>
+                                    <Button
+                                        variant="destructive"
+                                        className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                                        onClick={() => {
+                                            setSelectedStaff(null);
+                                            openDeleteConfirmation(selectedStaff);
+                                        }}
+                                    >
+                                        <Trash2 className="w-4 h-4 mr-2" />
+                                        Delete
                                     </Button>
                                     <Button variant="gold" className="flex-1" onClick={() => setSelectedStaff(null)}>Close</Button>
                                 </div>
@@ -417,7 +575,7 @@ export default function StaffManagement() {
                                 </div>
                                 <button onClick={() => { setIsEditModalOpen(false); setEditingStaff(null); }}><X /></button>
                             </div>
-                            
+
                             <div className="p-8 max-h-[90vh] overflow-y-auto">
                                 <div className="grid grid-cols-2 gap-4">
                                     {/* Full Name */}
@@ -588,28 +746,28 @@ export default function StaffManagement() {
                                 <h1 className="text-3xl font-serif font-bold text-slate-900">Staff Registry</h1>
                                 <p className="text-sm text-slate-500 italic">Managing the jewelry house experts</p>
                             </div>
-                            
+
                             {/* EXPORT BUTTONS */}
                             <div className="flex gap-2">
-                                <Button 
-                                    variant="outline" 
-                                    size="sm" 
+                                <Button
+                                    variant="outline"
+                                    size="sm"
                                     className="text-[10px] uppercase tracking-widest h-8 border-amber-200 text-amber-800 hover:bg-amber-50"
                                     onClick={exportToExcel}
                                 >
                                     <TableIcon className="w-3 h-3 mr-2" /> Excel
                                 </Button>
-                                <Button 
-                                    variant="outline" 
-                                    size="sm" 
+                                <Button
+                                    variant="outline"
+                                    size="sm"
                                     className="text-[10px] uppercase tracking-widest h-8 border-red-200 text-red-800 hover:bg-red-50"
                                     onClick={exportToPDF}
                                 >
                                     <FileDown className="w-3 h-3 mr-2" /> PDF
                                 </Button>
-                                <Button 
-                                    variant="outline" 
-                                    size="sm" 
+                                <Button
+                                    variant="outline"
+                                    size="sm"
                                     className="text-[10px] uppercase tracking-widest h-8"
                                     onClick={() => fetchStaff(true)}
                                 >
@@ -698,7 +856,7 @@ export default function StaffManagement() {
                                             key={s.id}
                                             className="flex justify-between items-center p-6 hover:bg-amber-50/50 border-b border-gold/5 transition-all group"
                                         >
-                                            <div 
+                                            <div
                                                 className="flex items-center gap-4 flex-1 cursor-pointer"
                                                 onClick={() => setSelectedStaff(s)}
                                             >
@@ -706,7 +864,9 @@ export default function StaffManagement() {
                                                     {s.fullName.charAt(0)}
                                                 </div>
                                                 <div>
-                                                    <p className="font-serif font-bold text-slate-800">{s.fullName}</p>
+                                                    <p className="font-serif font-bold text-slate-800">
+                                                        {s.fullName} <span className="font-sans font-normal text-slate-500">[{s.id}]</span>
+                                                    </p>
                                                     <p className="text-xs text-slate-400">{s.phoneNumber}</p>
                                                     <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
                                                         <span className="rounded-full bg-amber-50 px-2 py-1">Sales ₹{s.salesAmount ?? 0}</span>
@@ -725,7 +885,7 @@ export default function StaffManagement() {
                                                     <p className="text-[10px] uppercase text-slate-400 font-bold tracking-tighter">Salary</p>
                                                     <p className="font-bold text-slate-900">₹{s.monthlySalary}</p>
                                                 </div>
-                                                <button 
+                                                <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         openEditModal(s);
@@ -734,6 +894,16 @@ export default function StaffManagement() {
                                                     title="Edit staff member"
                                                 >
                                                     <Edit2 className="w-4 h-4" />
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        openDeleteConfirmation(s);
+                                                    }}
+                                                    className="p-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-all opacity-0 group-hover:opacity-100"
+                                                    title="Delete staff member"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
                                                 </button>
                                             </div>
                                         </div>

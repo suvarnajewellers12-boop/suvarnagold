@@ -50,12 +50,14 @@ export async function GET(req: Request) {
       );
     }
 
+    // 🔍 Fetch all staff members (includes the 'id' field by default)
     const staff = await prisma.staff.findMany({
       orderBy: {
         createdAt: "desc",
       },
     });
 
+    // Aggregate salesman sales metrics
     const salesmanMetrics = await prisma.purchase.groupBy({
       by: ["salesmanId"],
       where: { salesmanId: { not: null } },
@@ -67,6 +69,7 @@ export async function GET(req: Request) {
       },
     });
 
+    // Aggregate cashier collection metrics
     const cashierMetrics = await prisma.purchase.groupBy({
       by: ["cashierId"],
       where: { cashierId: { not: null } },
@@ -78,6 +81,7 @@ export async function GET(req: Request) {
       },
     });
 
+    // Map metrics for efficient lookup matching against staff ID (e.g. SUV7XXX)
     const salesmanMap = new Map(salesmanMetrics.map((item) => [item.salesmanId, item]));
     const cashierMap = new Map(cashierMetrics.map((item) => [item.cashierId, item]));
 
@@ -86,7 +90,22 @@ export async function GET(req: Request) {
       const cashier = cashierMap.get(staffMember.id);
 
       return {
-        ...staffMember,
+        id: staffMember.id, // 🆔 Explicitly ensuring ID is present
+        fullName: staffMember.fullName,
+        dateOfJoining: staffMember.dateOfJoining,
+        monthlySalary: staffMember.monthlySalary,
+        gender: staffMember.gender,
+        phoneNumber: staffMember.phoneNumber,
+        aadharNumber: staffMember.aadharNumber,
+        panCardNumber: staffMember.panCardNumber,
+        nomineeName: staffMember.nomineeName,
+        nomineeRelation: staffMember.nomineeRelation,
+        nomineePhoneNumber: staffMember.nomineePhoneNumber,
+        nomineeAddress: staffMember.nomineeAddress,
+        createdAt: staffMember.createdAt,
+        createdBy: staffMember.createdBy,
+
+        // 📊 Calculated metrics
         salesAmount: sales?._sum.finalAmount ?? 0,
         salesCount: sales?._count.id ?? 0,
         cashCollected: cashier?._sum.cashAmount ?? 0,

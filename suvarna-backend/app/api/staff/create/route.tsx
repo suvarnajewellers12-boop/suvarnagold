@@ -11,6 +11,29 @@ function corsHeaders() {
   };
 }
 
+// 🔹 Unique ID Generator (Format: SUV7 + 3 random digits)
+async function generateUniqueStaffId(): Promise<string> {
+  let uniqueId = "";
+  let exists = true;
+
+  while (exists) {
+    // Generates a random 3-digit number (100–999)
+    const randomDigits = Math.floor(100 + Math.random() * 900).toString();
+    uniqueId = `SUV7${randomDigits}`;
+
+    // Check if the generated ID already exists in the staff table
+    const existingStaff = await prisma.staff.findUnique({
+      where: { id: uniqueId },
+    });
+
+    if (!existingStaff) {
+      exists = false;
+    }
+  }
+
+  return uniqueId;
+}
+
 // 🔹 Handle Preflight
 export async function OPTIONS() {
   return new NextResponse(null, {
@@ -84,7 +107,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔍 Check duplicates
+    // 🔍 Check duplicate unique fields
     const existing = await prisma.staff.findFirst({
       where: {
         OR: [
@@ -98,13 +121,17 @@ export async function POST(req: Request) {
 
     if (existing) {
       return new NextResponse(
-        JSON.stringify({ error: "Phone, Aadhar, Nominee Phone, or Pan Card already exists" }),
+        JSON.stringify({ error: "Phone, Identification Number, Nominee Phone, or PAN Card already exists" }),
         { status: 400, headers: corsHeaders() }
       );
     }
 
+    // 🆔 Generate a collision-free ID starting with SUV7
+    const staffId = await generateUniqueStaffId();
+
     const staff = await prisma.staff.create({
       data: {
+        id: staffId,
         fullName,
         dateOfJoining: new Date(dateOfJoining),
         monthlySalary: parseFloat(monthlySalary),
