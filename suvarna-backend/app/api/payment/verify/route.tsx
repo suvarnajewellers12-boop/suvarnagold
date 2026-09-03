@@ -66,8 +66,8 @@ export async function POST(req: Request) {
       jewelleryexchangediscount: purchaseData.jewelleryexchangediscount || 0,
       excahngejewellrygrams: purchaseData.excahngejewellrygrams || 0,
       excahngejewellryname: purchaseData.excahngejewellryname || null,
-      silverExchangeGrams: purchaseData.silverExchangeGrams ?? null,
-      silverExchangeName: purchaseData.silverExchangeName || 0,
+      silverExchangeGrams: purchaseData.silverExchangeGrams ?? 0,
+      silverExchangeName: purchaseData.silverExchangeName || null,
       silverExchangeDiscount: purchaseData.silverExchangeDiscount || 0,
 
       finalAmount: purchaseData.finalAmount,
