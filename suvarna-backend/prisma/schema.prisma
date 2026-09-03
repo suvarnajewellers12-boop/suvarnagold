@@ -159,6 +159,9 @@ model Purchase {
   excahngejewellrygrams     Float?
   excahngejewellryname      String?
   jewelleryexchangediscount Float?
+  silverExchangeGrams       Float?         
+  silverExchangeName        String?
+  silverExchangeDiscount    Float?
   couponDiscount            Float?         @default(0)
   cardAmount                Float          @default(0)
   cashAmount                Float          @default(0)

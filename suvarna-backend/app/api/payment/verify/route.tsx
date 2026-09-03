@@ -64,8 +64,12 @@ export async function POST(req: Request) {
       sgstAmount: purchaseData.sgstAmount,
       discountAmount: purchaseData.discountAmount || 0,
       jewelleryexchangediscount: purchaseData.jewelleryexchangediscount || 0,
-      excahngejewellrygrams: purchaseData.excahngejewellrygrams || null,
+      excahngejewellrygrams: purchaseData.excahngejewellrygrams || 0,
       excahngejewellryname: purchaseData.excahngejewellryname || null,
+      silverExchangeGrams: purchaseData.silverExchangeGrams ?? null,
+      silverExchangeName: purchaseData.silverExchangeName || 0,
+      silverExchangeDiscount: purchaseData.silverExchangeDiscount || 0,
+
       finalAmount: purchaseData.finalAmount,
       couponDiscount: purchaseData.couponDiscount || 0,
 

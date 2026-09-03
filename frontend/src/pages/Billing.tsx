@@ -67,7 +67,10 @@ const BillingPOS = () => {
 
   const [isExchangeApplied, setIsExchangeApplied] = useState(() => getSaved("pos_exchange_active", false));
   const [exchangeData, setExchangeData] = useState(() => getSaved("pos_exchange_data", { name: "", grams: 0, discount: 0 }));
-
+  const [isSilverExchangeApplied, setIsSilverExchangeApplied] = useState(() => getSaved("pos_silver_exchange_active", false));
+  const [silverExchangeData, setSilverExchangeData] = useState(() =>
+    getSaved("pos_silver_exchange_data", { name: "", grams: 0, discount: 0 })
+  );
   const [checkoutStep, setCheckoutStep] = useState(1);
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
   const [showToast, setShowToast] = useState(false);
@@ -104,6 +107,8 @@ const BillingPOS = () => {
     setResendCountdown(0);
     setIsExchangeApplied(false);
     setExchangeData({ name: "", grams: 0, discount: 0 });
+    setIsSilverExchangeApplied(false);
+    setSilverExchangeData({ name: "", grams: 0, discount: 0 });
     setPaymentMethods({ cash: false, upi: false, card: false, cheque: false });
     setPaymentAmounts({ cash: 0, upi: 0, card: 0, cheque: 0 });
     setSelectedSalesmanId("");
@@ -122,10 +127,12 @@ const BillingPOS = () => {
     sessionStorage.setItem("pos_otp_verified", JSON.stringify(isOtpVerified));
     sessionStorage.setItem("pos_exchange_active", JSON.stringify(isExchangeApplied));
     sessionStorage.setItem("pos_exchange_data", JSON.stringify(exchangeData));
+    sessionStorage.setItem("pos_silver_exchange_active", JSON.stringify(isSilverExchangeApplied));
+    sessionStorage.setItem("pos_silver_exchange_data", JSON.stringify(silverExchangeData));
     sessionStorage.setItem("pos_credit_note_mode", JSON.stringify(isCreditNoteCoupon));
     sessionStorage.setItem("pos_selected_salesman", JSON.stringify(selectedSalesmanId));
     sessionStorage.setItem("pos_selected_cashier", JSON.stringify(selectedCashierId));
-  }, [cart, customer, couponData, couponCode, managerDiscountPercent, isOtpVerified, isExchangeApplied, exchangeData, isCreditNoteCoupon, selectedSalesmanId, selectedCashierId]);
+  }, [cart, customer, couponData, couponCode, managerDiscountPercent, isOtpVerified, isExchangeApplied, exchangeData, isSilverExchangeApplied, silverExchangeData, isCreditNoteCoupon, selectedSalesmanId, selectedCashierId]);
 
   useEffect(() => {
     if (resendCountdown <= 0) return;
@@ -361,6 +368,7 @@ const BillingPOS = () => {
 
   // Exchange value as payment contribution
   const exchangePaymentValue = isExchangeApplied ? (exchangeData.discount || 0) : 0;
+  const silverExchangePaymentValue = isSilverExchangeApplied ? (silverExchangeData.discount || 0) : 0;
 
   // ==========================================
   // 5. PAYMENT METHODS
@@ -380,6 +388,7 @@ const BillingPOS = () => {
       .filter(([, active]) => active)
       .reduce((sum, [method]) => sum + (paymentAmounts[method as keyof typeof paymentAmounts] || 0), 0)
     + exchangePaymentValue
+    + silverExchangePaymentValue
   );
 
   const remainingToPay = Math.round(total - totalPaidSoFar);
@@ -631,6 +640,9 @@ const BillingPOS = () => {
             jewelleryexchangediscount: exchangePaymentValue || 0,
             excahngejewellryname: isExchangeApplied ? exchangeData.name : null,
             excahngejewellrygrams: isExchangeApplied ? exchangeData.grams : null,
+            silverExchangeDiscount: silverExchangePaymentValue || 0,
+            silverExchangeName: isSilverExchangeApplied ? silverExchangeData.name : null,
+            silverExchangeGrams: isSilverExchangeApplied ? silverExchangeData.grams : null,
             discountAmount: managerWaiver || 0,
             finalAmount: total,
             couponDiscount: totalCouponDiscount || 0,
@@ -651,7 +663,8 @@ const BillingPOS = () => {
             upi: paymentAmounts.upi,
             card: paymentAmounts.card,
             cheque: paymentAmounts.cheque,
-            oldGoldExchange: exchangePaymentValue
+            oldGoldExchange: exchangePaymentValue,
+            oldSilverExchange: silverExchangePaymentValue
           }
         }),
       });
@@ -1279,10 +1292,70 @@ const BillingPOS = () => {
                               </div>
                             )}
                           </div>
+
+                          {/* OLD SILVER EXCHANGE AS PAYMENT METHOD */}
+                          <div
+                            className={cn(
+                              "col-span-2 p-5 rounded-3xl border-4 transition-all duration-300",
+                              isSilverExchangeApplied
+                                ? "border-slate-400 bg-slate-50/60 shadow-lg"
+                                : "opacity-40 bg-slate-100 border-transparent"
+                            )}
+                          >
+                            <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isSilverExchangeApplied}
+                                  onChange={(e) => setIsSilverExchangeApplied(e.target.checked)}
+                                  className="accent-gold h-5 w-5 cursor-pointer rounded"
+                                />
+                                <RefreshCcw className={cn("text-slate-500", isSilverExchangeApplied && "animate-spin-slow")} size={14} />
+                                <span className="text-[10px] font-black uppercase tracking-tighter">Old Silver Exchange</span>
+                              </div>
+                              {/* Show silver exchange value as payment contribution when entered */}
+                              {isSilverExchangeApplied && silverExchangePaymentValue > 0 && (
+                                <span className="text-[10px] font-black text-slate-600 bg-slate-200 px-3 py-1 rounded-full">
+                                  ₹{silverExchangePaymentValue.toLocaleString()} credited
+                                </span>
+                              )}
+                            </div>
+                            {isSilverExchangeApplied && (
+                              <div className="space-y-4 animate-in fade-in slide-in-from-top-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                  <Input
+                                    placeholder="Description"
+                                    value={silverExchangeData.name}
+                                    onChange={(e) => setSilverExchangeData({ ...silverExchangeData, name: e.target.value })}
+                                    className="h-11 rounded-xl text-xs font-bold"
+                                  />
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder="Net Wt (g)"
+                                    value={silverExchangeData.grams || ""}
+                                    onChange={(e) => setSilverExchangeData({ ...silverExchangeData, grams: Number(e.target.value) })}
+                                    className="h-11 rounded-xl text-xs font-bold"
+                                  />
+                                </div>
+                                <div className="relative">
+                                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">₹</span>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder="Approved Exchange Value"
+                                    className="h-12 pl-10 rounded-xl font-black text-lg bg-white border-slate-200"
+                                    value={silverExchangeData.discount || ""}
+                                    onChange={(e) => setSilverExchangeData({ ...silverExchangeData, discount: Number(e.target.value) })}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         {/* PAYMENT SUMMARY BREAKDOWN */}
-                        {(Object.values(paymentMethods).some(Boolean) || (isExchangeApplied && exchangePaymentValue > 0)) && (
+                        {(Object.values(paymentMethods).some(Boolean) || (isExchangeApplied && exchangePaymentValue > 0) || (isSilverExchangeApplied && silverExchangePaymentValue > 0)) && (
                           <div className="space-y-2 pt-4 border-t-2 border-gold/10">
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Payment Breakdown</p>
                             {Object.entries(paymentMethods).map(([method, active]) =>
@@ -1303,9 +1376,21 @@ const BillingPOS = () => {
                                   {exchangeData.name && <span className="text-amber-500 normal-case font-medium">({exchangeData.name})</span>}
                                 </span>
                                 <span>₹{exchangePaymentValue.toLocaleString()}</span>
+                              </div>                              
+                            )}
+                            {isSilverExchangeApplied && silverExchangePaymentValue > 0 && (
+                              <div className="flex justify-between text-[11px] font-black text-slate-600 uppercase bg-slate-50 px-4 py-2 rounded-xl border border-slate-200">
+                                <span className="flex items-center gap-2">
+                                  <RefreshCcw size={10} className="text-slate-500" />
+                                  Old Silver Exchange
+                                  {silverExchangeData.name && <span className="text-slate-500 normal-case font-medium">({silverExchangeData.name})</span>}
+                                </span>
+                                <span>₹{silverExchangePaymentValue.toLocaleString()}</span>
                               </div>
                             )}
                           </div>
+
+                          
                         )}
 
                         <div className="space-y-6 pt-4 border-t-2 border-gold/10">

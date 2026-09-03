@@ -242,145 +242,274 @@ const Reports = () => {
         );
     };
 
-    const exportToExcel = () => {
-        try {
-            // Create a flat array where each item is its own row
-            const flattenedData: any[] = [];
+   const exportToExcel = () => {
+    try {
+        // Check if all records fall on a single day
+        const uniqueDates = [...new Set(filteredData.map((p) => format(p.date, "dd-MM-yyyy")))];
+        const isSingleDay = uniqueDates.length === 1;
 
-            filteredData.forEach((p) => {
-                p.items.forEach((item: any) => {
-                    flattenedData.push({
-                        "Date": format(p.date, "dd-MM-yyyy"),
-                        "Invoice": p.invoice,
-                        "Customer": p.customer,
-                        "Phone": p.phone,
-                        "Salesman": p.salesman || "Unassigned",
-                        "Cashier": p.cashier || "Unassigned",
-                        "Product Name": item.productName, // Separate Column
-                        "Category": item.category, // Separate Column
-                        "SKU": item.sku || "N/A", // Separate Column
-                        "HUID": item.huid || "N/A", // Separate Column
-                        "Purity": item.purity, // Separate Column
-                        "Gross Wt (g)": item.grossWt, // Separate Column
-                        "Net Wt (g)": item.netWt, // Separate Column
-                        "VA (%)": item.va, // Separate Column
-                        "Item Cost": item.itemCost, // Separate Column
-                        "Subtotal": p.subtotal,
-                        "CGST": p.cgst,
-                        "SGST": p.sgst,
-                        "Discount": p.discount || 0,
-                        "Exchange Item": p.exchangeName || "None",
-                        "Exchange Value": p.exchangeDiscount,
-                        "Grand Total": p.grandTotal,
-                        "Payment Status": p.paymentStatus,
-                        "Stone Weight": p.stoneWeight,
-                        "Stone Cost": p.stoneCost,
+        // Create a flat array where each item is its own row
+        const flattenedData: any[] = [];
 
-                    });
+        filteredData.forEach((p) => {
+            p.items.forEach((item: any) => {
+                const row: any = {};
+
+                if (!isSingleDay) row["Date"] = format(p.date, "dd-MM-yyyy");
+
+                Object.assign(row, {
+                    "Invoice": p.invoice,
+                    "Customer": p.customer,
+                    "Phone": p.phone,
+                    "Salesman": p.salesman || "Unassigned",
+                    "Cashier": p.cashier || "Unassigned",
+                    "Product Name": item.productName,
+                    "Category": item.category,
+                    "SKU": item.sku || "N/A",
+                    "HUID": item.huid || "N/A",
+                    "Purity": item.purity,
+                    "Gross Wt (g)": item.grossWt,
+                    "Net Wt (g)": item.netWt,
+                    "VA (%)": item.va,
+                    "Item Cost": item.itemCost,
+                    "Subtotal": p.subtotal,
+                    "CGST": p.cgst,
+                    "SGST": p.sgst,
+                    "Exchange Item": p.exchangeName || "None",
+                    "Exchange Value": p.exchangeDiscount,
+                    "Cash": p.payments?.cash || 0,
+                    "UPI": p.payments?.upi || 0,
+                    "Card": p.payments?.card || 0,
+                    "Cheque": p.payments?.cheque || 0,
+                    "Grand Total": p.grandTotal,
+                    "Stone Weight": p.stoneWeight,
+                    "Stone Cost": p.stoneCost,
                 });
+
+                flattenedData.push(row);
             });
+        });
 
-            const worksheet = XLSX.utils.json_to_sheet(flattenedData);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Detailed_Sales");
-            XLSX.writeFile(workbook, `Suvarna_Detailed_Export_${format(new Date(), "ddMMyy")}.xlsx`);
-
-            setToastMessage("Excel exported with separate item columns");
-            setShowToast(true);
-        } catch (err) {
-            console.error("Excel Export Error:", err);
-        }
-    };
-
-    const exportToPDF = () => {
-        try {
-            // 1. Initialize empty array for rows
-            const tableRows: any[][] = [];
-
-            // 2. Flatten data (Same logic as Excel, but as an array of arrays for jsPDF)
+        // ── Totals row ────────────────────────────────────────────────
+        const sum = (key: string, source: "item" | "purchase" | "payments") => {
+            let total = 0;
             filteredData.forEach((p: any) => {
-                p.items.forEach((item: any) => {
-                    const rowData = [
-                        format(p.date, "dd-MM-yyyy"),
-                        p.invoice,
-                        p.customer,
-                        p.phone,
-                        item.productName,
-                        item.category,
-                        item.sku || "N/A",
-                        item.huid || "N/A",
-                        item.purity,
-                        item.grossWt,
-                        item.netWt,
-                        item.va,
-                        item.itemCost,
-                        p.subtotal,
-                        p.cgst,
-                        p.sgst,
-                        p.discount || 0,
-                        p.exchangeName || "None",
-                        p.exchangeDiscount,
-                        p.grandTotal,
-                        p.paymentStatus,
-                        p.stoneWeight,
-                        p.stoneCost,
-                    ];
-                    tableRows.push(rowData);
-                });
-            });
-
-            // 3. Define Table Headers
-            const tableHeaders = [
-                [
-                    "Date", "Invoice", "Customer", "Phone", "Product Name",
-                    "Category", "SKU", "HUID", "Purity", "Gross Wt(g)",
-                    "Net Wt(g)", "VA(%)", "Item Cost", "Subtotal", "CGST",
-                    "SGST", "Discount", "Exchange Item", "Ex. Value", "Total",
-                    "Status", "Stone Wt", "Stone Cost"
-                ]
-            ];
-
-            // 4. Create jsPDF instance
-            // 'l' = landscape orientation, 'pt' = points as unit, 'a3' = paper size (A3 provides more width for 23 columns)
-            const doc = new jsPDF('l', 'pt', 'a3');
-
-            // Add a title to the document
-            doc.setFontSize(14);
-            doc.text("Detailed Sales Report", 40, 40);
-
-            // 5. Generate the Table
-            autoTable(doc, {
-                head: tableHeaders,
-                body: tableRows,
-                startY: 50, // Start below the title
-                styles: {
-                    fontSize: 7, // Small font needed to fit 23 columns
-                    cellPadding: 3,
-                    overflow: 'linebreak'
-                },
-                headStyles: {
-                    fillColor: [41, 128, 185], // Optional: Blue header background
-                    textColor: 255,
-                    fontStyle: 'bold'
-                },
-                alternateRowStyles: {
-                    fillColor: [245, 245, 245] // Optional: Zebra striping for readability
+                if (source === "purchase") {
+                    total += Number(p[key]) || 0;
+                } else if (source === "payments") {
+                    total += Number(p.payments?.[key]) || 0;
+                } else {
+                    p.items.forEach((item: any) => {
+                        total += Number(item[key]) || 0;
+                    });
                 }
             });
+            return total;
+        };
 
-            // 6. Download the PDF
-            const fileName = `Suvarna_Detailed_Export_${format(new Date(), "ddMMyy")}.pdf`;
-            doc.save(fileName);
+        const totalsRow: any = {};
+        if (!isSingleDay) totalsRow["Date"] = "";
+        Object.assign(totalsRow, {
+            "Invoice": "TOTAL",
+            "Customer": "",
+            "Phone": "",
+            "Salesman": "",
+            "Cashier": "",
+            "Product Name": "",
+            "Category": "",
+            "SKU": "",
+            "HUID": "",
+            "Purity": "",
+            "Gross Wt (g)": sum("grossWt", "item"),
+            "Net Wt (g)": sum("netWt", "item"),
+            "VA (%)": "",
+            "Item Cost": sum("itemCost", "item"),
+            "Subtotal": sum("subtotal", "purchase"),
+            "CGST": sum("cgst", "purchase"),
+            "SGST": sum("sgst", "purchase"),
+            "Exchange Item": "",
+            "Exchange Value": sum("exchangeDiscount", "purchase"),
+            "Cash": sum("cash", "payments"),
+            "UPI": sum("upi", "payments"),
+            "Card": sum("card", "payments"),
+            "Cheque": sum("cheque", "payments"),
+            "Grand Total": sum("grandTotal", "purchase"),
+            "Stone Weight": sum("stoneWeight", "purchase"),
+            "Stone Cost": sum("stoneCost", "purchase"),
+        });
 
-            // 7. Update UI State
-            setToastMessage("PDF exported with separate item columns");
-            setShowToast(true);
+        flattenedData.push(totalsRow);
 
-        } catch (err) {
-            console.error("PDF Export Error:", err);
+        const worksheet = XLSX.utils.json_to_sheet(flattenedData, {
+            origin: isSingleDay ? "A2" : "A1", // leave row 1 free for the date banner
+        });
+
+        if (isSingleDay) {
+            XLSX.utils.sheet_add_aoa(worksheet, [[`Date: ${uniqueDates[0]}`]], { origin: "A1" });
         }
-    };
 
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Detailed_Sales");
+        XLSX.writeFile(workbook, `Suvarna_Detailed_Export_${format(new Date(), "ddMMyy")}.xlsx`);
+
+        setToastMessage("Excel exported with separate item columns");
+        setShowToast(true);
+    } catch (err) {
+        console.error("Excel Export Error:", err);
+    }
+};
+
+const exportToPDF = () => {
+    try {
+        const uniqueDates = [...new Set(filteredData.map((p) => format(p.date, "dd-MM-yyyy")))];
+        const isSingleDay = uniqueDates.length === 1;
+
+        // 1. Initialize empty array for rows
+        const tableRows: any[][] = [];
+
+        // running totals
+        let totGross = 0, totNet = 0, totItemCost = 0, totSubtotal = 0,
+            totCgst = 0, totSgst = 0, totExVal = 0, totCash = 0, totUpi = 0,
+            totCard = 0, totCheque = 0, totGrand = 0, totStoneWt = 0, totStoneCost = 0;
+
+        // 2. Flatten data (Same logic as Excel, but as an array of arrays for jsPDF)
+        filteredData.forEach((p: any) => {
+            p.items.forEach((item: any) => {
+                totGross += Number(item.grossWt) || 0;
+                totNet += Number(item.netWt) || 0;
+                totItemCost += Number(item.itemCost) || 0;
+                totSubtotal += Number(p.subtotal) || 0;
+                totCgst += Number(p.cgst) || 0;
+                totSgst += Number(p.sgst) || 0;
+                totExVal += Number(p.exchangeDiscount) || 0;
+                totCash += Number(p.payments?.cash) || 0;
+                totUpi += Number(p.payments?.upi) || 0;
+                totCard += Number(p.payments?.card) || 0;
+                totCheque += Number(p.payments?.cheque) || 0;
+                totGrand += Number(p.grandTotal) || 0;
+                totStoneWt += Number(p.stoneWeight) || 0;
+                totStoneCost += Number(p.stoneCost) || 0;
+
+                const rowData = [
+                    ...(isSingleDay ? [] : [format(p.date, "dd-MM-yyyy")]),
+                    p.invoice,
+                    p.customer,
+                    p.phone,
+                    item.productName,
+                    item.category,
+                    item.sku || "N/A",
+                    item.huid || "N/A",
+                    item.purity,
+                    item.grossWt,
+                    item.netWt,
+                    item.va,
+                    item.itemCost,
+                    p.subtotal,
+                    p.cgst,
+                    p.sgst,
+                    p.exchangeName || "None",
+                    p.exchangeDiscount,
+                    p.payments?.cash || 0,
+                    p.payments?.upi || 0,
+                    p.payments?.card || 0,
+                    p.payments?.cheque || 0,
+                    p.grandTotal,
+                    p.stoneWeight,
+                    p.stoneCost,
+                ];
+                tableRows.push(rowData);
+            });
+        });
+
+        // 3. Define Table Headers
+        const tableHeaders = [
+            [
+                ...(isSingleDay ? [] : ["Date"]),
+                "Invoice", "Customer", "Phone", "Product Name",
+                "Category", "SKU", "HUID", "Purity", "Gross Wt(g)",
+                "Net Wt(g)", "VA(%)", "Item Cost", "Subtotal", "CGST",
+                "SGST", "Exchange Item", "Ex. Value", "Cash", "UPI",
+                "Card", "Cheque", "Total", "Stone Wt", "Stone Cost"
+            ]
+        ];
+
+        // ── Totals row ─────────────────────────────────────────────────
+        const totalsRow = [
+            ...(isSingleDay ? [] : [""]),
+            "TOTAL", "", "", "", "", "", "", "",
+            totGross.toFixed(2),
+            totNet.toFixed(2),
+            "",
+            totItemCost.toFixed(2),
+            totSubtotal.toFixed(2),
+            totCgst.toFixed(2),
+            totSgst.toFixed(2),
+            "",
+            totExVal.toFixed(2),
+            totCash.toFixed(2),
+            totUpi.toFixed(2),
+            totCard.toFixed(2),
+            totCheque.toFixed(2),
+            totGrand.toFixed(2),
+            totStoneWt.toFixed(2),
+            totStoneCost.toFixed(2),
+        ];
+        tableRows.push(totalsRow);
+
+        // 4. Create jsPDF instance
+        const doc = new jsPDF('l', 'pt', 'a3');
+
+        // Title
+        doc.setFontSize(14);
+        doc.text("Detailed Sales Report", 40, 40);
+
+        // If single day, print the date once at the top instead of per-row
+        let startY = 50;
+        if (isSingleDay) {
+            doc.setFontSize(10);
+            doc.text(`Date: ${uniqueDates[0]}`, 40, 58);
+            startY = 68;
+        }
+
+        // 5. Generate the Table
+        autoTable(doc, {
+            head: tableHeaders,
+            body: tableRows,
+            startY,
+            styles: {
+                fontSize: 7,
+                cellPadding: 3,
+                overflow: 'linebreak'
+            },
+            headStyles: {
+                fillColor: [41, 128, 185],
+                textColor: 255,
+                fontStyle: 'bold'
+            },
+            alternateRowStyles: {
+                fillColor: [245, 245, 245]
+            },
+            // bold + highlight the totals row (last row)
+            didParseCell: (data) => {
+                if (data.row.index === tableRows.length - 1 && data.section === 'body') {
+                    data.cell.styles.fontStyle = 'bold';
+                    data.cell.styles.fillColor = [230, 230, 230];
+                }
+            },
+        });
+
+        // 6. Download the PDF
+        const fileName = `Suvarna_Detailed_Export_${format(new Date(), "ddMMyy")}.pdf`;
+        doc.save(fileName);
+
+        // 7. Update UI State
+        setToastMessage("PDF exported with separate item columns");
+        setShowToast(true);
+
+    } catch (err) {
+        console.error("PDF Export Error:", err);
+    }
+};
 
 
     const handleReceiptAction = async (purchase: any, ratesData: any, mode: "download" | "print") => {
@@ -520,6 +649,9 @@ const Reports = () => {
                 draw(`INVOICE: ${purchase.invoice}`, col.name, INV_Y, 8.5, black);
                 draw(`Date: ${format(new Date(purchase.date), "dd-MM-yyyy")}`,
                     col.name, INV_Y + 13, 7.5, grey);
+                console.log("date:", purchase.date)
+                draw(`Time: ${format(new Date(purchase.date), "hh:mm a")}`,
+                    col.name, INV_Y + 24, 7.5, grey);
 
                 // ── Right column: Customer block with wrapping ────────────────────
                 // Available width = from CUST_X to MARGIN_R
@@ -640,7 +772,7 @@ const Reports = () => {
                 // Numeric columns
                 draw(`${item.grams}g`, col.gross, R, 9);
                 draw(`${item.stoneWeight}g`, col.sWt, R, 9);
-                draw(`${item.grams - (item.stoneWeight || 0)}g`, col.net-10, R, 9);
+                draw(`${item.grams - (item.stoneWeight || 0)}g`, col.net - 10, R, 9);
 
                 // Draw the main rate centered in the RATE column (single print only)
                 const rateText = Math.round(effectiveRate).toLocaleString();
