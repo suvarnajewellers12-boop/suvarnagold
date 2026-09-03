@@ -56,7 +56,7 @@ const Reports = () => {
     // Start with undefined so it doesn't immediately filter by "Today" on load
     const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedPayments, setSelectedPayments] = useState<string[]>(["cash", "upi", "card", "cheque", "exchange"]);
+    const [selectedPayments, setSelectedPayments] = useState<string[]>(["cash", "upi", "card", "cheque", "exchange", "silverExchange"]);
     const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
     const [ALL_PURCHASES, setPurchases] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -135,6 +135,9 @@ const Reports = () => {
                         exchangeDiscount: Number(p.jewelleryexchangediscount || 0),
                         exchangeName: p.excahngejewellryname || "None",
                         exchangeGrams: p.excahngejewellrygrams || 0,
+                        silverExchangeDiscount: Number(p.silverExchangeDiscount || 0),
+                        silverExchangeName: p.silverExchangeName || "None",
+                        silverExchangeGrams: p.silverExchangeGrams || 0,
                         grandTotal: Number(p.finalAmount) || 0,
                         sku: p.sku || "N/A",
                         invoice: p.invoice || "N/A",
@@ -146,6 +149,7 @@ const Reports = () => {
                             card: Number(p.cardAmount || 0),
                             cheque: Number(p.chequeAmount || 0),
                             exchange: Number(p.jewelleryexchangediscount || 0),
+                            silverExchange: Number(p.silverExchangeDiscount || 0),
                         },
                         items: [itemObj],
                     });
@@ -229,10 +233,11 @@ const Reports = () => {
             acc.totalCard += curr.payments.card;
             acc.totalCheque += curr.payments.cheque;
             acc.totalExchange += curr.payments.exchange;
+            acc.totalSilverExchange += curr.payments.silverExchange;
             acc.grandTotal += curr.grandTotal;
 
             return acc;
-        }, { totalCash: 0, totalUpi: 0, totalCard: 0, totalCheque: 0, totalExchange: 0, grandTotal: 0 });
+        }, { totalCash: 0, totalUpi: 0, totalCard: 0, totalCheque: 0, totalExchange: 0, totalSilverExchange: 0, grandTotal: 0 });
     }, [filteredData]);
 
 
@@ -277,6 +282,8 @@ const Reports = () => {
                     "SGST": p.sgst,
                     "Exchange Item": p.exchangeName || "None",
                     "Exchange Value": p.exchangeDiscount,
+                    "Silver Exchange Item": p.silverExchangeName || "None",
+                    "Silver Exchange Value": p.silverExchangeDiscount,
                     "Cash": p.payments?.cash || 0,
                     "UPI": p.payments?.upi || 0,
                     "Card": p.payments?.card || 0,
@@ -329,6 +336,8 @@ const Reports = () => {
             "SGST": sum("sgst", "purchase"),
             "Exchange Item": "",
             "Exchange Value": sum("exchangeDiscount", "purchase"),
+            "Silver Exchange Item": "",
+            "Silver Exchange Value": sum("silverExchangeDiscount", "purchase"),
             "Cash": sum("cash", "payments"),
             "UPI": sum("upi", "payments"),
             "Card": sum("card", "payments"),
@@ -369,7 +378,7 @@ const exportToPDF = () => {
 
         // running totals
         let totGross = 0, totNet = 0, totItemCost = 0, totSubtotal = 0,
-            totCgst = 0, totSgst = 0, totExVal = 0, totCash = 0, totUpi = 0,
+            totCgst = 0, totSgst = 0, totExVal = 0, totSilverExVal = 0, totCash = 0, totUpi = 0,
             totCard = 0, totCheque = 0, totGrand = 0, totStoneWt = 0, totStoneCost = 0;
 
         // 2. Flatten data (Same logic as Excel, but as an array of arrays for jsPDF)
@@ -382,6 +391,7 @@ const exportToPDF = () => {
                 totCgst += Number(p.cgst) || 0;
                 totSgst += Number(p.sgst) || 0;
                 totExVal += Number(p.exchangeDiscount) || 0;
+                totSilverExVal += Number(p.silverExchangeDiscount) || 0;
                 totCash += Number(p.payments?.cash) || 0;
                 totUpi += Number(p.payments?.upi) || 0;
                 totCard += Number(p.payments?.card) || 0;
@@ -409,6 +419,8 @@ const exportToPDF = () => {
                     p.sgst,
                     p.exchangeName || "None",
                     p.exchangeDiscount,
+                    p.silverExchangeName || "None",
+                    p.silverExchangeDiscount,
                     p.payments?.cash || 0,
                     p.payments?.upi || 0,
                     p.payments?.card || 0,
@@ -428,8 +440,8 @@ const exportToPDF = () => {
                 "Invoice", "Customer", "Phone", "Product Name",
                 "Category", "SKU", "HUID", "Purity", "Gross Wt(g)",
                 "Net Wt(g)", "VA(%)", "Item Cost", "Subtotal", "CGST",
-                "SGST", "Exchange Item", "Ex. Value", "Cash", "UPI",
-                "Card", "Cheque", "Total", "Stone Wt", "Stone Cost"
+                "SGST", "Exchange Item", "Ex. Value", "Silver Ex. Item", "Silver Ex. Value",
+                "Cash", "UPI", "Card", "Cheque", "Total", "Stone Wt", "Stone Cost"
             ]
         ];
 
@@ -446,6 +458,8 @@ const exportToPDF = () => {
             totSgst.toFixed(2),
             "",
             totExVal.toFixed(2),
+            "",
+            totSilverExVal.toFixed(2),
             totCash.toFixed(2),
             totUpi.toFixed(2),
             totCard.toFixed(2),
@@ -866,7 +880,8 @@ const exportToPDF = () => {
                     purchase.payments.upi > 0 ||
                     purchase.payments.card > 0 ||
                     purchase.payments.cheque > 0 ||
-                    purchase.exchangeDiscount > 0;
+                    purchase.exchangeDiscount > 0 ||
+                    purchase.silverExchangeDiscount > 0;
 
                 if (hasPayments && tY <= SAFE_BOTTOM - 20) {
                     // Section divider line
@@ -896,6 +911,12 @@ const exportToPDF = () => {
                             ? `Exchange [${purchase.exchangeName}]`
                             : "Exchange";
                         payRow(exchLabel, purchase.exchangeDiscount);
+                    }
+                    if (purchase.silverExchangeDiscount > 0) {
+                        const silverExchLabel = purchase.silverExchangeName
+                            ? `Silver Exchange [${purchase.silverExchangeName}]`
+                            : "Silver Exchange";
+                        payRow(silverExchLabel, purchase.silverExchangeDiscount);
                     }
                     if (purchase.payments.card > 0)
                         payRow("Debit / Credit Card", purchase.payments.card);
@@ -1156,14 +1177,21 @@ const exportToPDF = () => {
 
                             <div className="flex flex-col gap-2">
                                 <span className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Filter className="w-3 h-3" /> Payment Methods</span>
-                                <div className="flex gap-4 items-center bg-secondary/30 px-4 py-2 rounded-lg border border-primary/5">
-                                    {["cash", "upi", "card", "cheque", "exchange"].map((type) => (
-                                        <label key={type} className="flex items-center gap-2 cursor-pointer group">
+                                <div className="flex gap-4 items-center bg-secondary/30 px-4 py-2 rounded-lg border border-primary/5 flex-wrap">
+                                    {[
+                                        { key: "cash", label: "cash" },
+                                        { key: "upi", label: "upi" },
+                                        { key: "card", label: "card" },
+                                        { key: "cheque", label: "cheque" },
+                                        { key: "exchange", label: "exchange" },
+                                        { key: "silverExchange", label: "silver exchange" },
+                                    ].map(({ key, label }) => (
+                                        <label key={key} className="flex items-center gap-2 cursor-pointer group">
                                             <Checkbox
-                                                checked={selectedPayments.includes(type)}
-                                                onCheckedChange={() => togglePaymentFilter(type)}
+                                                checked={selectedPayments.includes(key)}
+                                                onCheckedChange={() => togglePaymentFilter(key)}
                                             />
-                                            <span className="text-xs font-bold uppercase text-gray-600 group-hover:text-primary transition-colors">{type}</span>
+                                            <span className="text-xs font-bold uppercase text-gray-600 group-hover:text-primary transition-colors">{label}</span>
                                         </label>
                                     ))}
                                 </div>
@@ -1171,7 +1199,7 @@ const exportToPDF = () => {
                         </LuxuryCard>
 
                         {/* SUMMARY CARDS */}
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
                             <LuxuryCard className="p-4 border-l-4 border-green-500 bg-white shadow-sm">
                                 <div className="flex items-center gap-2 text-green-600 mb-1">
                                     <Banknote className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">CASH</span>
@@ -1205,6 +1233,13 @@ const exportToPDF = () => {
                                     <Repeat className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">EXCHANGE</span>
                                 </div>
                                 <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalExchange.toLocaleString()}</div>
+                            </LuxuryCard>
+
+                            <LuxuryCard className="p-4 border-l-4 border-slate-500 bg-white shadow-sm">
+                                <div className="flex items-center gap-2 text-slate-600 mb-1">
+                                    <Repeat className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">SILVER EXCHANGE</span>
+                                </div>
+                                <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalSilverExchange.toLocaleString()}</div>
                             </LuxuryCard>
 
                             <LuxuryCard className="p-4 bg-primary text-primary-foreground shadow-lg">
@@ -1293,6 +1328,12 @@ const exportToPDF = () => {
                                                             )}
                                                             {row.payments.cheque > 0 && (
                                                                 <span className="text-[8px] bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded border border-orange-200 uppercase">CHQ</span>
+                                                            )}
+                                                            {row.payments.exchange > 0 && (
+                                                                <span className="text-[8px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded border border-amber-200 uppercase">Exchange</span>
+                                                            )}
+                                                            {row.payments.silverExchange > 0 && (
+                                                                <span className="text-[8px] bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded border border-slate-300 uppercase">Ag Exchange</span>
                                                             )}
                                                         </div>
                                                     </TableCell>
@@ -1396,6 +1437,15 @@ const exportToPDF = () => {
                                                     {selectedCustomer.exchangeGrams ? ` (${selectedCustomer.exchangeGrams}g)` : ""}
                                                 </span>
                                                 <span className="text-right font-bold text-red-600">-₹{selectedCustomer.exchangeDiscount.toLocaleString()}</span>
+                                            </>
+                                        )}
+                                        {selectedCustomer.silverExchangeDiscount > 0 && (
+                                            <>
+                                                <span className="text-muted-foreground">
+                                                    Silver Exchange{selectedCustomer.silverExchangeName ? ` — ${selectedCustomer.silverExchangeName}` : ""}
+                                                    {selectedCustomer.silverExchangeGrams ? ` (${selectedCustomer.silverExchangeGrams}g)` : ""}
+                                                </span>
+                                                <span className="text-right font-bold text-red-600">-₹{selectedCustomer.silverExchangeDiscount.toLocaleString()}</span>
                                             </>
                                         )}
                                     </div>
