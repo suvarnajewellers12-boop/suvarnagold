@@ -43,7 +43,7 @@ const CreditNotes = () => {
     const up = [...products];
     up[index].carats = purity;
     const purityLower = purity.toLowerCase();
-    if (purityLower.includes   ("silver") || purityLower.includes("other")) {
+    if (purityLower.includes("silver") || purityLower.includes("other")) {
       up[index].cost = "0";
     }
     setProducts(up);
@@ -134,7 +134,7 @@ const CreditNotes = () => {
       const INFO_Y = HDR_Y + 30;
       draw("Credit Note ID:", MARGIN_L, INFO_Y, 7.5, grey);
       draw(note.invoice || "N/A", MARGIN_L + 100, INFO_Y, 8.5, black);
-      
+
       drawR("Original Invoice:", MARGIN_R - 80, INFO_Y, 7.5, grey);
       drawR(note.pastInvoice || note.pastinvoice || "N/A", MARGIN_R, INFO_Y, 8.5, black);
 
@@ -146,7 +146,7 @@ const CreditNotes = () => {
       // ── COUPON CODE DISPLAY ──────────────────────────────────────
       const COUPON_Y = INFO_Y + 50;
       draw("COUPON CODE:", MARGIN_L, COUPON_Y, 8, grey);
-      
+
       const couponBoxW = MARGIN_R - MARGIN_L - 10;
       const couponBoxH = 28;
       page.drawRectangle({
@@ -182,18 +182,18 @@ const CreditNotes = () => {
 
       let rowY = TBL_Y + 20;
       const itemsArray = note.products || note.creditNotes || [];
-      
+
       if (Array.isArray(itemsArray) && itemsArray.length > 0) {
         itemsArray.forEach((item: any) => {
           if (rowY > SAFE_BOTTOM - 120) return;
-          
+
           const itemName = item.name || item.productName || "Item";
           const purity = item.carats || item.purity || "22K";
           const grams = item.grams || 0;
           const stoneWeight = item.stoneWeight || 0;
           const cost = Number(note.overallPrice || 0);
           // console.log(note);
-          
+
           // Draw item name (truncate if too long)
           const nameToShow = itemName.length > 25 ? itemName.substring(0, 22) + "..." : itemName;
           draw(nameToShow, MARGIN_L, rowY, 7.5, black);
@@ -201,7 +201,7 @@ const CreditNotes = () => {
           draw(`${grams}g`, MARGIN_L + 190, rowY, 7.5, black);
           draw(`${stoneWeight}g`, MARGIN_L + 250, rowY, 7.5, black);
           drawR(`₹${cost.toLocaleString()}`, MARGIN_R, rowY, 7.5, black);
-          
+
           rowY += 14;
         });
       } else {
@@ -250,7 +250,7 @@ const CreditNotes = () => {
       const SUMMARY_Y = VAL_Y + 12;
       draw("Summary:", MARGIN_L, SUMMARY_Y, 7, grey);
       draw(`Items: ${itemsArray.length}`, MARGIN_L, SUMMARY_Y + 10, 6.5, black);
-      
+
       let totalItemGrams = 0;
       let totalStoneWeight = 0;
       itemsArray.forEach((item: any) => {
@@ -364,18 +364,18 @@ const CreditNotes = () => {
   };
 
   const filteredNotes = useMemo(() => {
-  return creditNotes.filter(n => {
-    const search = searchQuery.toLowerCase();
-    return (
-      n.couponCode?.toLowerCase().includes(search) ||
-      n.invoice?.toLowerCase().includes(search) ||
-      (n.pastinvoice && String(n.pastinvoice).toLowerCase().includes(search))
-    );
-  });
-}, [searchQuery, creditNotes]);
+    return creditNotes.filter(n => {
+      const search = searchQuery.toLowerCase();
+      return (
+        n.couponCode?.toLowerCase().includes(search) ||
+        n.invoice?.toLowerCase().includes(search) ||
+        (n.pastinvoice && String(n.pastinvoice).toLowerCase().includes(search))
+      );
+    });
+  }, [searchQuery, creditNotes]);
 
   // Show loading screen while checking authentication
-  
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background overflow-hidden font-sans">
@@ -546,33 +546,90 @@ const CreditNotes = () => {
 
               <div className="space-y-3">
                 {products.map((p, index) => (
-                  <div key={index} className="grid grid-cols-12 gap-3 p-4 bg-white rounded-xl border border-primary/10 shadow-sm relative group">
+                  <div
+                    key={index}
+                    className="grid grid-cols-12 gap-3 p-4 bg-white rounded-xl border border-primary/10 shadow-sm relative group"
+                  >
                     <div className="col-span-12 md:col-span-4">
-                      <Input placeholder="Item Name" value={p.name} onChange={e => {
-                        const up = [...products]; up[index].name = e.target.value; setProducts(up);
-                      }} />
+                      <Input
+                        placeholder="Item Name"
+                        value={p.name}
+                        onChange={(e) => {
+                          const up = [...products];
+                          up[index].name = e.target.value;
+                          setProducts(up);
+                        }}
+                      />
                     </div>
+
                     <div className="col-span-3 md:col-span-2">
-                      <Input type="number" min="0" placeholder="Grams" value={p.grams} onChange={e => {
-                        const up = [...products]; up[index].grams = e.target.value; setProducts(up);
-                      }} />
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="Grams"
+                        value={p.grams}
+                        onChange={(e) => {
+                          const up = [...products];
+                          up[index].grams = e.target.value;
+                          setProducts(up);
+                        }}
+                      />
                     </div>
-                    <div className="col-span-3 md:col-span-1.5">
-                      <Input placeholder="Purity" value={p.carats} onChange={e => handlePurityChange(index, e.target.value)} />
+
+                    <div className="col-span-3 md:col-span-2">
+                      <select
+                        value={p.carats}
+                        onChange={(e) =>
+                          handlePurityChange(index, e.target.value)
+                        }
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        <option value="">Select Purity</option>
+                        <option value="22K Gold">22K Gold</option>
+                        <option value="18K Gold">18K Gold</option>
+                        <option value="Silver">Silver</option>
+                        <option value="Silver 92.5%">Silver 92.5%</option>
+                      </select>
                     </div>
-                    <div className="col-span-3 md:col-span-1.5">
-                      <Input type="number" min="0" placeholder="Stone Wt" value={p.stoneWeight} onChange={e => {
-                        const up = [...products]; up[index].stoneWeight = e.target.value; setProducts(up);
-                      }} />
+
+                    <div className="col-span-3 md:col-span-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="Stone Wt"
+                        value={p.stoneWeight}
+                        onChange={(e) => {
+                          const up = [...products];
+                          up[index].stoneWeight = e.target.value;
+                          setProducts(up);
+                        }}
+                      />
                     </div>
-                    <div className="col-span-2 md:col-span-2">
-                      <Input type="number" min="0" placeholder="₹ Cost" value={p.cost} onChange={e => {
-                        const up = [...products]; up[index].cost = e.target.value; setProducts(up);
-                      }} />
+
+                    <div className="col-span-2 md:col-span-1">
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="₹ Cost"
+                        value={p.cost}
+                        onChange={(e) => {
+                          const up = [...products];
+                          up[index].cost = e.target.value;
+                          setProducts(up);
+                        }}
+                      />
                     </div>
+
                     <div className="col-span-1 flex items-center justify-center">
                       {products.length > 1 && (
-                        <Trash2 className="w-4 h-4 text-red-400 cursor-pointer hover:text-red-600" onClick={() => setProducts(products.filter((_, i) => i !== index))} />
+                        <Trash2
+                          className="w-4 h-4 text-red-400 cursor-pointer hover:text-red-600"
+                          onClick={() =>
+                            setProducts(
+                              products.filter((_, i) => i !== index)
+                            )
+                          }
+                        />
                       )}
                     </div>
                   </div>

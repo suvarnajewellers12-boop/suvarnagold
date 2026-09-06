@@ -17,7 +17,7 @@ import {
     Download, Phone, RefreshCcw, Printer, Hash,
     BadgePercent, Landmark, FileSpreadsheet, FileText,
     Repeat, Banknote, CreditCard, Smartphone, ScrollText,
-    MapPin, Mail, Calendar, Filter, Search, X, Loader2,
+    MapPin, Mail, Calendar, Filter, Search, X, Loader2, Edit2, Save,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
@@ -58,6 +58,14 @@ const Reports = () => {
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedPayments, setSelectedPayments] = useState<string[]>(["cash", "upi", "card", "cheque", "exchange", "silverExchange"]);
     const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+    const [isEditingCustomer, setIsEditingCustomer] = useState(false);
+    const [isSavingCustomer, setIsSavingCustomer] = useState(false);
+    const [customerEditForm, setCustomerEditForm] = useState({
+        customerName: "",
+        phoneNumber: "",
+        emailid: "",
+        Address: "",
+    });
     const [ALL_PURCHASES, setPurchases] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
@@ -269,6 +277,97 @@ const Reports = () => {
         });
     }, [filteredData]);
 
+
+    const openCustomerEdit = (purchase: any) => {
+        setCustomerEditForm({
+            customerName: purchase.customer || "",
+            phoneNumber: purchase.phone || "",
+            emailid: purchase.email === "N/A" ? "" : (purchase.email || ""),
+            Address: purchase.address === "N/A" ? "" : (purchase.address || ""),
+        });
+        setIsEditingCustomer(true);
+    };
+
+    const cancelCustomerEdit = () => {
+        setIsEditingCustomer(false);
+        setCustomerEditForm({
+            customerName: "",
+            phoneNumber: "",
+            emailid: "",
+            Address: "",
+        });
+    };
+
+    const saveCustomerDetails = async () => {
+        if (!selectedCustomer?.id) return;
+
+        const customerName = customerEditForm.customerName.trim();
+        const phoneNumber = customerEditForm.phoneNumber.replace(/\D/g, "");
+
+        if (!customerName) {
+            setToastMessage("Customer name is required");
+            setShowToast(true);
+            return;
+        }
+
+        if (phoneNumber.length !== 10) {
+            setToastMessage("Phone number must be exactly 10 digits");
+            setShowToast(true);
+            return;
+        }
+
+        setIsSavingCustomer(true);
+
+        try {
+            const token = localStorage.getItem("token");
+
+            const res = await fetch(
+                `http://localhost:3000/api/reports/purchases/update/${selectedCustomer.id}`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                        customerName,
+                        phoneNumber,
+                        emailid: customerEditForm.emailid.trim(),
+                        Address: customerEditForm.Address.trim(),
+                    }),
+                }
+            );
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.error || "Failed to update customer details");
+            }
+
+            setSelectedCustomer((prev: any) => prev ? ({
+                ...prev,
+                customer: data.customer?.customerName ?? customerName,
+                phone: data.customer?.phoneNumber ?? phoneNumber,
+                email: data.customer?.emailid || "N/A",
+                address: data.customer?.Address || "N/A",
+            }) : prev);
+
+            reportsCache = null;
+            await fetchReports(true);
+
+            setIsEditingCustomer(false);
+            setToastMessage("Customer details updated successfully");
+            setShowToast(true);
+        } catch (error) {
+            console.error("Customer update error:", error);
+            setToastMessage(
+                error instanceof Error ? error.message : "Failed to update customer details"
+            );
+            setShowToast(true);
+        } finally {
+            setIsSavingCustomer(false);
+        }
+    };
 
     const togglePaymentFilter = (type: string) => {
         setSelectedPayments(prev =>
@@ -1421,7 +1520,15 @@ const exportToPDF = () => {
             </div>
 
             {/* TRANSACTION MODAL */}
-            <Dialog open={!!selectedCustomer} onOpenChange={() => setSelectedCustomer(null)}>
+            <Dialog
+                open={!!selectedCustomer}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setSelectedCustomer(null);
+                        cancelCustomerEdit();
+                    }
+                }}
+            >
                 <DialogContent className="max-w-2xl p-0 overflow-hidden border-none shadow-2xl rounded-2xl">
                     {selectedCustomer && (
                         <div className="flex flex-col bg-white">
@@ -1443,15 +1550,159 @@ const exportToPDF = () => {
                             </div>
 
                             <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                        <span className="text-[10px] font-bold text-primary uppercase flex items-center gap-1"><MapPin className="w-3 h-3" /> Address</span>
-                                        <p className="text-xs text-muted-foreground">{selectedCustomer.address || "No address provided"}</p>
+                                <div className="space-y-4 rounded-2xl border border-primary/10 bg-primary/[0.02] p-4">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <h4 className="text-[10px] font-bold uppercase tracking-widest text-primary">
+                                                Customer Details
+                                            </h4>
+                                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                                                Edit customer information for this invoice
+                                            </p>
+                                        </div>
+
+                                        {!isEditingCustomer ? (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 gap-2 border-primary/20 text-primary"
+                                                onClick={() => openCustomerEdit(selectedCustomer)}
+                                            >
+                                                <Edit2 className="w-3.5 h-3.5" />
+                                                Edit
+                                            </Button>
+                                        ) : (
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-8"
+                                                    onClick={cancelCustomerEdit}
+                                                    disabled={isSavingCustomer}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                                <Button
+                                                    variant="gold"
+                                                    size="sm"
+                                                    className="h-8 gap-2"
+                                                    onClick={saveCustomerDetails}
+                                                    disabled={isSavingCustomer}
+                                                >
+                                                    {isSavingCustomer ? (
+                                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                    ) : (
+                                                        <Save className="w-3.5 h-3.5" />
+                                                    )}
+                                                    {isSavingCustomer ? "Saving..." : "Save"}
+                                                </Button>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="space-y-1">
-                                        <span className="text-[10px] font-bold text-primary uppercase flex items-center gap-1"><Mail className="w-3 h-3" /> Email</span>
-                                        <p className="text-xs text-muted-foreground">{selectedCustomer.email || "N/A"}</p>
-                                    </div>
+
+                                    {isEditingCustomer ? (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold uppercase text-muted-foreground">
+                                                    Customer Name
+                                                </label>
+                                                <Input
+                                                    value={customerEditForm.customerName}
+                                                    onChange={(e) =>
+                                                        setCustomerEditForm(prev => ({
+                                                            ...prev,
+                                                            customerName: e.target.value,
+                                                        }))
+                                                    }
+                                                    placeholder="Customer name"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold uppercase text-muted-foreground">
+                                                    Phone Number
+                                                </label>
+                                                <Input
+                                                    value={customerEditForm.phoneNumber}
+                                                    maxLength={10}
+                                                    onChange={(e) =>
+                                                        setCustomerEditForm(prev => ({
+                                                            ...prev,
+                                                            phoneNumber: e.target.value.replace(/\D/g, ""),
+                                                        }))
+                                                    }
+                                                    placeholder="10 digit phone"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold uppercase text-muted-foreground">
+                                                    Email
+                                                </label>
+                                                <Input
+                                                    type="email"
+                                                    value={customerEditForm.emailid}
+                                                    onChange={(e) =>
+                                                        setCustomerEditForm(prev => ({
+                                                            ...prev,
+                                                            emailid: e.target.value,
+                                                        }))
+                                                    }
+                                                    placeholder="customer@example.com"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-bold uppercase text-muted-foreground">
+                                                    Address
+                                                </label>
+                                                <Input
+                                                    value={customerEditForm.Address}
+                                                    onChange={(e) =>
+                                                        setCustomerEditForm(prev => ({
+                                                            ...prev,
+                                                            Address: e.target.value,
+                                                        }))
+                                                    }
+                                                    placeholder="Customer address"
+                                                />
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div className="rounded-xl bg-white border border-primary/5 p-3">
+                                                <span className="text-[10px] font-bold text-primary uppercase flex items-center gap-1">
+                                                    <BadgePercent className="w-3 h-3" /> Name
+                                                </span>
+                                                <p className="text-xs font-bold mt-1">{selectedCustomer.customer}</p>
+                                            </div>
+
+                                            <div className="rounded-xl bg-white border border-primary/5 p-3">
+                                                <span className="text-[10px] font-bold text-primary uppercase flex items-center gap-1">
+                                                    <Phone className="w-3 h-3" /> Phone
+                                                </span>
+                                                <p className="text-xs font-bold mt-1">{selectedCustomer.phone}</p>
+                                            </div>
+
+                                            <div className="rounded-xl bg-white border border-primary/5 p-3">
+                                                <span className="text-[10px] font-bold text-primary uppercase flex items-center gap-1">
+                                                    <Mail className="w-3 h-3" /> Email
+                                                </span>
+                                                <p className="text-xs text-muted-foreground mt-1 break-all">
+                                                    {selectedCustomer.email || "N/A"}
+                                                </p>
+                                            </div>
+
+                                            <div className="rounded-xl bg-white border border-primary/5 p-3">
+                                                <span className="text-[10px] font-bold text-primary uppercase flex items-center gap-1">
+                                                    <MapPin className="w-3 h-3" /> Address
+                                                </span>
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                    {selectedCustomer.address || "No address provided"}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="space-y-3">
