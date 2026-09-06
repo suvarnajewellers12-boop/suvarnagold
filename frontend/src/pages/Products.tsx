@@ -530,8 +530,8 @@ const Products = () => {
       // Use the dedicated /bulk route only when two or more products are selected.
       const isSingleDelete = ids.length === 1;
       const deleteUrl = isSingleDelete
-        ? `http://localhost:3000/api/products/delete/${encodeURIComponent(ids[0])}`
-        : "http://localhost:3000/api/products/delete/bulk";
+        ? `https://suvarnagold-16e5.vercel.app/api/products/delete/${encodeURIComponent(ids[0])}`
+        : "https://suvarnagold-16e5.vercel.app/api/products/delete/bulk";
 
       const res = await fetch(deleteUrl, {
         method: "DELETE",
