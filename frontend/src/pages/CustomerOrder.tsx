@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-// PDF Generation Imports
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { format } from "date-fns";
@@ -15,31 +14,29 @@ import { Button } from "@/components/ui/button";
 import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import {
-  Plus, ShoppingBag, Phone, IndianRupee, Scale, X, Coins,
-  Hammer, Wallet, Gem, ArrowRight, User, UserCheck, CheckCircle2, Clock, FileText,
-  Loader2, RefreshCw, Printer, Download, Hash, Tag, PackageCheck, AlertCircle, History, Lock
+  Plus, ShoppingBag, IndianRupee, Scale, X, Coins,
+  Wallet, Gem, ArrowRight, User, CheckCircle2, Clock,
+  Loader2, RefreshCw, Printer, Download, Hash, Tag, PackageCheck, AlertCircle, Pencil
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-// =============================================================================
-// MAIN COMPONENT: ORDER MANAGEMENT PAGE
-// =============================================================================
+const API_BASE = "https://suvarnagold-16e5.vercel.app/api/gold/order";
+
 export default function OrderManagementPage() {
-  const { token, isAuthChecking } = useAuth();
+  const { token } = useAuth();
 
   // ---------------------------------------------------------------------------
-  // 1. COMPONENT STATES
+  // STATE
   // ---------------------------------------------------------------------------
   const [orders, setOrders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [toastMsg, setToastMsg] = useState("Order Saved Successfully!");
   const [metalType, setMetalType] = useState<"GOLD" | "SILVER">("GOLD");
-
-  // Selection/View State
   const [viewingOrder, setViewingOrder] = useState<any | null>(null);
 
   // Creation Form State
@@ -52,8 +49,7 @@ export default function OrderManagementPage() {
     exchangeJewelleryGrams: "",
     purity: "22",
     liveRate: "",
-    givenMetalGrams: "",
-    addedMetalGrams: "",
+    requiredGrams: "", // grams required to make the item -> becomes netWeight
     stoneWeight: "",
     vaPercentage: "",
     stoneCost: "",
@@ -62,8 +58,33 @@ export default function OrderManagementPage() {
     deadlineDate: "",
   });
 
+  // Edit Form State
+  const [editForm, setEditForm] = useState<any>({});
+
+  useEffect(() => {
+    if (viewingOrder) {
+      setEditForm({
+        customerName: viewingOrder.customerName || "",
+        phoneNumber: viewingOrder.phoneNumber || "",
+        itemName: viewingOrder.itemName || "",
+        itemDescription: viewingOrder.itemDescription || "",
+        liveRate: viewingOrder.liveRate ?? "",
+        netWeight: viewingOrder.netWeight ?? "",
+        stoneWeight: viewingOrder.stoneWeight ?? "",
+        vaPercentage: viewingOrder.vaPercentage ?? "",
+        stoneCost: viewingOrder.stoneCost ?? "",
+        discountAmount: viewingOrder.discountAmount ?? "",
+        advanceCash: viewingOrder.advanceCash ?? "",
+        weightAdjustmentGrams: viewingOrder.weightAdjustmentGrams ?? 0,
+        adjustmentCost: viewingOrder.adjustmentCost ?? 0,
+        exchangeJewelleryName: viewingOrder.exchangeJewelleryName || "",
+        exchangeJewelleryGrams: viewingOrder.exchangeJewelleryGrams ?? "",
+      });
+    }
+  }, [viewingOrder]);
+
   // ---------------------------------------------------------------------------
-  // 2. DUAL PDF GENERATION ENGINE
+  // PDF GENERATION
   // ---------------------------------------------------------------------------
   const handleOrderReceipt = async (order: any, mode: "download" | "print", type: "BOOKING" | "DELIVERY" = "BOOKING") => {
     try {
@@ -72,7 +93,6 @@ export default function OrderManagementPage() {
       const A5_W = 419.53;
       const A5_H = 595.28;
       const SAFE_TOP = 80;
-      const SAFE_BOTTOM = 544;
       const MARGIN_L = 30;
       const MARGIN_R = A5_W - 30;
 
@@ -82,13 +102,11 @@ export default function OrderManagementPage() {
       const lightGrey = rgb(0.85, 0.85, 0.85);
       const emerald = rgb(0.06, 0.47, 0.23);
 
-      // Use template for download, blank sheet for print
       let pdfDoc: any;
       if (mode === "download") {
         const templateBytes = await fetch("/receipt.pdf").then((res) => res.arrayBuffer());
         pdfDoc = await PDFDocument.load(templateBytes);
-        const page = pdfDoc.getPages()[0];
-        page.setSize(A5_W, A5_H);
+        pdfDoc.getPages()[0].setSize(A5_W, A5_H);
       } else {
         pdfDoc = await PDFDocument.create();
         pdfDoc.addPage([A5_W, A5_H]);
@@ -120,9 +138,13 @@ export default function OrderManagementPage() {
 
       const { draw, drawR, hLine } = makePen(page);
 
-      // ── CALCULATIONS ──────────────────────────────────────────
-      const netWt = Number(order.netWeight) || 0;
-      const grossWt = Number(order.grossWeight) || 0;
+      // ── CALCULATIONS (include weight adjustment made after crafting) ──
+      const bookedWt = Number(order.netWeight) || 0;
+      const weightAdj = Number(order.weightAdjustmentGrams) || 0;
+      const adjustmentCost = Number(order.adjustmentCost) || 0;
+      const netWt = bookedWt + weightAdj; // final actual weight used for billing
+
+      const grossWt = Number(order.grossWeight) || netWt + (Number(order.stoneWeight) || 0);
       const stoneWt = Number(order.stoneWeight) || 0;
       const rate = Number(order.liveRate) || 0;
       const vaPer = Number(order.vaPercentage) || 0;
@@ -130,18 +152,16 @@ export default function OrderManagementPage() {
       const discAmt = Number(order.discountAmount) || 0;
       const advance = Number(order.advanceCash) || 0;
       const originalCartValue = Number(order.originalCartValue) || 0;
-      const exchangeJewelleryName = String(order.exchangeJewelleryName || "");
-      const exchangeJewelleryGrams = Number(order.exchangeJewelleryGrams) || 0;
 
       const goldValue = netWt * rate;
       const vaAmount = goldValue * (vaPer / 100);
-      const subtotalBeforeDisc = goldValue + vaAmount + stoneC;
+      const subtotalBeforeDisc = goldValue + vaAmount + stoneC + adjustmentCost;
       const subtotalAfterDisc = Math.max(0, subtotalBeforeDisc - discAmt);
-      const halfGst = (subtotalAfterDisc * 0.015);
+      const halfGst = subtotalAfterDisc * 0.015;
       const grandTotal = subtotalAfterDisc + halfGst * 2;
       const balance = grandTotal - advance;
 
-      // ── HEADER ──────────────────────────────────────────────────
+      // ── HEADER ──
       const HDR_Y = SAFE_TOP + 10;
       const typeLabel = type === "DELIVERY" ? "DELIVERY CONFIRMATION" : "BOOKING RECEIPT";
       draw(typeLabel, MARGIN_L, HDR_Y, 9.5, black);
@@ -149,17 +169,16 @@ export default function OrderManagementPage() {
       drawR(`Date: ${format(new Date(), "dd-MM-yyyy")}`, MARGIN_R, HDR_Y + 12, 7.5, grey);
       hLine(HDR_Y + 26);
 
-      // ── CUSTOMER DETAILS ─────────────────────────────────────
+      // ── CUSTOMER ──
       const CUST_Y = HDR_Y + 38;
       draw("CUSTOMER", MARGIN_L, CUST_Y, 7.5, grey);
       draw(order.customerName, MARGIN_L, CUST_Y + 11, 8.5, black);
       draw(`Ph: +91 ${order.phoneNumber}`, MARGIN_L, CUST_Y + 22, 7.5, grey);
       hLine(CUST_Y + 32);
 
-      // ── ITEM DETAILS TABLE ───────────────────────────────────
+      // ── ITEM TABLE ──
       const TBL_Y = CUST_Y + 50;
       const col = { name: MARGIN_L, gross: 130, stone: 185, net: 245, va: 305, total: MARGIN_R };
-
       draw("ITEM", col.name, TBL_Y, 7, grey);
       draw("GROSS", col.gross, TBL_Y, 7, grey);
       draw("STONE", col.stone, TBL_Y, 7, grey);
@@ -177,8 +196,8 @@ export default function OrderManagementPage() {
       drawR(`₹${Math.round(originalCartValue).toLocaleString()}`, col.total, ROW_Y, 7.5, black);
       hLine(ROW_Y + 13);
 
-      // ── CART SUMMARY ────────────────────────────────────────
-      const CART_Y = ROW_Y + 22;
+      // ── CART SUMMARY ──
+      let CART_Y = ROW_Y + 22;
       draw("CART SUMMARY", MARGIN_L, CART_Y, 7.5, grey);
       hLine(CART_Y + 8);
 
@@ -187,23 +206,40 @@ export default function OrderManagementPage() {
         drawR(value, MARGIN_R, y, 6.5, valueColor);
       };
 
-      const storedOriginalCartValue = originalCartValue || ((subtotalBeforeDisc + subtotalBeforeDisc * 0.03));
+      const storedOriginalCartValue = originalCartValue || (subtotalBeforeDisc + subtotalBeforeDisc * 0.03);
+      let rowOffset = 14;
+      cartRow("Original Cart Value", `₹${Math.round(storedOriginalCartValue).toLocaleString()}`, CART_Y + rowOffset, gold);
+      rowOffset += 7;
 
-      cartRow("Original Cart Value", `₹${Math.round(storedOriginalCartValue).toLocaleString()}`, CART_Y + 14, gold);
-      
       cartRow(
         `Exchange Value [${order.exchangeJewelleryName || "N/A"}]`,
-        `₹${Math.round(discAmt||0).toLocaleString()}`,
-        CART_Y + 21,
+        `₹${Math.round(discAmt || 0).toLocaleString()}`,
+        CART_Y + rowOffset,
         gold
-      ); cartRow("Taxable Total", `₹${Math.round(subtotalAfterDisc).toLocaleString()}`, CART_Y + 28);
-      cartRow("GST (3%)", `₹${Math.round(halfGst * 2).toLocaleString()}`, CART_Y + 35);
-      cartRow("Final Payable", `₹${Math.round(grandTotal).toLocaleString()}`, CART_Y + 42, emerald);
-      hLine(CART_Y + 48);
+      );
+      rowOffset += 7;
 
-      // ── METAL COMPOSITION ───────────────────────────────────
-      const FIN_Y = CART_Y + 58;
-      draw("METAL COMPOSITION", MARGIN_L, FIN_Y, 7.5, grey);
+      if (weightAdj !== 0) {
+        cartRow(
+          `Weight Adjustment (${weightAdj > 0 ? "+" : ""}${weightAdj}g)`,
+          `${adjustmentCost >= 0 ? "" : "-"}₹${Math.round(Math.abs(adjustmentCost)).toLocaleString()}`,
+          CART_Y + rowOffset,
+          weightAdj > 0 ? emerald : rgb(0.7, 0.1, 0.1)
+        );
+        rowOffset += 7;
+      }
+
+      cartRow("Taxable Total", `₹${Math.round(subtotalAfterDisc).toLocaleString()}`, CART_Y + rowOffset);
+      rowOffset += 7;
+      cartRow("GST (3%)", `₹${Math.round(halfGst * 2).toLocaleString()}`, CART_Y + rowOffset);
+      rowOffset += 7;
+      cartRow("Final Payable", `₹${Math.round(grandTotal).toLocaleString()}`, CART_Y + rowOffset, emerald);
+      hLine(CART_Y + rowOffset + 6);
+      CART_Y = CART_Y + rowOffset + 6;
+
+      // ── WEIGHT DETAILS ──
+      const FIN_Y = CART_Y + 10;
+      draw("WEIGHT DETAILS", MARGIN_L, FIN_Y, 7.5, grey);
       hLine(FIN_Y + 8);
 
       const finRow = (label: string, value: string, y: number) => {
@@ -211,46 +247,13 @@ export default function OrderManagementPage() {
         drawR(value, MARGIN_R, y, 6.5, black);
       };
 
-      const givenMetal = Number(order.givenMetalGrams) || 0;
-      const addedMetal = Number(order.addedMetalGrams) || 0;
-      const totalMetal = givenMetal + addedMetal;
-
-      finRow(`Customer Given`, `${givenMetal}g`, FIN_Y + 14);
-      finRow(`Shop Added`, `${addedMetal}g`, FIN_Y + 21);
-      // finRow(`Total Metal`, `${totalMetal}g`, FIN_Y + 28);
+      finRow(`Required (Booked)`, `${bookedWt}g`, FIN_Y + 14);
+      finRow(`Adjustment`, `${weightAdj > 0 ? "+" : ""}${weightAdj}g`, FIN_Y + 21);
+      finRow(`Final Net Weight`, `${netWt}g`, FIN_Y + 28);
       hLine(FIN_Y + 34);
 
-      // // ── WEIGHT DETAILS ──────────────────────────────────────
-      // const WGT_Y = FIN_Y + 44;
-      // draw("WEIGHT DETAILS", MARGIN_L, WGT_Y, 7.5, grey);
-      // hLine(WGT_Y + 8);
-
-      // finRow(`Stone Weight`, `${stoneWt}g`, WGT_Y + 14);
-      // finRow(`Gross Weight`, `${grossWt}g`, WGT_Y + 21);
-      // finRow(`Net Weight`, `${netWt}g`, WGT_Y + 28);
-      // hLine(WGT_Y + 34);
-
-      // // ── FINANCIAL BREAKDOWN ─────────────────────────────────
-      // const FIN2_Y = WGT_Y + 44;
-      // draw("VALUATION", MARGIN_L, FIN2_Y, 7.5, grey);
-      // hLine(FIN2_Y + 8);
-
-      // // finRow(`Metal Value @ ₹${rate}/g`, `₹${Math.round(goldValue).toLocaleString()}`, FIN2_Y + 14);
-      // // finRow(`VA/Making (${vaPer}%)`, `₹${Math.round(vaAmount).toLocaleString()}`, FIN2_Y + 21);
-      // finRow(`Stone Cost`, `₹${Math.round(stoneC).toLocaleString()}`, FIN2_Y + 28);
-
-      // if (discAmt > 0) {
-      //   finRow(`Discount`, `-₹${Math.round(discAmt).toLocaleString()}`, FIN2_Y + 35);
-      //   finRow(`CGST (1.5%)`, `₹${Math.round(halfGst).toLocaleString()}`, FIN2_Y + 42);
-      //   finRow(`SGST (1.5%)`, `₹${Math.round(halfGst).toLocaleString()}`, FIN2_Y + 49);
-      // } else {
-      //   finRow(`CGST (1.5%)`, `₹${Math.round(halfGst).toLocaleString()}`, FIN2_Y + 35);
-      //   finRow(`SGST (1.5%)`, `₹${Math.round(halfGst).toLocaleString()}`, FIN2_Y + 42);
-      // }
-      // hLine(FIN2_Y + 56);
-
-      // ── PAYMENT STATUS ──────────────────────────────────────
-      const PAY_Y = FIN_Y + 52;
+      // ── PAYMENT STATUS ──
+      const PAY_Y = FIN_Y + 44;
       draw("PAYMENT STATUS", MARGIN_L, PAY_Y, 7.5, grey);
       hLine(PAY_Y + 8);
 
@@ -258,13 +261,13 @@ export default function OrderManagementPage() {
       finRow(`Advance Paid`, `₹${Math.round(advance).toLocaleString()}`, PAY_Y + 21);
 
       if (type === "DELIVERY") {
-        finRow(`Balance Due`, `₹ 0 (Paid)`, PAY_Y + 30);
+        finRow(`Balance Due`, `₹ 0 (Paid)`, PAY_Y + 28);
       } else {
         finRow(`Balance Due`, `₹${Math.round(balance).toLocaleString()}`, PAY_Y + 28);
       }
       hLine(PAY_Y + 34);
 
-      // ── SETTLEMENT BOX ──────────────────────────────────────
+      // ── SETTLEMENT BOX ──
       const SETT_Y = PAY_Y + 44;
       const settBoxW = 160;
       const settBoxH = 45;
@@ -281,34 +284,16 @@ export default function OrderManagementPage() {
         borderWidth: 1.2,
       });
 
-      page.drawText("SETTLEMENT", {
-        x: settBoxX + 10,
-        y: settBoxBottomY + 23,
-        size: 7,
-        font: customFont,
-        color: grey,
-      });
+      page.drawText("SETTLEMENT", { x: settBoxX + 10, y: settBoxBottomY + 23, size: 7, font: customFont, color: grey });
 
       if (type === "DELIVERY") {
         const balanceText = "FULLY PAID ";
         const balanceW = customFont.widthOfTextAtSize(balanceText, 10);
-        page.drawText(balanceText, {
-          x: settBoxX + (settBoxW - balanceW) / 2,
-          y: settBoxBottomY + 6,
-          size: 10,
-          font: customFont,
-          color: emerald,
-        });
+        page.drawText(balanceText, { x: settBoxX + (settBoxW - balanceW) / 2, y: settBoxBottomY + 6, size: 10, font: customFont, color: emerald });
       } else {
         const balanceText = `₹${Math.round(balance).toLocaleString()} Pending`;
         const balanceW = customFont.widthOfTextAtSize(balanceText, 9);
-        page.drawText(balanceText, {
-          x: settBoxX + (settBoxW - balanceW) / 2,
-          y: settBoxBottomY + 6,
-          size: 9,
-          font: customFont,
-          color: gold,
-        });
+        page.drawText(balanceText, { x: settBoxX + (settBoxW - balanceW) / 2, y: settBoxBottomY + 6, size: 9, font: customFont, color: gold });
       }
 
       const pdfBytes = await pdfDoc.save();
@@ -322,23 +307,20 @@ export default function OrderManagementPage() {
         link.click();
       } else {
         const printWindow = window.open(pdfUrl);
-        if (printWindow) {
-          printWindow.addEventListener("load", () => printWindow.print());
-        }
+        if (printWindow) printWindow.addEventListener("load", () => printWindow.print());
       }
     } catch (error) {
       console.error("Order PDF Error:", error);
     }
   };
+
   // ---------------------------------------------------------------------------
-  // 3. API OPERATIONS
+  // API OPERATIONS
   // ---------------------------------------------------------------------------
   const fetchOrders = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/order/all", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await fetch(`${API_BASE}/all`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (data.success) setOrders(data.orders);
     } catch (error) { console.error("FETCH_ERROR", error); }
@@ -347,20 +329,21 @@ export default function OrderManagementPage() {
 
   useEffect(() => { fetchOrders(); }, []);
 
-  // Validation: 10-digit only, Number logic
   const handleInputChange = (field: string, value: string) => {
     if (field === "phoneNumber") {
-      const cleaned = value.replace(/\D/g, "").slice(0, 10);
-      setForm(prev => ({ ...prev, [field]: cleaned }));
+      setForm((prev) => ({ ...prev, [field]: value.replace(/\D/g, "").slice(0, 10) }));
       return;
     }
-    setForm(prev => ({ ...prev, [field]: value }));
+    setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  // Live Math for Creation
+  const handleEditChange = (field: string, value: string) => {
+    setEditForm((prev: any) => ({ ...prev, [field]: value }));
+  };
+
+  // Live Math for Creation — requiredGrams becomes netWeight
   const totals = useMemo(() => {
-    const given = Math.max(0, Number(form.givenMetalGrams) || 0);
-    const added = Math.max(0, Number(form.addedMetalGrams) || 0);
+    const netWeight = Math.max(0, Number(form.requiredGrams) || 0);
     const stoneW = Math.max(0, Number(form.stoneWeight) || 0);
     const rate = Math.max(0, Number(form.liveRate) || 0);
     const vaPer = Math.max(0, Number(form.vaPercentage) || 0);
@@ -368,7 +351,6 @@ export default function OrderManagementPage() {
     const disc = Math.max(0, Number(form.discountAmount) || 0);
     const advance = Math.max(0, Number(form.advanceCash) || 0);
 
-    const netWeight = given + added;
     const goldValue = netWeight * rate;
     const vaAmount = goldValue * (vaPer / 100);
     const subtotalBase = goldValue + vaAmount + sCost;
@@ -376,13 +358,13 @@ export default function OrderManagementPage() {
     const gstAmount = subtotalAfterDisc * 0.03;
     const totalWithGST = subtotalAfterDisc + gstAmount;
     const balanceAmount = totalWithGST - advance;
-    const originalCartValue = subtotalBase + (subtotalBase * 0.03);
+    const originalCartValue = subtotalBase + subtotalBase * 0.03;
 
     return {
       netWeight, goldValue, vaAmount, discount: disc,
       gstAmount, totalWithGST, balanceAmount, stoneCost: sCost,
       originalCartValue,
-      grossWeight: netWeight + stoneW
+      grossWeight: netWeight + stoneW,
     };
   }, [form]);
 
@@ -390,23 +372,27 @@ export default function OrderManagementPage() {
     if (!form.customerName || form.phoneNumber.length < 10) {
       return alert("Complete Customer Name and provide 10-digit phone number.");
     }
+    if (!form.requiredGrams || Number(form.requiredGrams) <= 0) {
+      return alert("Enter the grams required to make this item.");
+    }
 
     setIsSubmitting(true);
     try {
-      const res = await fetch("https://suvarnagold-16e5.vercel.app/api/gold/order", {
+      const res = await fetch(API_BASE, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           ...form,
           metalType,
-          discountAmount: totals.discount,
           netWeight: totals.netWeight,
+          discountAmount: totals.discount,
           grossWeight: totals.grossWeight,
           gstAmount: totals.gstAmount,
           originalCartValue: totals.originalCartValue,
           totalAmount: totals.totalWithGST,
-          balanceAmount: totals.balanceAmount
-        })
+          balanceAmount: totals.balanceAmount,
+          
+        }),
       });
 
       if (res.ok) {
@@ -416,11 +402,14 @@ export default function OrderManagementPage() {
         setForm({
           customerName: "", phoneNumber: "", itemName: "", itemDescription: "",
           exchangeJewelleryName: "", exchangeJewelleryGrams: "",
-          purity: "22", liveRate: "", givenMetalGrams: "", addedMetalGrams: "",
+          purity: "22", liveRate: "", requiredGrams: "",
           stoneWeight: "", vaPercentage: "", stoneCost: "", discountAmount: "",
-          advanceCash: "", deadlineDate: ""
+          advanceCash: "", deadlineDate: "",
         });
         fetchOrders();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Failed to create order.");
       }
     } catch (err) { console.error("SUBMIT_ERROR", err); }
     finally { setIsSubmitting(false); }
@@ -430,34 +419,63 @@ export default function OrderManagementPage() {
     if (!viewingOrder) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`https://suvarnagold-16e5.vercel.app/api/gold/order/issue`, {
+      const res = await fetch(`${API_BASE}/issue`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ orderId: viewingOrder.id })
+        body: JSON.stringify({ orderId: viewingOrder.id }),
       });
       if (res.ok) {
-        setToastMsg("Payment Settled & Item Dispatched!");
+        const data = await res.json();
+        const deliveredOrder = { ...viewingOrder, ...data.order, status: "DELIVERED" };
+
+        setToastMsg("Payment Settled & Item Delivered!");
         setShowToast(true);
+
+        await handleOrderReceipt(deliveredOrder, "download", "DELIVERY");
+
         setViewingOrder(null);
         fetchOrders();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Failed to settle order.");
       }
     } catch (err) { console.error("ISSUE_ERROR", err); }
     finally { setIsSubmitting(false); }
   };
 
-  // ---------------------------------------------------------------------------
-  // 4. RENDERING UI
-  // ---------------------------------------------------------------------------
-  // Show loading screen while checking authentication
+  const handleSaveEdit = async () => {
+    if (!viewingOrder) return;
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/edit`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ orderId: viewingOrder.id, ...editForm }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setViewingOrder(data.order);
+        setToastMsg("Order Updated!");
+        setShowToast(true);
+        setIsEditOpen(false);
+        fetchOrders();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Failed to update order.");
+      }
+    } catch (err) { console.error("EDIT_ERROR", err); }
+    finally { setIsSubmitting(false); }
+  };
 
-
+  // ---------------------------------------------------------------------------
+  // RENDER
+  // ---------------------------------------------------------------------------
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-[#FCFBF7] font-sans">
         <DashboardSidebar />
 
         <main className="flex-1 flex flex-col h-screen overflow-hidden text-left">
-          {/* TOP BAR */}
           <header className="bg-white border-b border-gold/10 px-10 py-8 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-4xl font-serif font-bold text-slate-900 tracking-tight">Order Registry</h1>
@@ -481,7 +499,6 @@ export default function OrderManagementPage() {
             </div>
           </header>
 
-          {/* TABLE DISPLAY */}
           <div className="flex-1 p-10 overflow-hidden flex flex-col">
             <LuxuryCard className="flex-1 overflow-hidden flex flex-col p-0 border-gold/5 bg-white shadow-[0_20px_50px_rgba(0,0,0,0.02)] rounded-[2.5rem]">
               <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -499,11 +516,7 @@ export default function OrderManagementPage() {
                     {isLoading ? (
                       <tr><td colSpan={5} className="py-40 text-center"><Loader2 className="animate-spin w-10 h-10 text-gold mx-auto" /><p className="text-slate-400 mt-4 italic font-serif">Synchronizing Ledger...</p></td></tr>
                     ) : orders.length > 0 ? orders.map((o) => (
-                      <tr
-                        key={o.id}
-                        className="group hover:bg-slate-50/50 cursor-pointer transition-all duration-300"
-                        onClick={() => setViewingOrder(o)}
-                      >
+                      <tr key={o.id} className="group hover:bg-slate-50/50 cursor-pointer transition-all duration-300" onClick={() => setViewingOrder(o)}>
                         <td className="px-8 py-6">
                           <div className="flex items-center gap-3 mb-2 opacity-60 group-hover:opacity-100 transition-opacity">
                             <Hash className="w-4 h-4 text-gold" />
@@ -517,7 +530,7 @@ export default function OrderManagementPage() {
                             {o.itemName}
                           </span>
                           <div className="flex items-center gap-4 text-xs font-medium text-slate-500">
-                            <div className="flex items-center gap-1"><Scale className="w-3 h-3" /> {o.netWeight}g</div>
+                            <div className="flex items-center gap-1"><Scale className="w-3 h-3" /> {(Number(o.netWeight) + Number(o.weightAdjustmentGrams || 0)).toFixed(3)}g</div>
                             <div className="flex items-center gap-1"><Gem className="w-3 h-3" /> {o.purity}K {o.metalType}</div>
                           </div>
                         </td>
@@ -527,10 +540,7 @@ export default function OrderManagementPage() {
                           {(o.exchangeJewelleryName || o.exchangeJewelleryGrams) && (
                             <p className="text-xs text-slate-400 mt-1">Exchange: {o.exchangeJewelleryName || "Item"} · {Number(o.exchangeJewelleryGrams || 0)}g</p>
                           )}
-                          <div className={cn(
-                            "flex items-center gap-1.5 text-[11px] font-bold mt-1",
-                            o.status === "DELIVERED" ? "text-emerald-500" : "text-rose-500"
-                          )}>
+                          <div className={cn("flex items-center gap-1.5 text-[11px] font-bold mt-1", o.status === "DELIVERED" ? "text-emerald-500" : "text-rose-500")}>
                             {o.status === "DELIVERED" ? <CheckCircle2 className="w-3 h-3" /> : <Wallet className="w-3 h-3" />}
                             {o.status === "DELIVERED" ? "Payment Completed" : `Balance: ₹${Number(o.balanceAmount).toLocaleString()}`}
                           </div>
@@ -538,11 +548,7 @@ export default function OrderManagementPage() {
                         <td className="px-8 py-6">
                           <span className={cn(
                             "inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all",
-                            o.status === "DELIVERED"
-                              ? "bg-emerald-50 text-emerald-600 border-emerald-100 shadow-sm"
-                              : o.status === "COMPLETED"
-                                ? "bg-amber-50 text-amber-600 border-amber-200"
-                                : "bg-slate-50 text-slate-400 border-slate-200"
+                            o.status === "DELIVERED" ? "bg-emerald-50 text-emerald-600 border-emerald-100 shadow-sm" : "bg-slate-50 text-slate-400 border-slate-200"
                           )}>
                             {o.status === "DELIVERED" ? <PackageCheck className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
                             {o.status}
@@ -565,9 +571,7 @@ export default function OrderManagementPage() {
         </main>
       </div>
 
-      {/* =======================================================================
-          VIEW & SETTLE DIALOG
-          ====================================================================== */}
+      {/* ================= VIEW & SETTLE DIALOG ================= */}
       <Dialog open={!!viewingOrder} onOpenChange={() => setViewingOrder(null)}>
         <DialogContent className="max-w-5xl rounded-[3rem] p-0 overflow-hidden border-gold/20 shadow-2xl bg-white outline-none">
           <DialogHeader className="p-12 bg-slate-900 text-white flex flex-row justify-between items-center relative overflow-hidden">
@@ -582,6 +586,17 @@ export default function OrderManagementPage() {
             </div>
 
             <div className="flex gap-4 relative z-10">
+              <div className="flex flex-col gap-2">
+                <p className="text-[10px] uppercase text-slate-300 font-bold tracking-widest text-center">Edit</p>
+                <Button
+                  onClick={() => setIsEditOpen(true)}
+                  variant="outline"
+                  disabled={viewingOrder?.status === "DELIVERED"}
+                  className="h-14 w-14 border-white/20 text-white hover:bg-white/10 rounded-2xl disabled:opacity-30"
+                >
+                  <Pencil className="w-5 h-5" />
+                </Button>
+              </div>
               <div className="flex flex-col gap-2">
                 <p className="text-[10px] uppercase text-gold font-bold tracking-widest text-center">Booking Slip</p>
                 <div className="flex gap-2">
@@ -610,16 +625,29 @@ export default function OrderManagementPage() {
               </div>
               <div className="space-y-4">
                 <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Customer Given</p>
-                  <p className="text-2xl font-serif font-bold text-slate-900">{viewingOrder?.givenMetalGrams || 0}g</p>
+                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Required (Booked)</p>
+                  <p className="text-2xl font-serif font-bold text-slate-900">{viewingOrder?.netWeight || 0}g</p>
                 </div>
-                <div className="p-4 bg-purple-50 rounded-2xl border border-purple-100">
-                  <p className="text-[10px] font-bold text-purple-600 uppercase tracking-widest mb-1">Shop Added</p>
-                  <p className="text-2xl font-serif font-bold text-slate-900">{viewingOrder?.addedMetalGrams || 0}g</p>
+                <div className={cn(
+                  "p-4 rounded-2xl border",
+                  Number(viewingOrder?.weightAdjustmentGrams) >= 0 ? "bg-emerald-50 border-emerald-100" : "bg-rose-50 border-rose-100"
+                )}>
+                  <p className={cn(
+                    "text-[10px] font-bold uppercase tracking-widest mb-1",
+                    Number(viewingOrder?.weightAdjustmentGrams) >= 0 ? "text-emerald-600" : "text-rose-600"
+                  )}>
+                    Adjustment (+/-)
+                  </p>
+                  <p className="text-2xl font-serif font-bold text-slate-900">
+                    {Number(viewingOrder?.weightAdjustmentGrams || 0) >= 0 ? "+" : ""}{viewingOrder?.weightAdjustmentGrams || 0}g
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">Cost impact: ₹{Number(viewingOrder?.adjustmentCost || 0).toLocaleString()}</p>
                 </div>
                 <div className="p-4 bg-gold/10 rounded-2xl border border-gold/20 border-dashed">
-                  <p className="text-[10px] font-bold text-gold uppercase tracking-widest mb-1">Total Metal</p>
-                  <p className="text-2xl font-serif font-bold text-slate-900">{Number(viewingOrder?.givenMetalGrams || 0) + Number(viewingOrder?.addedMetalGrams || 0)}g</p>
+                  <p className="text-[10px] font-bold text-gold uppercase tracking-widest mb-1">Final Net Weight</p>
+                  <p className="text-2xl font-serif font-bold text-slate-900">
+                    {(Number(viewingOrder?.netWeight || 0) + Number(viewingOrder?.weightAdjustmentGrams || 0)).toFixed(3)}g
+                  </p>
                 </div>
               </div>
             </div>
@@ -639,10 +667,6 @@ export default function OrderManagementPage() {
                   <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1">Gross Weight</p>
                   <p className="text-2xl font-serif font-bold text-slate-900">{viewingOrder?.grossWeight}g</p>
                 </div>
-                <div className="p-4 bg-gold/5 rounded-2xl border border-gold/10 ring-2 ring-gold/20">
-                  <p className="text-[10px] font-bold text-gold uppercase tracking-widest mb-1">Net Weight</p>
-                  <p className="text-3xl font-serif font-bold text-slate-900">{viewingOrder?.netWeight}g</p>
-                </div>
               </div>
             </div>
 
@@ -661,25 +685,13 @@ export default function OrderManagementPage() {
                   <div className="flex justify-between text-xs text-slate-600 mb-1"><span>Exchange Jewellery</span><span className="font-bold">{viewingOrder?.exchangeJewelleryName || "-"}</span></div>
                   <div className="flex justify-between text-xs text-slate-500"><span>Exchange Grams</span><span className="font-bold">{Number(viewingOrder?.exchangeJewelleryGrams || 0)}g</span></div>
                 </div>
-                <div className="p-3 bg-gold/5 rounded-xl border border-gold/10">
-                  <div className="flex justify-between text-xs text-slate-600 mb-1"><span>Original Cart</span><span className="font-bold">₹{Number(viewingOrder?.originalCartValue || 0).toLocaleString()}</span></div>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <div className="flex justify-between text-xs text-slate-600 mb-1"><span>Pure Metal</span><span className="font-bold">₹{(Number(viewingOrder?.netWeight) * Number(viewingOrder?.liveRate)).toLocaleString()}</span></div>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <div className="flex justify-between text-xs text-slate-600 mb-1"><span>VA ({viewingOrder?.vaPercentage}%)</span><span className="font-bold">₹{Math.round(Number(viewingOrder?.netWeight) * Number(viewingOrder?.liveRate) * (Number(viewingOrder?.vaPercentage) / 100)).toLocaleString()}</span></div>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <div className="flex justify-between text-xs text-slate-600"><span>Stone Cost</span><span className="font-bold">₹{Number(viewingOrder?.stoneCost || 0).toLocaleString()}</span></div>
-                </div>
                 {Number(viewingOrder?.discountAmount) > 0 && (
                   <div className="p-3 bg-rose-50 rounded-xl border border-rose-100">
                     <div className="flex justify-between text-xs text-rose-600 font-bold"><span>Discount</span><span>-₹{Number(viewingOrder?.discountAmount).toLocaleString()}</span></div>
                   </div>
                 )}
                 <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                  <div className="flex justify-between text-xs text-emerald-700 font-bold"><span>Payable After Discount</span><span>₹{Number(viewingOrder?.totalAmount).toLocaleString()}</span></div>
+                  <div className="flex justify-between text-xs text-emerald-700 font-bold"><span>Payable</span><span>₹{Number(viewingOrder?.totalAmount).toLocaleString()}</span></div>
                 </div>
               </div>
             </div>
@@ -696,14 +708,11 @@ export default function OrderManagementPage() {
                     <p className="text-[10px] text-slate-400 uppercase font-bold mb-2">Total Bill</p>
                     <p className="text-3xl font-serif font-bold text-white">₹{Number(viewingOrder?.totalAmount).toLocaleString()}</p>
                   </div>
-
                   <div className="pt-4 border-t border-white/10">
                     <p className="text-[10px] text-slate-300 uppercase font-bold mb-2">Advance Paid</p>
                     <p className="text-2xl font-serif font-bold text-emerald-400">₹{Number(viewingOrder?.advanceCash).toLocaleString()}</p>
                   </div>
-
                   <GoldDivider className="opacity-20" />
-
                   <div>
                     <p className="text-[10px] font-bold text-gold uppercase tracking-[0.2em] mb-2">Balance Due</p>
                     <p className="text-4xl font-serif font-bold text-white tracking-tighter">₹{viewingOrder?.status === "DELIVERED" ? "0" : Number(viewingOrder?.balanceAmount).toLocaleString()}</p>
@@ -714,35 +723,64 @@ export default function OrderManagementPage() {
                 </div>
               </div>
 
-              {/* LOCK LOGIC: Settle btn is disabled if status is NOT COMPLETED */}
+              {/* CUSTOMER PICKUP */}
               {viewingOrder?.status !== "DELIVERED" && (
-                <div className="space-y-4">
-                  {viewingOrder?.status !== "COMPLETED" && (
-                    <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl flex items-center gap-3 text-amber-700">
-                      <Lock className="w-5 h-5 shrink-0" />
-                      <p className="text-[10px] font-bold uppercase leading-tight">Settlement Locked: Order must be marked "COMPLETED" from manufacturing vault first.</p>
-                    </div>
-                  )}
-                  <Button
-                    onClick={handleIssueOrderToClient}
-                    disabled={isSubmitting || viewingOrder?.status !== "COMPLETED"}
-                    className={cn(
-                      "w-full h-20 rounded-[2rem] font-serif font-bold text-lg flex items-center justify-center gap-3 shadow-2xl transition-all shadow-gold/20",
-                      viewingOrder?.status === "COMPLETED" ? "bg-gold text-slate-900 hover:bg-white active:scale-95" : "bg-slate-100 text-slate-300 cursor-not-allowed opacity-50"
-                    )}
-                  >
-                    {isSubmitting ? <Loader2 className="animate-spin" /> : <><PackageCheck className="w-7 h-7" /> Final Settle & Issue</>}
-                  </Button>
-                </div>
+                <Button
+                  onClick={handleIssueOrderToClient}
+                  disabled={isSubmitting}
+                  className="w-full h-20 rounded-[2rem] font-serif font-bold text-lg flex items-center justify-center gap-3 shadow-2xl transition-all shadow-gold/20 bg-gold text-slate-900 hover:bg-white active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? <Loader2 className="animate-spin" /> : <><PackageCheck className="w-7 h-7" /> Customer Pickup — Deliver & Bill</>}
+                </Button>
               )}
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* =======================================================================
-          ADD ORDER / BOOKING FORM DIALOG
-          ====================================================================== */}
+      {/* ================= EDIT DIALOG ================= */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="max-w-2xl rounded-[2rem] p-8 bg-white max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-serif font-bold">Edit Order — {viewingOrder?.orderId}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 mt-4">
+            <Input placeholder="Customer Name" value={editForm.customerName || ""} onChange={(e) => handleEditChange("customerName", e.target.value)} />
+            <Input placeholder="Phone Number" value={editForm.phoneNumber || ""} onChange={(e) => handleEditChange("phoneNumber", e.target.value)} />
+            <Input placeholder="Item Name" value={editForm.itemName || ""} onChange={(e) => handleEditChange("itemName", e.target.value)} />
+            <Input placeholder="Live Rate" type="number" value={editForm.liveRate || ""} onChange={(e) => handleEditChange("liveRate", e.target.value)} />
+            <Input placeholder="Grams Required (Net Weight)" type="number" step="0.001" value={editForm.netWeight || ""} onChange={(e) => handleEditChange("netWeight", e.target.value)} />
+            <Input placeholder="Stone Weight (g)" type="number" value={editForm.stoneWeight || ""} onChange={(e) => handleEditChange("stoneWeight", e.target.value)} />
+            <Input placeholder="VA %" type="number" value={editForm.vaPercentage || ""} onChange={(e) => handleEditChange("vaPercentage", e.target.value)} />
+            <Input placeholder="Stone Cost (₹)" type="number" value={editForm.stoneCost || ""} onChange={(e) => handleEditChange("stoneCost", e.target.value)} />
+            <Input placeholder="Discount / Exchange Value (₹)" type="number" value={editForm.discountAmount || ""} onChange={(e) => handleEditChange("discountAmount", e.target.value)} />
+            <Input placeholder="Advance Cash (₹)" type="number" value={editForm.advanceCash || ""} onChange={(e) => handleEditChange("advanceCash", e.target.value)} />
+            <Input placeholder="Exchange Jewellery Name" value={editForm.exchangeJewelleryName || ""} onChange={(e) => handleEditChange("exchangeJewelleryName", e.target.value)} />
+            <Input placeholder="Exchange Grams" type="number" value={editForm.exchangeJewelleryGrams || ""} onChange={(e) => handleEditChange("exchangeJewelleryGrams", e.target.value)} />
+
+            <Input
+              placeholder="Weight Adjustment (+/- g)"
+              type="number"
+              step="0.001"
+              value={editForm.weightAdjustmentGrams ?? 0}
+              onChange={(e) => handleEditChange("weightAdjustmentGrams", e.target.value)}
+              className="border-amber-200"
+            />
+            <Input
+              placeholder="Adjustment Cost (₹)"
+              type="number"
+              value={editForm.adjustmentCost ?? 0}
+              onChange={(e) => handleEditChange("adjustmentCost", e.target.value)}
+              className="border-amber-200"
+            />
+          </div>
+          <Button onClick={handleSaveEdit} disabled={isSubmitting} className="w-full h-14 mt-6 bg-slate-900 text-gold rounded-2xl font-bold">
+            {isSubmitting ? <Loader2 className="animate-spin" /> : "Save Changes"}
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* ================= NEW BOOKING DIALOG ================= */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="max-w-7xl max-h-[95vh] overflow-y-auto rounded-[3rem] p-0 border-gold/20 shadow-2xl bg-white text-left outline-none">
           <DialogHeader className="p-12 bg-slate-900 text-white sticky top-0 z-20 flex flex-row justify-between items-center border-b border-white/5">
@@ -778,15 +816,24 @@ export default function OrderManagementPage() {
 
             <div className="space-y-10">
               <section className="bg-slate-50/50 p-8 rounded-[2.5rem] border border-gold/10 space-y-8">
-                <div className="flex items-center gap-3 border-b border-gold/5 pb-3"><Scale className="w-5 h-5 text-slate-400" /><h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Analysis</h3></div>
+                <div className="flex items-center gap-3 border-b border-gold/5 pb-3"><Scale className="w-5 h-5 text-slate-400" /><h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Weight Requirement</h3></div>
                 <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-5">
-                    <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase">Customer Deposit</label><Input placeholder="Metal Given" type="number" min="0" value={form.givenMetalGrams} onChange={(e) => handleInputChange("givenMetalGrams", e.target.value)} className="h-12 bg-white" /></div>
-                    <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase">Vault Addition</label><Input placeholder="Metal Added" type="number" min="0" value={form.addedMetalGrams} onChange={(e) => handleInputChange("addedMetalGrams", e.target.value)} className="h-12 bg-white" /></div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Grams Required to Make</label>
+                    <Input
+                      placeholder="Enter grams needed for this item"
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      value={form.requiredGrams}
+                      onChange={(e) => handleInputChange("requiredGrams", e.target.value)}
+                      className="h-12 bg-white"
+                    />
+                    <p className="text-[10px] text-slate-400 ml-2">This becomes the order's Net Weight — editable later if the crafted weight differs.</p>
                   </div>
                   <Input placeholder="Stone Weight" type="number" min="0" value={form.stoneWeight} onChange={(e) => handleInputChange("stoneWeight", e.target.value)} className="h-12 bg-white" />
                   <div className="p-8 bg-white border border-gold/20 rounded-3xl flex justify-between items-center shadow-xl border-dashed">
-                    <span className="text-[11px] font-bold text-gold uppercase tracking-widest">Net Projection</span>
+                    <span className="text-[11px] font-bold text-gold uppercase tracking-widest">Required Weight</span>
                     <span className="text-3xl font-serif font-bold text-slate-900">{totals.netWeight.toFixed(3)}g</span>
                   </div>
                 </div>

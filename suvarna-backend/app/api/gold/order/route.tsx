@@ -11,10 +11,7 @@ function corsHeaders() {
 }
 
 export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 200,
-    headers: corsHeaders(),
-  });
+  return new NextResponse(null, { status: 200, headers: corsHeaders() });
 }
 
 export async function POST(req: Request) {
@@ -32,7 +29,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    
+
     const {
       customerName,
       phoneNumber,
@@ -41,14 +38,11 @@ export async function POST(req: Request) {
       metalType,
       purity,
       liveRate,
-      givenMetalGrams,
-      addedMetalGrams,
+      netWeight, // grams required to make the item (sent from form.requiredGrams)
       stoneWeight,
-      netWeight,
-      grossWeight,
       vaPercentage,
       stoneCost,
-      gstAmount, // Ensure your frontend sends 'gstAmount'
+      gstAmount,
       originalCartValue,
       exchangeJewelleryName,
       exchangeJewelleryGrams,
@@ -56,33 +50,36 @@ export async function POST(req: Request) {
       advanceCash,
       balanceAmount,
       discountAmount,
-      deadlineDate
+      deadlineDate,
     } = body;
 
+    if (!netWeight || parseFloat(netWeight) <= 0) {
+      return new NextResponse(
+        JSON.stringify({ error: "Grams required to make the item must be greater than 0" }),
+        { status: 400, headers: corsHeaders() }
+      );
+    }
+
     // --- GENERATE ORDER ID ---
-    // This finds the last order to increment the number (e.g., OR-1001, OR-1002)
-    const lastOrder = await prisma.order.findFirst({
-      orderBy: { createdAt: "desc" },
-    });
-    
+    const lastOrder = await prisma.order.findFirst({ orderBy: { createdAt: "desc" } });
     const nextNumber = lastOrder ? parseInt(lastOrder.orderId.replace("OR-", "")) + 1 : 1001;
     const orderId = `OR-${nextNumber}`;
 
     const liveRateValue = parseFloat(liveRate) || 0;
     const netWeightValue = parseFloat(netWeight) || 0;
+    const stoneWeightValue = parseFloat(stoneWeight) || 0;
     const vaPercentageValue = parseFloat(vaPercentage) || 0;
     const stoneCostValue = parseFloat(stoneCost) || 0;
     const discountAmountValue = parseFloat(discountAmount) || 0;
-    const derivedOriginalCartValue =
-      (netWeightValue * liveRateValue) +
-      ((netWeightValue * liveRateValue) * (vaPercentageValue / 100)) +
-      stoneCostValue +
-      (((netWeightValue * liveRateValue) + ((netWeightValue * liveRateValue) * (vaPercentageValue / 100)) + stoneCostValue) * 0.03);
 
-    // --- SAVE TO DB ---
+    const goldValue = netWeightValue * liveRateValue;
+    const vaAmount = goldValue * (vaPercentageValue / 100);
+    const subtotalBase = goldValue + vaAmount + stoneCostValue;
+    const derivedOriginalCartValue = subtotalBase + subtotalBase * 0.03;
+
     const order = await prisma.order.create({
       data: {
-        orderId, // 👈 This was missing!
+        orderId,
         customerName,
         phoneNumber,
         itemName,
@@ -90,24 +87,24 @@ export async function POST(req: Request) {
         metalType,
         purity,
         liveRate: liveRateValue,
-        givenMetalGrams: parseFloat(givenMetalGrams) || 0,
-        addedMetalGrams: parseFloat(addedMetalGrams) || 0,
-        stoneWeight: parseFloat(stoneWeight) || 0,
-        netWeight: netWeightValue,
-        grossWeight: parseFloat(grossWeight) || 0,
+        netWeight: netWeightValue,          // grams required to make (final weight is netWeight + weightAdjustmentGrams)
+        grossWeight: parseFloat(body.grossWeight) || netWeightValue + stoneWeightValue,
+        stoneWeight: stoneWeightValue,
         vaPercentage: vaPercentageValue,
         stoneCost: stoneCostValue,
-        gst: parseFloat(gstAmount) || 0, // 👈 Check if your schema uses 'gst' or 'gstAmount'
+        gst: parseFloat(gstAmount) || 0,
         originalCartValue: parseFloat(originalCartValue) || derivedOriginalCartValue,
         exchangeJewelleryName: exchangeJewelleryName || null,
         exchangeJewelleryGrams: parseFloat(exchangeJewelleryGrams) || 0,
         totalAmount: parseFloat(totalAmount) || 0,
         advanceCash: parseFloat(advanceCash) || 0,
         balanceAmount: parseFloat(balanceAmount) || 0,
+        weightAdjustmentGrams: 0, // set later via edit API once crafting is done
+        adjustmentCost: 0,
         deadlineDate: new Date(deadlineDate),
         status: "NOT ASSIGNED",
         discountAmount: discountAmountValue,
-        createdBy: decoded.id
+        createdBy: decoded.id,
       },
     });
 
@@ -115,7 +112,6 @@ export async function POST(req: Request) {
       JSON.stringify({ message: "Order created", orderId: order.orderId }),
       { status: 201, headers: corsHeaders() }
     );
-
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Data collection error:", error);

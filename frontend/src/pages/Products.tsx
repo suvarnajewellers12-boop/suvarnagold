@@ -507,12 +507,12 @@ const Products = () => {
     fetchProducts();
     fetchBranches();
   }, []);
-// ── create product ────────────────────────────────────
+  // ── create product ────────────────────────────────────
   const handleCreateProduct = useCallback(async () => {
     // 1. Check if the user is in 92.5% Silver "Piece Cost" mode
-    const isPieceCostMode = 
-      formData.type === "silver" && 
-      formData.carats === "92.5%" && 
+    const isPieceCostMode =
+      formData.type === "silver" &&
+      formData.carats === "92.5%" &&
       formData.pricingBasis === "piece";
 
     // 2. Enforce Name validation (always required)
@@ -573,12 +573,12 @@ const Products = () => {
         const err = await res.json();
         fireToast(`Error: ${err.error}`);
       }
-    } catch (e) { 
-      console.error("Creation Error:", e); 
+    } catch (e) {
+      console.error("Creation Error:", e);
       fireToast("Failed to create masterpiece.");
-    } finally { 
-      setIsSubmitting(false); 
-      setIsLoading(false); 
+    } finally {
+      setIsSubmitting(false);
+      setIsLoading(false);
     }
   }, [formData, token, branches, fetchProducts, fireToast]);
   // ── filtering (memoised) ──────────────────────────────
@@ -866,6 +866,9 @@ const Products = () => {
                     <SelectItem value="neck">Neck</SelectItem>
                     <SelectItem value="wrist">Wrist</SelectItem>
                     <SelectItem value="fingers">Fingers</SelectItem>
+                    <SelectItem value="fingers">Waist</SelectItem>
+                    <SelectItem value="fingers">Leg</SelectItem>
+
                     <SelectItem value="others">Others</SelectItem>
 
                   </SelectContent>

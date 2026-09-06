@@ -50,8 +50,6 @@ export async function GET(req: Request) {
         metalType: true,
         purity: true,
         liveRate: true,
-        givenMetalGrams: true,
-        addedMetalGrams: true,
         stoneWeight: true,
         netWeight: true,
         grossWeight: true,
