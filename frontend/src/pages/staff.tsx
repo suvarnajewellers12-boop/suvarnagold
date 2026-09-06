@@ -10,7 +10,8 @@ import { GoldDivider } from "@/components/GoldDivider";
 import { SuccessToast } from "@/components/SuccessToast";
 import {
     Users, Plus, X, Phone, CreditCard, Calendar,
-    UserCircle, Loader2, Search, ArrowUpDown, FileDown, Table as TableIcon, Edit2, Trash2, AlertCircle
+    UserCircle, Loader2, Search, ArrowUpDown, FileDown, Table as TableIcon, Edit2, Trash2, AlertCircle,
+    Banknote, Smartphone, Landmark, CalendarDays, TrendingUp, ReceiptIndianRupee
 } from "lucide-react";
 
 // Library imports for exporting
@@ -38,17 +39,17 @@ const StaffSkeleton = () => (
 );
 
 // ================= CONFIRMATION DIALOG COMPONENT =================
-const DeleteConfirmationDialog = ({ 
-    isOpen, 
-    staffName, 
-    isDeleting, 
-    onConfirm, 
-    onCancel 
-}: { 
-    isOpen: boolean; 
-    staffName: string; 
-    isDeleting: boolean; 
-    onConfirm: () => void; 
+const DeleteConfirmationDialog = ({
+    isOpen,
+    staffName,
+    isDeleting,
+    onConfirm,
+    onCancel
+}: {
+    isOpen: boolean;
+    staffName: string;
+    isDeleting: boolean;
+    onConfirm: () => void;
     onCancel: () => void;
 }) => {
     if (!isOpen) return null;
@@ -140,6 +141,14 @@ export default function StaffManagement() {
     const [minAmountFilter, setMinAmountFilter] = useState("");
     const [minCountFilter, setMinCountFilter] = useState("");
 
+    // Performance date range is handled by the API so Prisma aggregates
+    // only purchases inside the selected period.
+    const [performanceRange, setPerformanceRange] = useState<
+        "day" | "week" | "month" | "overall" | "custom"
+    >("month");
+    const [customFrom, setCustomFrom] = useState("");
+    const [customTo, setCustomTo] = useState("");
+
     const [form, setForm] = useState({
         fullName: "",
         dateOfJoining: new Date().toISOString().split("T")[0],
@@ -166,6 +175,10 @@ export default function StaffManagement() {
             "Sales Amount (INR)": s.salesAmount ?? 0,
             "Sales Count": s.salesCount ?? 0,
             "Cash Collected (INR)": s.cashCollected ?? 0,
+            "UPI Collected (INR)": s.upiCollected ?? 0,
+            "Card Collected (INR)": s.cardCollected ?? 0,
+            "Cheque Collected (INR)": s.chequeCollected ?? 0,
+            "Total Collected (INR)": s.totalCollected ?? 0,
             "Cashier Count": s.cashierCount ?? 0,
             "Date of Joining": new Date(s.dateOfJoining).toLocaleDateString("en-GB"),
             "Nominee Name": s.nomineeName,
@@ -203,7 +216,11 @@ export default function StaffManagement() {
             "Salary",
             "Sales Amount",
             "Sales Count",
-            "Cash Collected",
+            "Cash",
+            "UPI",
+            "Card",
+            "Cheque",
+            "Collected",
             "Cashier Count",
             "Nominee",
             "Relation"
@@ -218,6 +235,10 @@ export default function StaffManagement() {
             `Rs. ${s.salesAmount ?? 0}`,
             s.salesCount ?? 0,
             `Rs. ${s.cashCollected ?? 0}`,
+            `Rs. ${s.upiCollected ?? 0}`,
+            `Rs. ${s.cardCollected ?? 0}`,
+            `Rs. ${s.chequeCollected ?? 0}`,
+            `Rs. ${s.totalCollected ?? 0}`,
             s.cashierCount ?? 0,
             s.nomineeName,
             s.nomineeRelation
@@ -236,25 +257,78 @@ export default function StaffManagement() {
     };
 
     // ================= FETCH LOGIC =================
-    const fetchStaff = async (forceRefresh = false) => {
-        if (!forceRefresh && staffCache !== null) {
+    const fetchStaff = async (
+        forceRefresh = false,
+        rangeOverride?: "day" | "week" | "month" | "overall" | "custom",
+        fromOverride?: string,
+        toOverride?: string
+    ) => {
+        const activeRange = rangeOverride ?? performanceRange;
+        const activeFrom = fromOverride ?? customFrom;
+        const activeTo = toOverride ?? customTo;
+
+        // Cache is safe only for the exact current range. For performance filters
+        // we deliberately refetch so database aggregates always match the UI.
+        if (
+            !forceRefresh &&
+            staffCache !== null &&
+            activeRange === "overall" &&
+            !activeFrom &&
+            !activeTo
+        ) {
             setStaff(staffCache);
             setIsLoading(false);
             return;
         }
 
+        if (activeRange === "custom" && (!activeFrom || !activeTo)) {
+            setMessage("Choose both From and To dates for the custom range.");
+            setToast(true);
+            return;
+        }
+
         setIsLoading(true);
+
         try {
-            const res = await fetch("https://suvarnagold-16e5.vercel.app/api/staff/all", {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const params = new URLSearchParams();
+            params.set("range", activeRange);
+
+            if (activeRange === "custom") {
+                params.set("from", activeFrom);
+                params.set("to", activeTo);
+            }
+
+            const res = await fetch(
+                `https://suvarnagold-16e5.vercel.app/api/staff/all?${params.toString()}`,
+                {
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+
             const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.error || "Failed to fetch staff");
+            }
+
             const staffData = data.staff || [];
             setStaff(staffData);
-            staffCache = staffData;
+
+            // Cache only overall data, because dated metrics change by selection.
+            if (activeRange === "overall") {
+                staffCache = staffData;
+            }
+
+            setMessage(
+                `Performance loaded: ${data.period?.label || activeRange}`
+            );
         } catch (error) {
             console.error("Fetch Error:", error);
-            setMessage("Connection error. Please try again.");
+            setMessage(
+                error instanceof Error
+                    ? error.message
+                    : "Connection error. Please try again."
+            );
             setToast(true);
         } finally {
             setIsLoading(false);
@@ -269,8 +343,8 @@ export default function StaffManagement() {
                 return;
             }
 
-            // Token exists, proceed to fetch staff
-            await fetchStaff();
+            // Token exists, proceed to fetch staff for the default performance range.
+            await fetchStaff(true, "month");
         } catch (error) {
             console.error("Auth check error:", error);
             localStorage.removeItem("token");
@@ -281,6 +355,21 @@ export default function StaffManagement() {
     useEffect(() => {
         verifyAuthOnMount();
     }, []);
+
+    // Daily / weekly / monthly / overall changes refetch immediately.
+    // Custom waits until both dates are filled.
+    useEffect(() => {
+        if (!token) return;
+
+        if (performanceRange === "custom") {
+            if (customFrom && customTo) {
+                fetchStaff(true, "custom", customFrom, customTo);
+            }
+            return;
+        }
+
+        fetchStaff(true, performanceRange);
+    }, [performanceRange]);
 
     const filteredStaff = useMemo(() => {
         const result = [...staff].filter((s) => {
@@ -299,6 +388,18 @@ export default function StaffManagement() {
         if (performanceSort === "cashCollected") {
             result.sort((a, b) => Number(a.cashCollected ?? 0) - Number(b.cashCollected ?? 0));
         }
+        if (performanceSort === "upiCollected") {
+            result.sort((a, b) => Number(a.upiCollected ?? 0) - Number(b.upiCollected ?? 0));
+        }
+        if (performanceSort === "cardCollected") {
+            result.sort((a, b) => Number(a.cardCollected ?? 0) - Number(b.cardCollected ?? 0));
+        }
+        if (performanceSort === "chequeCollected") {
+            result.sort((a, b) => Number(a.chequeCollected ?? 0) - Number(b.chequeCollected ?? 0));
+        }
+        if (performanceSort === "totalCollected") {
+            result.sort((a, b) => Number(a.totalCollected ?? 0) - Number(b.totalCollected ?? 0));
+        }
         if (performanceSort === "salesCount") {
             result.sort((a, b) => Number(a.salesCount ?? 0) - Number(b.salesCount ?? 0));
         }
@@ -314,7 +415,17 @@ export default function StaffManagement() {
             const minAmount = Number(minAmountFilter) || 0;
             const minCount = Number(minCountFilter) || 0;
 
-            if (minAmount > 0 && !(Number(s.salesAmount ?? 0) >= minAmount || Number(s.cashCollected ?? 0) >= minAmount)) {
+            if (
+                minAmount > 0 &&
+                !(
+                    Number(s.salesAmount ?? 0) >= minAmount ||
+                    Number(s.cashCollected ?? 0) >= minAmount ||
+                    Number(s.upiCollected ?? 0) >= minAmount ||
+                    Number(s.cardCollected ?? 0) >= minAmount ||
+                    Number(s.chequeCollected ?? 0) >= minAmount ||
+                    Number(s.totalCollected ?? 0) >= minAmount
+                )
+            ) {
                 return false;
             }
 
@@ -447,7 +558,7 @@ export default function StaffManagement() {
             if (res.ok) {
                 setMessage(`${deleteConfirmation.staffName} has been deleted successfully`);
                 setToast(true);
-                
+
                 // Close confirmation dialog
                 setDeleteConfirmation({
                     isOpen: false,
@@ -516,10 +627,14 @@ export default function StaffManagement() {
                                         {selectedStaff.panCardNumber && <div className="flex justify-between"><span>Pan Card</span><span className="font-mono text-xs">{selectedStaff.panCardNumber}</span></div>}
                                         <div className="flex justify-between"><span>Gender</span><span className="font-bold">{selectedStaff.gender}</span></div>
                                         <div className="flex justify-between"><span>Salary</span><span className="text-amber-700 font-bold">₹{selectedStaff.monthlySalary}</span></div>
-                                        <div className="flex justify-between"><span>Sales Amount</span><span className="text-slate-700 font-bold">₹{selectedStaff.salesAmount ?? 0}</span></div>
+                                        <div className="flex justify-between"><span>Sales Amount</span><span className="text-slate-700 font-bold">₹{Number(selectedStaff.salesAmount ?? 0).toLocaleString("en-IN")}</span></div>
                                         <div className="flex justify-between"><span>Sales Count</span><span className="text-slate-700 font-bold">{selectedStaff.salesCount ?? 0}</span></div>
-                                        <div className="flex justify-between"><span>Cash Collected</span><span className="text-slate-700 font-bold">₹{selectedStaff.cashCollected ?? 0}</span></div>
-                                        <div className="flex justify-between"><span>Cashier Count</span><span className="text-slate-700 font-bold">{selectedStaff.cashierCount ?? 0}</span></div>
+                                        <div className="flex justify-between"><span>Cash Collected</span><span className="text-emerald-700 font-bold">₹{Number(selectedStaff.cashCollected ?? 0).toLocaleString("en-IN")}</span></div>
+                                        <div className="flex justify-between"><span>UPI Collected</span><span className="text-blue-700 font-bold">₹{Number(selectedStaff.upiCollected ?? 0).toLocaleString("en-IN")}</span></div>
+                                        <div className="flex justify-between"><span>Card Collected</span><span className="text-violet-700 font-bold">₹{Number(selectedStaff.cardCollected ?? 0).toLocaleString("en-IN")}</span></div>
+                                        <div className="flex justify-between"><span>Cheque Collected</span><span className="text-orange-700 font-bold">₹{Number(selectedStaff.chequeCollected ?? 0).toLocaleString("en-IN")}</span></div>
+                                        <div className="flex justify-between border-t pt-2"><span>Total Collected</span><span className="text-slate-900 font-black">₹{Number(selectedStaff.totalCollected ?? 0).toLocaleString("en-IN")}</span></div>
+                                        <div className="flex justify-between"><span>Cashier Transactions</span><span className="text-slate-700 font-bold">{selectedStaff.cashierCount ?? 0}</span></div>
                                         <div className="flex justify-between"><span>Joined</span><span className="font-medium">{new Date(selectedStaff.dateOfJoining).toLocaleDateString("en-GB")}</span></div>
                                     </div>
                                 </div>
@@ -769,7 +884,7 @@ export default function StaffManagement() {
                                     variant="outline"
                                     size="sm"
                                     className="text-[10px] uppercase tracking-widest h-8"
-                                    onClick={() => fetchStaff(true)}
+                                    onClick={() => fetchStaff(true, performanceRange, customFrom, customTo)}
                                 >
                                     Refresh
                                 </Button>
@@ -808,6 +923,77 @@ export default function StaffManagement() {
                                         </Button>
                                     </div>
                                 </div>
+                                {/* Performance Period */}
+                                <div className="rounded-xl border border-amber-100 bg-white p-3 space-y-3">
+                                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-[9px] uppercase tracking-[0.18em] font-black text-amber-800">
+                                                Performance Period
+                                            </p>
+                                            <p className="text-[11px] text-slate-500">
+                                                Sales and collections are recalculated by the API for this date range.
+                                            </p>
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                            {(["day", "week", "month", "overall", "custom"] as const).map((range) => (
+                                                <Button
+                                                    key={range}
+                                                    type="button"
+                                                    variant={performanceRange === range ? "default" : "outline"}
+                                                    size="sm"
+                                                    className={
+                                                        performanceRange === range
+                                                            ? "h-8 capitalize bg-amber-600 hover:bg-amber-700"
+                                                            : "h-8 capitalize border-amber-100"
+                                                    }
+                                                    onClick={() => setPerformanceRange(range)}
+                                                >
+                                                    {range === "day" ? "Daily" :
+                                                        range === "week" ? "Weekly" :
+                                                            range === "month" ? "Monthly" :
+                                                                range === "overall" ? "Overall" :
+                                                                    "Custom"}
+                                                </Button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {performanceRange === "custom" && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
+                                            <div>
+                                                <label className="text-[9px] font-bold uppercase text-slate-400">From</label>
+                                                <Input
+                                                    type="date"
+                                                    className="h-10 border-gold/10 text-xs"
+                                                    value={customFrom}
+                                                    onChange={(e) => setCustomFrom(e.target.value)}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[9px] font-bold uppercase text-slate-400">To</label>
+                                                <Input
+                                                    type="date"
+                                                    className="h-10 border-gold/10 text-xs"
+                                                    value={customTo}
+                                                    min={customFrom || undefined}
+                                                    onChange={(e) => setCustomTo(e.target.value)}
+                                                />
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="self-end h-10 border-amber-200 text-amber-800"
+                                                disabled={!customFrom || !customTo}
+                                                onClick={() => fetchStaff(true, "custom", customFrom, customTo)}
+                                            >
+                                                Apply
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Existing custom staff filters */}
                                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                                     <select
                                         className="h-10 rounded-md border border-gold/10 bg-white px-3 text-xs outline-none"
@@ -816,22 +1002,26 @@ export default function StaffManagement() {
                                     >
                                         <option value="none">Sort by Performance</option>
                                         <option value="salesAmount">Sales Amount</option>
-                                        <option value="cashCollected">Cash Collected</option>
                                         <option value="salesCount">Sales Count</option>
-                                        <option value="cashierCount">Cashier Count</option>
+                                        <option value="totalCollected">Total Collected</option>
+                                        <option value="cashCollected">Cash Collected</option>
+                                        <option value="upiCollected">UPI Collected</option>
+                                        <option value="cardCollected">Card Collected</option>
+                                        <option value="chequeCollected">Cheque Collected</option>
+                                        <option value="cashierCount">Cashier Transactions</option>
                                     </select>
                                     <select
                                         className="h-10 rounded-md border border-gold/10 bg-white px-3 text-xs outline-none"
                                         value={performanceOrder}
                                         onChange={(e) => setPerformanceOrder(e.target.value)}
                                     >
-                                        <option value="desc">Descending</option>
-                                        <option value="asc">Ascending</option>
+                                        <option value="desc">Highest First</option>
+                                        <option value="asc">Lowest First</option>
                                     </select>
                                     <Input
                                         type="number"
                                         min="0"
-                                        placeholder="Min Amount"
+                                        placeholder="Minimum amount"
                                         className="h-10 border-gold/10 text-xs"
                                         value={minAmountFilter}
                                         onChange={(e) => setMinAmountFilter(e.target.value)}
@@ -839,7 +1029,7 @@ export default function StaffManagement() {
                                     <Input
                                         type="number"
                                         min="0"
-                                        placeholder="Min Count"
+                                        placeholder="Minimum count"
                                         className="h-10 border-gold/10 text-xs"
                                         value={minCountFilter}
                                         onChange={(e) => setMinCountFilter(e.target.value)}
@@ -869,10 +1059,30 @@ export default function StaffManagement() {
                                                     </p>
                                                     <p className="text-xs text-slate-400">{s.phoneNumber}</p>
                                                     <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
-                                                        <span className="rounded-full bg-amber-50 px-2 py-1">Sales ₹{s.salesAmount ?? 0}</span>
-                                                        <span className="rounded-full bg-slate-50 px-2 py-1">Cnt {s.salesCount ?? 0}</span>
-                                                        <span className="rounded-full bg-emerald-50 px-2 py-1">Cash ₹{s.cashCollected ?? 0}</span>
-                                                        <span className="rounded-full bg-slate-50 px-2 py-1">Cnt {s.cashierCount ?? 0}</span>
+                                                        <span className="rounded-full bg-amber-50 px-2 py-1">
+                                                            Sales ₹{Number(s.salesAmount ?? 0).toLocaleString("en-IN")}
+                                                        </span>
+                                                        <span className="rounded-full bg-slate-50 px-2 py-1">
+                                                            Sales {s.salesCount ?? 0}
+                                                        </span>
+                                                        <span className="rounded-full bg-emerald-50 px-2 py-1">
+                                                            Cash ₹{Number(s.cashCollected ?? 0).toLocaleString("en-IN")}
+                                                        </span>
+                                                        <span className="rounded-full bg-blue-50 px-2 py-1">
+                                                            UPI ₹{Number(s.upiCollected ?? 0).toLocaleString("en-IN")}
+                                                        </span>
+                                                        <span className="rounded-full bg-violet-50 px-2 py-1">
+                                                            Card ₹{Number(s.cardCollected ?? 0).toLocaleString("en-IN")}
+                                                        </span>
+                                                        <span className="rounded-full bg-orange-50 px-2 py-1">
+                                                            CHQ ₹{Number(s.chequeCollected ?? 0).toLocaleString("en-IN")}
+                                                        </span>
+                                                        <span className="rounded-full bg-slate-100 px-2 py-1 font-bold">
+                                                            Collected ₹{Number(s.totalCollected ?? 0).toLocaleString("en-IN")}
+                                                        </span>
+                                                        <span className="rounded-full bg-slate-50 px-2 py-1">
+                                                            Txns {s.cashierCount ?? 0}
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </div>
