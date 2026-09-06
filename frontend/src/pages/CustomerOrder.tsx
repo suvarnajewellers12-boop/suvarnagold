@@ -16,12 +16,80 @@ import { SuccessToast } from "@/components/SuccessToast";
 import {
   Plus, ShoppingBag, IndianRupee, Scale, X, Coins,
   Wallet, Gem, ArrowRight, User, CheckCircle2, Clock,
-  Loader2, RefreshCw, Printer, Download, Hash, Tag, PackageCheck, AlertCircle, Pencil
+  Loader2, RefreshCw, Printer, Download, Hash, Tag, PackageCheck, AlertCircle, Pencil, Receipt,
+  Search, CalendarDays, RotateCcw, TrendingUp, ListFilter,
+  Banknote, CreditCard, Smartphone, Landmark, CircleDollarSign
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-const API_BASE = "https://suvarnagold-16e5.vercel.app/api/gold/order";
+const API_BASE = "http://localhost:3000/api/gold/order";
+
+const getOrderDate = (order: any) => {
+  const raw = order?.createdAt || order?.bookingDate || order?.orderDate || order?.date;
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+type PaymentMode = "CASH" | "UPI" | "CARD" | "CHECK";
+
+const getPaidAmount = (order: any) => Number(order?.advanceCash) || 0;
+
+const getPaymentsTotal = (order: any) =>
+  (order?.payments || []).reduce(
+    (sum: number, payment: any) => sum + (Number(payment?.amount) || 0),
+    0
+  );
+
+// Supports old orders where the initial advance existed only on Order.advanceCash.
+const getLegacyUntrackedAdvance = (order: any) =>
+  Math.max(0, getPaidAmount(order) - getPaymentsTotal(order));
+
+const getPaymentModeTotals = (orders: any[]) => {
+  const totals = { CASH: 0, UPI: 0, CARD: 0, CHECK: 0, tracked: 0, untracked: 0 };
+
+  orders.forEach((order) => {
+    const payments = Array.isArray(order?.payments) ? order.payments : [];
+
+    payments.forEach((payment: any) => {
+      const amount = Math.max(0, Number(payment?.amount) || 0);
+      const mode = String(payment?.mode || "").toUpperCase() as PaymentMode;
+
+      if (mode === "CASH" || mode === "UPI" || mode === "CARD" || mode === "CHECK") {
+        totals[mode] += amount;
+        totals.tracked += amount;
+      }
+    });
+
+    // Older orders may have money inside advanceCash without a Payment row.
+    // Keep it separate because its historical mode cannot be determined safely.
+    totals.untracked += getLegacyUntrackedAdvance(order);
+  });
+
+  return totals;
+};
+
+const paymentModeLabel = (mode?: string) => {
+  if (!mode) return "Payment";
+  if (mode === "CHECK") return "Check";
+  return mode.charAt(0) + mode.slice(1).toLowerCase();
+};
+
+const parseDateInput = (value: string, endOfDay = false) => {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(
+    year,
+    month - 1,
+    day,
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0
+  );
+};
 
 export default function OrderManagementPage() {
   const { token } = useAuth();
@@ -34,10 +102,17 @@ export default function OrderManagementPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [toastMsg, setToastMsg] = useState("Order Saved Successfully!");
   const [metalType, setMetalType] = useState<"GOLD" | "SILVER">("GOLD");
   const [viewingOrder, setViewingOrder] = useState<any | null>(null);
+
+  // Registry filters
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "DELIVERED">("ALL");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   // Creation Form State
   const [form, setForm] = useState({
@@ -55,11 +130,23 @@ export default function OrderManagementPage() {
     stoneCost: "",
     discountAmount: "",
     advanceCash: "",
+    advancePaymentMode: "CASH" as PaymentMode,
+    advanceReferenceNumber: "",
+    advanceBankName: "",
+    advanceCheckNumber: "",
     deadlineDate: "",
   });
 
   // Edit Form State
   const [editForm, setEditForm] = useState<any>({});
+
+  // Payment Form State
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentNote, setPaymentNote] = useState("");
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>("CASH");
+  const [paymentReferenceNumber, setPaymentReferenceNumber] = useState("");
+  const [paymentBankName, setPaymentBankName] = useState("");
+  const [paymentCheckNumber, setPaymentCheckNumber] = useState("");
 
   useEffect(() => {
     if (viewingOrder) {
@@ -74,7 +161,6 @@ export default function OrderManagementPage() {
         vaPercentage: viewingOrder.vaPercentage ?? "",
         stoneCost: viewingOrder.stoneCost ?? "",
         discountAmount: viewingOrder.discountAmount ?? "",
-        advanceCash: viewingOrder.advanceCash ?? "",
         weightAdjustmentGrams: viewingOrder.weightAdjustmentGrams ?? 0,
         adjustmentCost: viewingOrder.adjustmentCost ?? 0,
         exchangeJewelleryName: viewingOrder.exchangeJewelleryName || "",
@@ -101,6 +187,7 @@ export default function OrderManagementPage() {
       const black = rgb(0, 0, 0);
       const lightGrey = rgb(0.85, 0.85, 0.85);
       const emerald = rgb(0.06, 0.47, 0.23);
+      const rose = rgb(0.7, 0.1, 0.1);
 
       let pdfDoc: any;
       if (mode === "download") {
@@ -138,11 +225,11 @@ export default function OrderManagementPage() {
 
       const { draw, drawR, hLine } = makePen(page);
 
-      // ── CALCULATIONS (include weight adjustment made after crafting) ──
+      // ── CALCULATIONS ──
       const bookedWt = Number(order.netWeight) || 0;
       const weightAdj = Number(order.weightAdjustmentGrams) || 0;
       const adjustmentCost = Number(order.adjustmentCost) || 0;
-      const netWt = bookedWt + weightAdj; // final actual weight used for billing
+      const netWt = bookedWt + weightAdj;
 
       const grossWt = Number(order.grossWeight) || netWt + (Number(order.stoneWeight) || 0);
       const stoneWt = Number(order.stoneWeight) || 0;
@@ -150,7 +237,6 @@ export default function OrderManagementPage() {
       const vaPer = Number(order.vaPercentage) || 0;
       const stoneC = Number(order.stoneCost) || 0;
       const discAmt = Number(order.discountAmount) || 0;
-      const advance = Number(order.advanceCash) || 0;
       const originalCartValue = Number(order.originalCartValue) || 0;
 
       const goldValue = netWt * rate;
@@ -159,7 +245,15 @@ export default function OrderManagementPage() {
       const subtotalAfterDisc = Math.max(0, subtotalBeforeDisc - discAmt);
       const halfGst = subtotalAfterDisc * 0.015;
       const grandTotal = subtotalAfterDisc + halfGst * 2;
-      const balance = grandTotal - advance;
+
+      // advanceCash is the cached TOTAL RECEIVED. Do not add payments again.
+      const advancePaid = Number(order.advanceCash) || 0;
+      const payments: any[] = order.payments || [];
+      const recordedPaymentsTotal = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+      const legacyAdvance = Math.max(0, advancePaid - recordedPaymentsTotal);
+
+      const totalPaid = advancePaid;
+      const balance = Math.max(0, Number(order.balanceAmount ?? (grandTotal - totalPaid)));
 
       // ── HEADER ──
       const HDR_Y = SAFE_TOP + 10;
@@ -197,9 +291,9 @@ export default function OrderManagementPage() {
       hLine(ROW_Y + 13);
 
       // ── CART SUMMARY ──
-      let CART_Y = ROW_Y + 22;
-      draw("CART SUMMARY", MARGIN_L, CART_Y, 7.5, grey);
-      hLine(CART_Y + 8);
+      let cursorY = ROW_Y + 22;
+      draw("CART SUMMARY", MARGIN_L, cursorY, 7.5, grey);
+      hLine(cursorY + 8);
 
       const cartRow = (label: string, value: string, y: number, valueColor = black) => {
         draw(label, MARGIN_L, y, 6.5, grey);
@@ -207,72 +301,91 @@ export default function OrderManagementPage() {
       };
 
       const storedOriginalCartValue = originalCartValue || (subtotalBeforeDisc + subtotalBeforeDisc * 0.03);
-      let rowOffset = 14;
-      cartRow("Original Cart Value", `₹${Math.round(storedOriginalCartValue).toLocaleString()}`, CART_Y + rowOffset, gold);
-      rowOffset += 7;
+      let offset = 14;
+      cartRow("Original Cart Value", `₹${Math.round(storedOriginalCartValue).toLocaleString()}`, cursorY + offset, gold);
+      offset += 7;
 
       cartRow(
         `Exchange Value [${order.exchangeJewelleryName || "N/A"}]`,
         `₹${Math.round(discAmt || 0).toLocaleString()}`,
-        CART_Y + rowOffset,
+        cursorY + offset,
         gold
       );
-      rowOffset += 7;
+      offset += 7;
 
       if (weightAdj !== 0) {
         cartRow(
           `Weight Adjustment (${weightAdj > 0 ? "+" : ""}${weightAdj}g)`,
           `${adjustmentCost >= 0 ? "" : "-"}₹${Math.round(Math.abs(adjustmentCost)).toLocaleString()}`,
-          CART_Y + rowOffset,
-          weightAdj > 0 ? emerald : rgb(0.7, 0.1, 0.1)
+          cursorY + offset,
+          weightAdj > 0 ? emerald : rose
         );
-        rowOffset += 7;
+        offset += 7;
       }
 
-      cartRow("Taxable Total", `₹${Math.round(subtotalAfterDisc).toLocaleString()}`, CART_Y + rowOffset);
-      rowOffset += 7;
-      cartRow("GST (3%)", `₹${Math.round(halfGst * 2).toLocaleString()}`, CART_Y + rowOffset);
-      rowOffset += 7;
-      cartRow("Final Payable", `₹${Math.round(grandTotal).toLocaleString()}`, CART_Y + rowOffset, emerald);
-      hLine(CART_Y + rowOffset + 6);
-      CART_Y = CART_Y + rowOffset + 6;
+      cartRow("Taxable Total", `₹${Math.round(subtotalAfterDisc).toLocaleString()}`, cursorY + offset);
+      offset += 7;
+      cartRow("GST (3%)", `₹${Math.round(halfGst * 2).toLocaleString()}`, cursorY + offset);
+      offset += 7;
+      cartRow("Final Payable", `₹${Math.round(grandTotal).toLocaleString()}`, cursorY + offset, emerald);
+      hLine(cursorY + offset + 6);
+      cursorY = cursorY + offset + 6;
 
       // ── WEIGHT DETAILS ──
-      const FIN_Y = CART_Y + 10;
-      draw("WEIGHT DETAILS", MARGIN_L, FIN_Y, 7.5, grey);
-      hLine(FIN_Y + 8);
-
-      const finRow = (label: string, value: string, y: number) => {
+      const finRow = (label: string, value: string, y: number, color = black) => {
         draw(label, MARGIN_L, y, 6.5, grey);
-        drawR(value, MARGIN_R, y, 6.5, black);
+        drawR(value, MARGIN_R, y, 6.5, color);
       };
 
-      finRow(`Required (Booked)`, `${bookedWt}g`, FIN_Y + 14);
-      finRow(`Adjustment`, `${weightAdj > 0 ? "+" : ""}${weightAdj}g`, FIN_Y + 21);
-      finRow(`Final Net Weight`, `${netWt}g`, FIN_Y + 28);
-      hLine(FIN_Y + 34);
+      cursorY += 10;
+      draw("WEIGHT DETAILS", MARGIN_L, cursorY, 7.5, grey);
+      hLine(cursorY + 8);
+      finRow(`Required (Booked)`, `${bookedWt}g`, cursorY + 14);
+      finRow(`Adjustment`, `${weightAdj > 0 ? "+" : ""}${weightAdj}g`, cursorY + 21);
+      finRow(`Final Net Weight`, `${netWt}g`, cursorY + 28);
+      hLine(cursorY + 34);
+      cursorY += 34;
 
-      // ── PAYMENT STATUS ──
-      const PAY_Y = FIN_Y + 44;
-      draw("PAYMENT STATUS", MARGIN_L, PAY_Y, 7.5, grey);
-      hLine(PAY_Y + 8);
+      // ── PAYMENT HISTORY (dated, per-payment + advance) ──
+      cursorY += 10;
+      draw("PAYMENT HISTORY", MARGIN_L, cursorY, 7.5, grey);
+      hLine(cursorY + 8);
+      cursorY += 8;
 
-      finRow(`Total Bill`, `₹${Math.round(grandTotal).toLocaleString()}`, PAY_Y + 14);
-      finRow(`Advance Paid`, `₹${Math.round(advance).toLocaleString()}`, PAY_Y + 21);
+      let payLineY = cursorY + 6;
 
-      if (type === "DELIVERY") {
-        finRow(`Balance Due`, `₹ 0 (Paid)`, PAY_Y + 28);
-      } else {
-        finRow(`Balance Due`, `₹${Math.round(balance).toLocaleString()}`, PAY_Y + 28);
+      if (legacyAdvance > 0) {
+        finRow(`Initial / Legacy Advance`, `₹${Math.round(legacyAdvance).toLocaleString()}`, payLineY);
+        payLineY += 7;
       }
-      hLine(PAY_Y + 34);
+
+      if (payments.length > 0) {
+        payments.forEach((p: any) => {
+          const dateStr = p.paidAt ? format(new Date(p.paidAt), "dd MMM yy") : "Payment";
+          const mode = paymentModeLabel(p.mode);
+          const ref = p.checkNumber || p.referenceNumber;
+          finRow(`${mode} • ${dateStr}${ref ? ` • ${ref}` : ""}`, `₹${Math.round(Number(p.amount)).toLocaleString()}`, payLineY);
+          payLineY += 7;
+        });
+      }
+
+      finRow(`Total Paid`, `₹${Math.round(totalPaid).toLocaleString()}`, payLineY, emerald);
+      payLineY += 7;
+
+      if (type === "DELIVERY" || balance <= 0) {
+        finRow(`Balance Due`, `₹ 0 (Paid)`, payLineY, emerald);
+      } else {
+        finRow(`Balance Due`, `₹${Math.round(balance).toLocaleString()}`, payLineY, rose);
+      }
+      hLine(payLineY + 6);
+      cursorY = payLineY + 6;
 
       // ── SETTLEMENT BOX ──
-      const SETT_Y = PAY_Y + 44;
       const settBoxW = 160;
       const settBoxH = 45;
       const settBoxX = MARGIN_R - settBoxW;
-      const settBoxBottomY = A5_H - SETT_Y - settBoxH;
+      const SETT_TOP_Y = cursorY + 10;
+      const settBoxBottomY = A5_H - SETT_TOP_Y - settBoxH;
 
       page.drawRectangle({
         x: settBoxX,
@@ -286,7 +399,7 @@ export default function OrderManagementPage() {
 
       page.drawText("SETTLEMENT", { x: settBoxX + 10, y: settBoxBottomY + 23, size: 7, font: customFont, color: grey });
 
-      if (type === "DELIVERY") {
+      if (type === "DELIVERY" || balance <= 0) {
         const balanceText = "FULLY PAID ";
         const balanceW = customFont.widthOfTextAtSize(balanceText, 10);
         page.drawText(balanceText, { x: settBoxX + (settBoxW - balanceW) / 2, y: settBoxBottomY + 6, size: 10, font: customFont, color: emerald });
@@ -313,7 +426,6 @@ export default function OrderManagementPage() {
       console.error("Order PDF Error:", error);
     }
   };
-
   // ---------------------------------------------------------------------------
   // API OPERATIONS
   // ---------------------------------------------------------------------------
@@ -341,7 +453,6 @@ export default function OrderManagementPage() {
     setEditForm((prev: any) => ({ ...prev, [field]: value }));
   };
 
-  // Live Math for Creation — requiredGrams becomes netWeight
   const totals = useMemo(() => {
     const netWeight = Math.max(0, Number(form.requiredGrams) || 0);
     const stoneW = Math.max(0, Number(form.stoneWeight) || 0);
@@ -391,7 +502,6 @@ export default function OrderManagementPage() {
           originalCartValue: totals.originalCartValue,
           totalAmount: totals.totalWithGST,
           balanceAmount: totals.balanceAmount,
-          
         }),
       });
 
@@ -404,7 +514,8 @@ export default function OrderManagementPage() {
           exchangeJewelleryName: "", exchangeJewelleryGrams: "",
           purity: "22", liveRate: "", requiredGrams: "",
           stoneWeight: "", vaPercentage: "", stoneCost: "", discountAmount: "",
-          advanceCash: "", deadlineDate: "",
+          advanceCash: "", advancePaymentMode: "CASH", advanceReferenceNumber: "",
+          advanceBankName: "", advanceCheckNumber: "", deadlineDate: "",
         });
         fetchOrders();
       } else {
@@ -467,6 +578,396 @@ export default function OrderManagementPage() {
     finally { setIsSubmitting(false); }
   };
 
+  const handleRecordPayment = async () => {
+    if (!viewingOrder) return;
+    const amt = Number(paymentAmount);
+    if (!amt || amt <= 0) return alert("Enter a valid payment amount.");
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          orderId: viewingOrder.id,
+          amount: amt,
+          note: paymentNote,
+          mode: paymentMode,
+          referenceNumber: paymentMode === "UPI" || paymentMode === "CARD" ? paymentReferenceNumber.trim() || null : null,
+          bankName: paymentMode === "CHECK" ? paymentBankName.trim() || null : null,
+          checkNumber: paymentMode === "CHECK" ? paymentCheckNumber.trim() || null : null,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setViewingOrder(data.order);
+        setToastMsg(`Payment of ₹${amt.toLocaleString()} recorded`);
+        setShowToast(true);
+        setIsPaymentOpen(false);
+        setPaymentAmount("");
+        setPaymentNote("");
+        setPaymentMode("CASH");
+        setPaymentReferenceNumber("");
+        setPaymentBankName("");
+        setPaymentCheckNumber("");
+        fetchOrders();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Failed to record payment.");
+      }
+    } catch (err) { console.error("PAYMENT_ERROR", err); }
+    finally { setIsSubmitting(false); }
+  };
+
+  // ---------------------------------------------------------------------------
+  // SEARCH, DATE FILTERS & DASHBOARD SUMMARY
+  // ---------------------------------------------------------------------------
+  const filteredOrders = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    const start = parseDateInput(fromDate);
+    const end = parseDateInput(toDate, true);
+
+    return orders.filter((order) => {
+      const searchableText = [
+        order.orderId,
+        order.customerName,
+        order.phoneNumber,
+        order.itemName,
+        order.metalType,
+        order.status,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      const matchesSearch = !query || searchableText.includes(query);
+      const matchesStatus =
+        statusFilter === "ALL" ||
+        (statusFilter === "ACTIVE" ? order.status !== "DELIVERED" : order.status === "DELIVERED");
+
+      let matchesDate = true;
+      if (start || end) {
+        const orderDate = getOrderDate(order);
+        if (!orderDate) {
+          matchesDate = false;
+        } else {
+          if (start && orderDate < start) matchesDate = false;
+          if (end && orderDate > end) matchesDate = false;
+        }
+      }
+
+      return matchesSearch && matchesStatus && matchesDate;
+    });
+  }, [orders, searchTerm, statusFilter, fromDate, toDate]);
+
+  const registrySummary = useMemo(() => {
+    return filteredOrders.reduce(
+      (summary, order) => {
+        summary.orderValue += Number(order.totalAmount) || 0;
+        summary.received += getPaidAmount(order);
+        summary.pending += order.status === "DELIVERED" ? 0 : Math.max(0, Number(order.balanceAmount) || 0);
+        summary.count += 1;
+        return summary;
+      },
+      { orderValue: 0, received: 0, pending: 0, count: 0 }
+    );
+  }, [filteredOrders]);
+
+  const paymentModeSummary = useMemo(() => getPaymentModeTotals(filteredOrders), [filteredOrders]);
+
+  const viewingOrderPaymentModes = useMemo(
+    () => getPaymentModeTotals(viewingOrder ? [viewingOrder] : []),
+    [viewingOrder]
+  );
+
+  const clearRegistryFilters = () => {
+    setSearchTerm("");
+    setStatusFilter("ALL");
+    setFromDate("");
+    setToDate("");
+  };
+
+  // ---------------------------------------------------------------------------
+  // FULL CUSTOMER / FILTERED REGISTRY PDF EXPORT
+  // ---------------------------------------------------------------------------
+  const handleExportRegistryPdf = async (ordersToExport: any[] = filteredOrders) => {
+    if (!ordersToExport.length) {
+      alert("No orders available to export.");
+      return;
+    }
+
+    try {
+      const fontBytes = await fetch("/fonts/NotoSans-VariableFont_wdth,wght.ttf").then((res) => res.arrayBuffer());
+      const pdfDoc = await PDFDocument.create();
+      pdfDoc.registerFontkit(fontkit);
+      const customFont = await pdfDoc.embedFont(fontBytes);
+      const exportPaymentModes = getPaymentModeTotals(ordersToExport);
+
+      const A4_W = 595.28;
+      const A4_H = 841.89;
+      const MARGIN = 42;
+      const CONTENT_W = A4_W - MARGIN * 2;
+      const gold = rgb(0.72, 0.52, 0.04);
+      const black = rgb(0.08, 0.08, 0.08);
+      const grey = rgb(0.42, 0.42, 0.42);
+      const lightGrey = rgb(0.88, 0.88, 0.88);
+      const emerald = rgb(0.06, 0.47, 0.23);
+      const rose = rgb(0.72, 0.12, 0.12);
+      const softGold = rgb(0.98, 0.96, 0.90);
+
+      let page = pdfDoc.addPage([A4_W, A4_H]);
+      let cursorY = A4_H - MARGIN;
+
+      const textWidth = (value: string, size: number) => customFont.widthOfTextAtSize(String(value ?? ""), size);
+
+      const splitText = (value: any, maxWidth: number, size = 9) => {
+        const raw = String(value ?? "-").trim() || "-";
+        const paragraphs = raw.split(/\r?\n/);
+        const lines: string[] = [];
+
+        paragraphs.forEach((paragraph) => {
+          const words = paragraph.split(/\s+/).filter(Boolean);
+          if (!words.length) {
+            lines.push("");
+            return;
+          }
+          let line = words[0];
+          for (let i = 1; i < words.length; i++) {
+            const test = `${line} ${words[i]}`;
+            if (textWidth(test, size) <= maxWidth) line = test;
+            else {
+              lines.push(line);
+              line = words[i];
+            }
+          }
+          lines.push(line);
+        });
+        return lines;
+      };
+
+      const newPage = () => {
+        page = pdfDoc.addPage([A4_W, A4_H]);
+        cursorY = A4_H - MARGIN;
+      };
+
+      const ensureSpace = (needed = 40) => {
+        if (cursorY - needed < MARGIN) newPage();
+      };
+
+      const drawText = (value: any, x: number, y: number, size = 9, color = black) => {
+        page.drawText(String(value ?? "-"), { x, y, size, font: customFont, color });
+      };
+
+      const drawRight = (value: any, rightX: number, y: number, size = 9, color = black) => {
+        const text = String(value ?? "-");
+        drawText(text, rightX - textWidth(text, size), y, size, color);
+      };
+
+      const line = (y: number, color = lightGrey, thickness = 0.6) => {
+        page.drawLine({ start: { x: MARGIN, y }, end: { x: A4_W - MARGIN, y }, thickness, color });
+      };
+
+      const drawWrapped = (value: any, x: number, maxWidth: number, size = 9, color = black, lineHeight = 13) => {
+        const lines = splitText(value, maxWidth, size);
+        lines.forEach((txt) => {
+          ensureSpace(lineHeight + 4);
+          drawText(txt || " ", x, cursorY, size, color);
+          cursorY -= lineHeight;
+        });
+        return lines.length;
+      };
+
+      const fieldRow = (label: string, value: any, options?: { color?: any; bold?: boolean }) => {
+        const labelW = 150;
+        const valueX = MARGIN + labelW;
+        const maxValueW = CONTENT_W - labelW;
+        const lines = splitText(value, maxValueW, 9);
+        const rowH = Math.max(18, lines.length * 13 + 3);
+        ensureSpace(rowH + 4);
+        drawText(label, MARGIN, cursorY, 8, grey);
+        lines.forEach((txt, i) => drawText(txt || "-", valueX, cursorY - i * 13, 9, options?.color || black));
+        cursorY -= rowH;
+      };
+
+      const sectionTitle = (title: string) => {
+        ensureSpace(28);
+        cursorY -= 4;
+        drawText(title.toUpperCase(), MARGIN, cursorY, 8.5, gold);
+        cursorY -= 9;
+        line(cursorY, gold, 0.8);
+        cursorY -= 15;
+      };
+
+      // ---------------- REPORT HEADER ----------------
+      drawText("ORDER REGISTRY — CUSTOMER FULL DETAILS", MARGIN, cursorY, 16, black);
+      drawRight(`Generated: ${format(new Date(), "dd MMM yyyy, h:mm a")}`, A4_W - MARGIN, cursorY + 1, 8, grey);
+      cursorY -= 24;
+      line(cursorY, gold, 1.2);
+      cursorY -= 20;
+
+      const filterText = [
+        searchTerm ? `Search: ${searchTerm}` : null,
+        statusFilter !== "ALL" ? `Status: ${statusFilter}` : null,
+        fromDate ? `From: ${fromDate}` : null,
+        toDate ? `To: ${toDate}` : null,
+      ].filter(Boolean).join("  •  ") || "All current orders";
+
+      drawWrapped(filterText, MARGIN, CONTENT_W, 8.5, grey, 12);
+      cursorY -= 4;
+
+      page.drawRectangle({
+        x: MARGIN,
+        y: cursorY - 88,
+        width: CONTENT_W,
+        height: 88,
+        color: softGold,
+        borderColor: gold,
+        borderWidth: 0.7,
+      });
+      drawText(`Orders: ${ordersToExport.length}`, MARGIN + 14, cursorY - 18, 9, black);
+      drawText(`Order Value: ₹${Math.round(ordersToExport.reduce((s, o) => s + (Number(o.totalAmount) || 0), 0)).toLocaleString()}`, MARGIN + 14, cursorY - 36, 9, black);
+      drawText(`Received: ₹${Math.round(ordersToExport.reduce((s, o) => s + getPaidAmount(o), 0)).toLocaleString()}`, MARGIN + 190, cursorY - 18, 9, emerald);
+      drawText(`Pending: ₹${Math.round(ordersToExport.reduce((s, o) => s + (o.status === "DELIVERED" ? 0 : Math.max(0, Number(o.balanceAmount) || 0)), 0)).toLocaleString()}`, MARGIN + 190, cursorY - 36, 9, rose);
+      drawText(`Cash: ₹${Math.round(exportPaymentModes.CASH).toLocaleString()}`, MARGIN + 14, cursorY - 60, 8.5, black);
+      drawText(`UPI: ₹${Math.round(exportPaymentModes.UPI).toLocaleString()}`, MARGIN + 132, cursorY - 60, 8.5, black);
+      drawText(`Card: ₹${Math.round(exportPaymentModes.CARD).toLocaleString()}`, MARGIN + 245, cursorY - 60, 8.5, black);
+      drawText(`Check: ₹${Math.round(exportPaymentModes.CHECK).toLocaleString()}`, MARGIN + 365, cursorY - 60, 8.5, black);
+      if (exportPaymentModes.untracked > 0) {
+        drawText(`Legacy / unclassified: ₹${Math.round(exportPaymentModes.untracked).toLocaleString()}`, MARGIN + 14, cursorY - 77, 7.5, grey);
+      }
+      cursorY -= 108;
+
+      // ---------------- ORDER DETAILS ----------------
+      ordersToExport.forEach((order, index) => {
+        if (index > 0) {
+          ensureSpace(90);
+          cursorY -= 8;
+          line(cursorY, lightGrey, 1);
+          cursorY -= 24;
+        }
+
+        ensureSpace(120);
+        const orderDate = getOrderDate(order);
+        const totalPaid = getPaidAmount(order);
+        const balance = order.status === "DELIVERED" ? 0 : Math.max(0, Number(order.balanceAmount) || 0);
+        const bookedWeight = Number(order.netWeight) || 0;
+        const adjustment = Number(order.weightAdjustmentGrams) || 0;
+        const finalNetWeight = bookedWeight + adjustment;
+        const stoneWeight = Number(order.stoneWeight) || 0;
+        const grossWeight = Number(order.grossWeight) || finalNetWeight + stoneWeight;
+
+        drawText(order.customerName || "Unnamed Customer", MARGIN, cursorY, 14, black);
+        drawRight(`#${order.orderId || "-"}`, A4_W - MARGIN, cursorY, 10, gold);
+        cursorY -= 18;
+        drawText(`${order.phoneNumber ? `+91 ${order.phoneNumber}` : "No phone"}  •  ${order.status || "-"}`, MARGIN, cursorY, 8.5, grey);
+        if (orderDate) drawRight(format(orderDate, "dd MMM yyyy, h:mm a"), A4_W - MARGIN, cursorY, 8, grey);
+        cursorY -= 13;
+        line(cursorY, lightGrey, 0.7);
+        cursorY -= 14;
+
+        sectionTitle("Customer & Booking");
+        fieldRow("Customer Name", order.customerName || "-");
+        fieldRow("Phone Number", order.phoneNumber ? `+91 ${order.phoneNumber}` : "-");
+        fieldRow("Order ID", order.orderId || "-");
+        fieldRow("Booking Date", orderDate ? format(orderDate, "dd MMM yyyy, h:mm a") : "-");
+        fieldRow("Deadline Date", order.deadlineDate ? format(new Date(order.deadlineDate), "dd MMM yyyy") : "-");
+        fieldRow("Current Status", order.status || "-");
+
+        sectionTitle("Article Details");
+        fieldRow("Item Name", order.itemName || "-");
+        fieldRow("Description", order.itemDescription || "-");
+        fieldRow("Metal", `${order.metalType || "-"} / ${order.purity || "-"}${order.metalType === "GOLD" ? "K" : "%"}`);
+        fieldRow("Live Rate", `₹${Number(order.liveRate || 0).toLocaleString()}`);
+        fieldRow("VA Percentage", `${Number(order.vaPercentage || 0)}%`);
+
+        sectionTitle("Weight Details");
+        fieldRow("Booked Net Weight", `${bookedWeight.toFixed(3)} g`);
+        fieldRow("Weight Adjustment", `${adjustment >= 0 ? "+" : ""}${adjustment.toFixed(3)} g`);
+        fieldRow("Final Net Weight", `${finalNetWeight.toFixed(3)} g`);
+        fieldRow("Stone Weight", `${stoneWeight.toFixed(3)} g`);
+        fieldRow("Gross Weight", `${grossWeight.toFixed(3)} g`);
+        fieldRow("Adjustment Cost", `₹${Number(order.adjustmentCost || 0).toLocaleString()}`);
+
+        sectionTitle("Exchange & Charges");
+        fieldRow("Exchange Jewellery", order.exchangeJewelleryName || "-");
+        fieldRow("Exchange Grams", `${Number(order.exchangeJewelleryGrams || 0).toFixed(3)} g`);
+        fieldRow("Stone Cost", `₹${Number(order.stoneCost || 0).toLocaleString()}`);
+        fieldRow("Discount / Exchange Value", `₹${Number(order.discountAmount || 0).toLocaleString()}`);
+        fieldRow("Original Cart Value", `₹${Number(order.originalCartValue || 0).toLocaleString()}`);
+        fieldRow("GST", `₹${Number(order.gst ?? order.gstAmount ?? 0).toLocaleString()}`);
+
+        sectionTitle("Payment Summary");
+        fieldRow("Final Order Amount", `₹${Number(order.totalAmount || 0).toLocaleString()}`, { color: black });
+        fieldRow("Total Received", `₹${totalPaid.toLocaleString()}`, { color: emerald });
+        const orderModeTotals = getPaymentModeTotals([order]);
+        fieldRow("Cash Collected", `₹${orderModeTotals.CASH.toLocaleString()}`);
+        fieldRow("UPI Collected", `₹${orderModeTotals.UPI.toLocaleString()}`);
+        fieldRow("Card Collected", `₹${orderModeTotals.CARD.toLocaleString()}`);
+        fieldRow("Check Collected", `₹${orderModeTotals.CHECK.toLocaleString()}`);
+        if (orderModeTotals.untracked > 0) {
+          fieldRow("Legacy / Unclassified", `₹${orderModeTotals.untracked.toLocaleString()}`);
+        }
+        fieldRow("Balance Due", `₹${balance.toLocaleString()}`, { color: balance > 0 ? rose : emerald });
+
+        sectionTitle("Payment History");
+        const payments = order.payments || [];
+        const legacyAdvance = getLegacyUntrackedAdvance(order);
+        if (legacyAdvance > 0) {
+          fieldRow("Initial / Legacy Advance", `₹${legacyAdvance.toLocaleString()}${orderDate ? ` — ${format(orderDate, "dd MMM yyyy")}` : ""}`);
+        }
+        if (payments.length) {
+          payments.forEach((payment: any, paymentIndex: number) => {
+            const paidDate = payment.paidAt ? format(new Date(payment.paidAt), "dd MMM yyyy, h:mm a") : "Date unavailable";
+            const mode = paymentModeLabel(payment.mode);
+            const reference = payment.checkNumber || payment.referenceNumber;
+            const meta = [mode, reference, payment.bankName].filter(Boolean).join(" • ");
+            const note = payment.note ? ` • ${payment.note}` : "";
+            fieldRow(`Payment ${paymentIndex + 1}`, `₹${Number(payment.amount || 0).toLocaleString()} — ${paidDate}${meta ? ` • ${meta}` : ""}${note}`);
+          });
+        } else if (legacyAdvance <= 0) {
+          fieldRow("Payments", "No payment recorded yet.");
+        }
+
+        ensureSpace(30);
+        cursorY -= 4;
+        line(cursorY, gold, 0.6);
+        cursorY -= 15;
+      });
+
+      // Page numbers
+      const pages = pdfDoc.getPages();
+      pages.forEach((pdfPage: any, index: number) => {
+        const footer = `Page ${index + 1} of ${pages.length}`;
+        pdfPage.drawText(footer, {
+          x: A4_W - MARGIN - textWidth(footer, 7),
+          y: 20,
+          size: 7,
+          font: customFont,
+          color: grey,
+        });
+      });
+
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
+      const pdfUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const first = ordersToExport[0];
+      const safeCustomer = String(first?.customerName || "Customer").replace(/[^a-zA-Z0-9_-]+/g, "_");
+      const filename = ordersToExport.length === 1
+        ? `${safeCustomer}_${first?.orderId || "Order"}_Full_Details.pdf`
+        : `Order_Registry_Full_Details_${format(new Date(), "dd-MM-yyyy")}.pdf`;
+      link.href = pdfUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(pdfUrl), 1000);
+    } catch (error) {
+      console.error("REGISTRY_PDF_EXPORT_ERROR", error);
+      alert("Could not generate the PDF report.");
+    }
+  };
+
   // ---------------------------------------------------------------------------
   // RENDER
   // ---------------------------------------------------------------------------
@@ -475,10 +976,10 @@ export default function OrderManagementPage() {
       <div className="min-h-screen flex w-full bg-[#FCFBF7] font-sans">
         <DashboardSidebar />
 
-        <main className="flex-1 flex flex-col h-screen overflow-hidden text-left">
-          <header className="bg-white border-b border-gold/10 px-10 py-8 flex justify-between items-center shrink-0">
+        <main className="flex-1 min-w-0 flex flex-col min-h-screen text-left">
+          <header className="bg-white/95 backdrop-blur-md border-b border-gold/10 px-6 lg:px-10 py-5 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 sticky top-0 z-30">
             <div>
-              <h1 className="text-4xl font-serif font-bold text-slate-900 tracking-tight">Order Registry</h1>
+              <h1 className="text-3xl lg:text-4xl font-serif font-bold text-slate-900 tracking-tight">Order Registry</h1>
               <div className="flex items-center gap-3 mt-1">
                 <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 <p className="text-xs text-slate-400 uppercase tracking-widest font-bold font-sans">
@@ -486,46 +987,220 @@ export default function OrderManagementPage() {
                 </p>
               </div>
             </div>
-            <div className="flex gap-4">
-              <Button variant="outline" size="icon" onClick={fetchOrders} className="h-14 w-14 rounded-2xl border-gold/20 text-gold hover:bg-gold/5 transition-all">
+            <div className="flex gap-3 shrink-0">
+              <Button variant="outline" size="icon" onClick={fetchOrders} className="h-9 w-9 rounded-lg border-gold/20 text-gold hover:bg-gold/5 transition-all">
                 <RefreshCw className={cn("w-5 h-5", isLoading && "animate-spin")} />
               </Button>
               <Button
                 onClick={() => setIsFormOpen(true)}
-                className="bg-slate-900 hover:bg-black text-gold gap-3 px-8 h-14 rounded-2xl font-serif font-bold shadow-2xl shadow-slate-200 transition-all active:scale-95"
+                className="bg-slate-900 hover:bg-black text-gold gap-2 px-5 h-11 rounded-xl font-serif font-bold shadow-lg shadow-slate-200 transition-all active:scale-95"
               >
-                <Plus className="w-6 h-6" /> New Booking
+                <Plus className="w-5 h-5" /> New Booking
               </Button>
             </div>
           </header>
 
-          <div className="flex-1 p-10 overflow-hidden flex flex-col">
-            <LuxuryCard className="flex-1 overflow-hidden flex flex-col p-0 border-gold/5 bg-white shadow-[0_20px_50px_rgba(0,0,0,0.02)] rounded-[2.5rem]">
-              <div className="flex-1 overflow-y-auto custom-scrollbar">
-                <table className="w-full border-collapse">
-                  <thead className="sticky top-0 bg-slate-50/80 backdrop-blur-md border-b border-gold/10 text-[11px] uppercase tracking-[0.2em] font-bold text-slate-400">
+          <div className="p-5 lg:p-7 flex flex-col gap-4 pb-12">
+            {/* SUMMARY CARDS */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+              <LuxuryCard className="p-4 rounded-2xl border-gold/10 bg-white">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-slate-400">Amount Received</p>
+                    <p className="text-xl lg:text-2xl font-serif font-bold text-emerald-700 mt-1.5">₹{Math.round(registrySummary.received).toLocaleString()}</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Cached total received</p>
+                  </div>
+                  <div className="h-9 w-9 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0"><Wallet className="w-5 h-5 text-emerald-600" /></div>
+                </div>
+              </LuxuryCard>
+
+              <LuxuryCard className="p-4 rounded-2xl border-gold/10 bg-white">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-slate-400">Order Value</p>
+                    <p className="text-xl lg:text-2xl font-serif font-bold text-slate-900 mt-1.5">₹{Math.round(registrySummary.orderValue).toLocaleString()}</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Value of visible bookings</p>
+                  </div>
+                  <div className="h-9 w-9 rounded-lg bg-slate-50 flex items-center justify-center shrink-0"><TrendingUp className="w-5 h-5 text-slate-700" /></div>
+                </div>
+              </LuxuryCard>
+
+              <LuxuryCard className="p-4 rounded-2xl border-gold/10 bg-white">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-slate-400">Pending Balance</p>
+                    <p className="text-xl lg:text-2xl font-serif font-bold text-rose-600 mt-1.5">₹{Math.round(registrySummary.pending).toLocaleString()}</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Still to be collected</p>
+                  </div>
+                  <div className="h-9 w-9 rounded-lg bg-rose-50 flex items-center justify-center shrink-0"><IndianRupee className="w-5 h-5 text-rose-500" /></div>
+                </div>
+              </LuxuryCard>
+
+              <LuxuryCard className="p-4 rounded-2xl border-gold/10 bg-white">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-slate-400">Orders</p>
+                    <p className="text-xl lg:text-2xl font-serif font-bold text-gold mt-1.5">{registrySummary.count}</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Matching current filters</p>
+                  </div>
+                  <div className="h-11 w-11 rounded-xl bg-gold/10 flex items-center justify-center shrink-0"><ShoppingBag className="w-5 h-5 text-gold" /></div>
+                </div>
+              </LuxuryCard>
+            </div>
+
+            {/* COLLECTION BY PAYMENT MODE */}
+            <LuxuryCard className="p-4 rounded-2xl border-gold/10 bg-white">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <CircleDollarSign className="w-4 h-4 text-gold" />
+                    <h2 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-700">Collection by Payment Mode</h2>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">Breakdown for the orders matching the current filters</p>
+                </div>
+                <p className="text-xs font-bold text-emerald-700">Tracked: ₹{Math.round(paymentModeSummary.tracked).toLocaleString()}</p>
+              </div>
+
+              <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 flex items-center gap-2.5 min-w-0">
+                  <div className="h-9 w-9 rounded-lg bg-white border border-emerald-100 flex items-center justify-center shrink-0"><Banknote className="w-5 h-5 text-emerald-700" /></div>
+                  <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-widest text-emerald-700">Cash</p><p className="text-lg font-serif font-bold text-slate-900 truncate">₹{Math.round(paymentModeSummary.CASH).toLocaleString()}</p></div>
+                </div>
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-3 flex items-center gap-2.5 min-w-0">
+                  <div className="h-9 w-9 rounded-lg bg-white border border-blue-100 flex items-center justify-center shrink-0"><Smartphone className="w-5 h-5 text-blue-700" /></div>
+                  <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-widest text-blue-700">UPI</p><p className="text-lg font-serif font-bold text-slate-900 truncate">₹{Math.round(paymentModeSummary.UPI).toLocaleString()}</p></div>
+                </div>
+                <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-3 flex items-center gap-2.5 min-w-0">
+                  <div className="h-9 w-9 rounded-lg bg-white border border-violet-100 flex items-center justify-center shrink-0"><CreditCard className="w-5 h-5 text-violet-700" /></div>
+                  <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-widest text-violet-700">Card</p><p className="text-lg font-serif font-bold text-slate-900 truncate">₹{Math.round(paymentModeSummary.CARD).toLocaleString()}</p></div>
+                </div>
+                <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-3 flex items-center gap-2.5 min-w-0">
+                  <div className="h-9 w-9 rounded-lg bg-white border border-amber-100 flex items-center justify-center shrink-0"><Landmark className="w-5 h-5 text-amber-700" /></div>
+                  <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-widest text-amber-700">Check</p><p className="text-lg font-serif font-bold text-slate-900 truncate">₹{Math.round(paymentModeSummary.CHECK).toLocaleString()}</p></div>
+                </div>
+              </div>
+
+              {paymentModeSummary.untracked > 0 && (
+                <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2 text-[10px] text-amber-800">
+                  ₹{Math.round(paymentModeSummary.untracked).toLocaleString()} is from older advances without a stored payment mode. It stays in Total Collected but is not assigned to Cash, UPI, Card, or Check.
+                </div>
+              )}
+            </LuxuryCard>
+
+            {/* SEARCH + FILTER BAR */}
+            <LuxuryCard className="p-4 rounded-2xl border-gold/10 bg-white">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_170px_170px_170px_auto_auto] items-end gap-3">
+                <div className="min-w-0">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Search Orders</label>
+                  <div className="relative mt-1.5">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder="Order ID, customer, phone, item..."
+                      className="h-11 pl-11 rounded-xl"
+                    />
+                  </div>
+                </div>
+
+                <div className="w-full">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Status</label>
+                  <div className="relative mt-1.5">
+                    <ListFilter className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value as "ALL" | "ACTIVE" | "DELIVERED")}
+                      className="w-full h-11 pl-10 pr-3 rounded-xl border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-gold/20"
+                    >
+                      <option value="ALL">All statuses</option>
+                      <option value="ACTIVE">Pending / Active</option>
+                      <option value="DELIVERED">Delivered</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="w-full">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">From Date</label>
+                  <div className="relative mt-1.5">
+                    <CalendarDays className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <Input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => setFromDate(e.target.value)} className="h-11 pl-10 rounded-xl" />
+                  </div>
+                </div>
+
+                <div className="w-full">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">To Date</label>
+                  <div className="relative mt-1.5">
+                    <CalendarDays className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <Input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} className="h-11 pl-10 rounded-xl" />
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={clearRegistryFilters}
+                  className="h-11 px-4 rounded-xl border-slate-200 text-slate-600 gap-2 whitespace-nowrap"
+                >
+                  <RotateCcw className="w-4 h-4" /> Clear
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={() => handleExportRegistryPdf(filteredOrders)}
+                  disabled={!filteredOrders.length || isLoading}
+                  className="h-11 px-5 rounded-xl bg-slate-900 hover:bg-black text-gold gap-2 disabled:opacity-40 whitespace-nowrap"
+                >
+                  <Download className="w-4 h-4" /> Export PDF
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mt-3 px-1">
+                <p className="text-[10px] uppercase tracking-widest font-bold text-slate-400">
+                  Showing {filteredOrders.length} of {orders.length} orders
+                </p>
+                {(fromDate || toDate) && (
+                  <p className="text-[10px] font-bold text-gold">
+                    Booking date: {fromDate || "Beginning"} → {toDate || "Today"}
+                  </p>
+                )}
+              </div>
+            </LuxuryCard>
+
+            {/* ORDERS TABLE — natural page flow so every order remains visible */}
+            <LuxuryCard className="overflow-hidden p-0 border-gold/5 bg-white shadow-[0_12px_35px_rgba(0,0,0,0.035)] rounded-[2rem]">
+              <div className="px-5 lg:px-6 py-4 border-b border-gold/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-white">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-800 uppercase tracking-[0.14em]">Customer Orders</h2>
+                  <p className="text-[11px] text-slate-400 mt-1">All matching orders are listed below. Scroll the page to view the complete registry.</p>
+                </div>
+                <div className="text-xs font-bold text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                  {filteredOrders.length} visible / {orders.length} total
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[980px] border-collapse">
+                  <thead className="bg-slate-50 border-b border-gold/10 text-[10px] uppercase tracking-[0.16em] font-bold text-slate-400">
                     <tr>
-                      <th className="px-8 py-6 text-left">Order Reference</th>
-                      <th className="px-8 py-6 text-left">Article Details</th>
-                      <th className="px-8 py-6 text-left">Financial Core</th>
-                      <th className="px-8 py-6 text-left">Current Phase</th>
-                      <th className="px-8 py-6 text-right">Management</th>
+                      <th className="px-6 py-4 text-left">Order Reference</th>
+                      <th className="px-6 py-4 text-left">Article Details</th>
+                      <th className="px-6 py-4 text-left">Financial Core</th>
+                      <th className="px-6 py-4 text-left">Current Phase</th>
+                      <th className="px-6 py-4 text-right">Management</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gold/5">
                     {isLoading ? (
                       <tr><td colSpan={5} className="py-40 text-center"><Loader2 className="animate-spin w-10 h-10 text-gold mx-auto" /><p className="text-slate-400 mt-4 italic font-serif">Synchronizing Ledger...</p></td></tr>
-                    ) : orders.length > 0 ? orders.map((o) => (
+                    ) : filteredOrders.length > 0 ? filteredOrders.map((o) => (
                       <tr key={o.id} className="group hover:bg-slate-50/50 cursor-pointer transition-all duration-300" onClick={() => setViewingOrder(o)}>
-                        <td className="px-8 py-6">
+                        <td className="px-6 py-4">
                           <div className="flex items-center gap-3 mb-2 opacity-60 group-hover:opacity-100 transition-opacity">
                             <Hash className="w-4 h-4 text-gold" />
                             <span className="text-sm font-bold font-mono tracking-tighter text-slate-500">{o.orderId}</span>
                           </div>
-                          <p className="text-lg font-serif font-bold text-slate-800">{o.customerName}</p>
+                          <p className="text-base font-serif font-bold text-slate-800">{o.customerName}</p>
                           <p className="text-xs text-slate-400 font-medium">Contact: {o.phoneNumber}</p>
                         </td>
-                        <td className="px-8 py-6">
+                        <td className="px-6 py-4">
                           <span className="inline-block text-[11px] font-bold text-gold uppercase bg-gold/5 px-3 py-1 rounded-lg border border-gold/10 mb-2">
                             {o.itemName}
                           </span>
@@ -534,18 +1209,23 @@ export default function OrderManagementPage() {
                             <div className="flex items-center gap-1"><Gem className="w-3 h-3" /> {o.purity}K {o.metalType}</div>
                           </div>
                         </td>
-                        <td className="px-8 py-6">
-                          <p className="text-lg font-serif font-bold text-slate-900">₹{Number(o.totalAmount).toLocaleString()}</p>
+                        <td className="px-6 py-4">
+                          <p className="text-base font-serif font-bold text-slate-900">₹{Number(o.totalAmount).toLocaleString()}</p>
                           <p className="text-xs text-slate-400 mt-1">Original: ₹{Number(o.originalCartValue || 0).toLocaleString()}</p>
                           {(o.exchangeJewelleryName || o.exchangeJewelleryGrams) && (
                             <p className="text-xs text-slate-400 mt-1">Exchange: {o.exchangeJewelleryName || "Item"} · {Number(o.exchangeJewelleryGrams || 0)}g</p>
+                          )}
+                          {o.payments?.length > 0 && (
+                            <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                              <Receipt className="w-3 h-3" /> {o.payments.length} payment{o.payments.length > 1 ? "s" : ""}
+                            </p>
                           )}
                           <div className={cn("flex items-center gap-1.5 text-[11px] font-bold mt-1", o.status === "DELIVERED" ? "text-emerald-500" : "text-rose-500")}>
                             {o.status === "DELIVERED" ? <CheckCircle2 className="w-3 h-3" /> : <Wallet className="w-3 h-3" />}
                             {o.status === "DELIVERED" ? "Payment Completed" : `Balance: ₹${Number(o.balanceAmount).toLocaleString()}`}
                           </div>
                         </td>
-                        <td className="px-8 py-6">
+                        <td className="px-6 py-4">
                           <span className={cn(
                             "inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all",
                             o.status === "DELIVERED" ? "bg-emerald-50 text-emerald-600 border-emerald-100 shadow-sm" : "bg-slate-50 text-slate-400 border-slate-200"
@@ -554,14 +1234,14 @@ export default function OrderManagementPage() {
                             {o.status}
                           </span>
                         </td>
-                        <td className="px-8 py-6 text-right">
+                        <td className="px-6 py-4 text-right">
                           <div className="h-10 w-10 rounded-full border border-slate-100 flex items-center justify-center ml-auto group-hover:border-gold group-hover:bg-gold/5 transition-all">
                             <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-gold" />
                           </div>
                         </td>
                       </tr>
                     )) : (
-                      <tr><td colSpan={5} className="py-40 text-center"><AlertCircle className="w-12 h-12 text-slate-200 mx-auto mb-4" /><p className="text-slate-400 italic">No bookings recorded in the system yet.</p></td></tr>
+                      <tr><td colSpan={5} className="py-40 text-center"><AlertCircle className="w-12 h-12 text-slate-200 mx-auto mb-4" /><p className="text-slate-400 italic">{orders.length === 0 ? "No bookings recorded in the system yet." : "No orders match the current filters."}</p></td></tr>
                     )}
                   </tbody>
                 </table>
@@ -595,6 +1275,17 @@ export default function OrderManagementPage() {
                   className="h-14 w-14 border-white/20 text-white hover:bg-white/10 rounded-2xl disabled:opacity-30"
                 >
                   <Pencil className="w-5 h-5" />
+                </Button>
+              </div>
+              <div className="flex flex-col gap-2">
+                <p className="text-[10px] uppercase text-emerald-300 font-bold tracking-widest text-center">Full Details</p>
+                <Button
+                  onClick={() => viewingOrder && handleExportRegistryPdf([viewingOrder])}
+                  variant="outline"
+                  className="h-14 w-14 border-emerald-400/30 text-emerald-300 hover:bg-emerald-400/10 rounded-2xl"
+                  title="Download complete customer details PDF"
+                >
+                  <Download className="w-5 h-5" />
                 </Button>
               </div>
               <div className="flex flex-col gap-2">
@@ -696,7 +1387,7 @@ export default function OrderManagementPage() {
               </div>
             </div>
 
-            {/* PAYMENT STATUS */}
+            {/* PAYMENT STATUS + HISTORY */}
             <div className="space-y-6">
               <div className={cn(
                 "p-8 rounded-[2rem] text-white shadow-2xl transition-all duration-700 relative overflow-hidden",
@@ -709,8 +1400,8 @@ export default function OrderManagementPage() {
                     <p className="text-3xl font-serif font-bold text-white">₹{Number(viewingOrder?.totalAmount).toLocaleString()}</p>
                   </div>
                   <div className="pt-4 border-t border-white/10">
-                    <p className="text-[10px] text-slate-300 uppercase font-bold mb-2">Advance Paid</p>
-                    <p className="text-2xl font-serif font-bold text-emerald-400">₹{Number(viewingOrder?.advanceCash).toLocaleString()}</p>
+                    <p className="text-[10px] text-slate-300 uppercase font-bold mb-2">Total Paid</p>
+                    <p className="text-2xl font-serif font-bold text-emerald-400">₹{getPaidAmount(viewingOrder).toLocaleString()}</p>
                   </div>
                   <GoldDivider className="opacity-20" />
                   <div>
@@ -720,6 +1411,59 @@ export default function OrderManagementPage() {
                       <p className="text-xs text-emerald-300 font-bold mt-2 uppercase tracking-widest">✓ Fully Settled</p>
                     )}
                   </div>
+                </div>
+              </div>
+
+              {/* CUSTOMER PAYMENT MODE BREAKDOWN */}
+              <div className="p-5 bg-slate-50 border border-slate-100 rounded-[2rem]">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Collected by Mode</h4>
+                  <span className="text-[10px] font-bold text-emerald-700">₹{Math.round(viewingOrderPaymentModes.tracked).toLocaleString()} tracked</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-white border border-emerald-100 rounded-xl p-3"><p className="text-[9px] uppercase font-bold text-emerald-700">Cash</p><p className="font-serif font-bold text-slate-900">₹{Math.round(viewingOrderPaymentModes.CASH).toLocaleString()}</p></div>
+                  <div className="bg-white border border-blue-100 rounded-xl p-3"><p className="text-[9px] uppercase font-bold text-blue-700">UPI</p><p className="font-serif font-bold text-slate-900">₹{Math.round(viewingOrderPaymentModes.UPI).toLocaleString()}</p></div>
+                  <div className="bg-white border border-violet-100 rounded-xl p-3"><p className="text-[9px] uppercase font-bold text-violet-700">Card</p><p className="font-serif font-bold text-slate-900">₹{Math.round(viewingOrderPaymentModes.CARD).toLocaleString()}</p></div>
+                  <div className="bg-white border border-amber-100 rounded-xl p-3"><p className="text-[9px] uppercase font-bold text-amber-700">Check</p><p className="font-serif font-bold text-slate-900">₹{Math.round(viewingOrderPaymentModes.CHECK).toLocaleString()}</p></div>
+                </div>
+                {viewingOrderPaymentModes.untracked > 0 && <p className="text-[9px] text-amber-700 mt-2">Legacy / unclassified: ₹{Math.round(viewingOrderPaymentModes.untracked).toLocaleString()}</p>}
+              </div>
+
+              {/* PAYMENT HISTORY */}
+              <div className="p-6 bg-white border border-slate-100 rounded-[2rem] space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Payment History</h4>
+                  {viewingOrder?.status !== "DELIVERED" && (
+                    <Button
+                      onClick={() => setIsPaymentOpen(true)}
+                      size="sm"
+                      className="h-8 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-3"
+                    >
+                      + Add Payment
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {viewingOrder?.payments?.length > 0 ? (
+                    viewingOrder.payments.map((p: any) => (
+                      <div key={p.id} className="flex justify-between items-center text-xs p-2 bg-slate-50 rounded-lg">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-slate-700">₹{Number(p.amount).toLocaleString()}</p>
+                            <span className="px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[9px] font-bold uppercase text-slate-500">
+                              {paymentModeLabel(p.mode)}
+                            </span>
+                          </div>
+                          <p className="text-slate-400">{format(new Date(p.paidAt), "dd MMM yyyy, h:mm a")}</p>
+                          {(p.referenceNumber || p.checkNumber) && <p className="text-slate-500">Ref: {p.checkNumber || p.referenceNumber}</p>}
+                          {p.bankName && <p className="text-slate-500">Bank: {p.bankName}</p>}
+                          {p.note && <p className="text-slate-400 italic">{p.note}</p>}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">No payments recorded yet.</p>
+                  )}
                 </div>
               </div>
 
@@ -734,6 +1478,84 @@ export default function OrderManagementPage() {
                 </Button>
               )}
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ================= RECORD PAYMENT DIALOG ================= */}
+      <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
+        <DialogContent className="max-w-md rounded-[2rem] p-8 bg-white">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-serif font-bold">Record Payment — {viewingOrder?.orderId}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="p-4 bg-slate-50 rounded-xl flex justify-between text-sm">
+              <span className="text-slate-500">Remaining Balance</span>
+              <span className="font-bold text-slate-900">₹{Number(viewingOrder?.balanceAmount || 0).toLocaleString()}</span>
+            </div>
+            <Input
+              placeholder="Amount Received (₹)"
+              type="number"
+              min="0"
+              value={paymentAmount}
+              onChange={(e) => setPaymentAmount(e.target.value)}
+              className="h-14 font-bold"
+            />
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Mode of Payment</label>
+              <select
+                value={paymentMode}
+                onChange={(e) => {
+                  const mode = e.target.value as PaymentMode;
+                  setPaymentMode(mode);
+                  setPaymentReferenceNumber("");
+                  setPaymentBankName("");
+                  setPaymentCheckNumber("");
+                }}
+                className="w-full h-12 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-100"
+              >
+                <option value="CASH">Cash</option>
+                <option value="UPI">UPI</option>
+                <option value="CARD">Card</option>
+                <option value="CHECK">Check</option>
+              </select>
+            </div>
+
+            {(paymentMode === "UPI" || paymentMode === "CARD") && (
+              <Input
+                placeholder={paymentMode === "UPI" ? "UPI Transaction / UTR Number" : "Card Transaction / Receipt Reference"}
+                value={paymentReferenceNumber}
+                onChange={(e) => setPaymentReferenceNumber(e.target.value)}
+                className="h-12"
+              />
+            )}
+
+            {paymentMode === "CHECK" && (
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  placeholder="Check Number"
+                  value={paymentCheckNumber}
+                  onChange={(e) => setPaymentCheckNumber(e.target.value)}
+                  className="h-12"
+                />
+                <Input
+                  placeholder="Bank Name"
+                  value={paymentBankName}
+                  onChange={(e) => setPaymentBankName(e.target.value)}
+                  className="h-12"
+                />
+              </div>
+            )}
+
+            <Input
+              placeholder="Note (optional)"
+              value={paymentNote}
+              onChange={(e) => setPaymentNote(e.target.value)}
+              className="h-12"
+            />
+            <Button onClick={handleRecordPayment} disabled={isSubmitting} className="w-full h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold">
+              {isSubmitting ? <Loader2 className="animate-spin" /> : "Save Payment"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -754,7 +1576,6 @@ export default function OrderManagementPage() {
             <Input placeholder="VA %" type="number" value={editForm.vaPercentage || ""} onChange={(e) => handleEditChange("vaPercentage", e.target.value)} />
             <Input placeholder="Stone Cost (₹)" type="number" value={editForm.stoneCost || ""} onChange={(e) => handleEditChange("stoneCost", e.target.value)} />
             <Input placeholder="Discount / Exchange Value (₹)" type="number" value={editForm.discountAmount || ""} onChange={(e) => handleEditChange("discountAmount", e.target.value)} />
-            <Input placeholder="Advance Cash (₹)" type="number" value={editForm.advanceCash || ""} onChange={(e) => handleEditChange("advanceCash", e.target.value)} />
             <Input placeholder="Exchange Jewellery Name" value={editForm.exchangeJewelleryName || ""} onChange={(e) => handleEditChange("exchangeJewelleryName", e.target.value)} />
             <Input placeholder="Exchange Grams" type="number" value={editForm.exchangeJewelleryGrams || ""} onChange={(e) => handleEditChange("exchangeJewelleryGrams", e.target.value)} />
 
@@ -774,7 +1595,10 @@ export default function OrderManagementPage() {
               className="border-amber-200"
             />
           </div>
-          <Button onClick={handleSaveEdit} disabled={isSubmitting} className="w-full h-14 mt-6 bg-slate-900 text-gold rounded-2xl font-bold">
+          <p className="text-[10px] text-slate-400 mt-2">
+            Note: Advance/payments already collected are not editable here — use "Add Payment" for new amounts received.
+          </p>
+          <Button onClick={handleSaveEdit} disabled={isSubmitting} className="w-full h-14 mt-4 bg-slate-900 text-gold rounded-2xl font-bold">
             {isSubmitting ? <Loader2 className="animate-spin" /> : "Save Changes"}
           </Button>
         </DialogContent>
@@ -851,8 +1675,42 @@ export default function OrderManagementPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-5">
                   <Input type="date" value={form.deadlineDate} onChange={(e) => handleInputChange("deadlineDate", e.target.value)} className="h-12" />
-                  <Input placeholder="Advance Cash" type="number" min="0" value={form.advanceCash} onChange={(e) => handleInputChange("advanceCash", e.target.value)} className="h-12 border-emerald-100 text-emerald-600 font-bold" />
+                  <Input placeholder="Initial Payment (₹)" type="number" min="0" value={form.advanceCash} onChange={(e) => handleInputChange("advanceCash", e.target.value)} className="h-12 border-emerald-100 text-emerald-600 font-bold" />
                 </div>
+
+                {Number(form.advanceCash || 0) > 0 && (
+                  <div className="space-y-4 p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Initial Payment Mode</label>
+                      <select
+                        value={form.advancePaymentMode}
+                        onChange={(e) => handleInputChange("advancePaymentMode", e.target.value)}
+                        className="w-full h-12 rounded-xl border border-emerald-100 bg-white px-4 text-sm font-bold outline-none"
+                      >
+                        <option value="CASH">Cash</option>
+                        <option value="UPI">UPI</option>
+                        <option value="CARD">Card</option>
+                        <option value="CHECK">Check</option>
+                      </select>
+                    </div>
+
+                    {(form.advancePaymentMode === "UPI" || form.advancePaymentMode === "CARD") && (
+                      <Input
+                        placeholder={form.advancePaymentMode === "UPI" ? "UPI Transaction / UTR Number" : "Card Transaction / Receipt Reference"}
+                        value={form.advanceReferenceNumber}
+                        onChange={(e) => handleInputChange("advanceReferenceNumber", e.target.value)}
+                        className="h-12 bg-white"
+                      />
+                    )}
+
+                    {form.advancePaymentMode === "CHECK" && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <Input placeholder="Check Number" value={form.advanceCheckNumber} onChange={(e) => handleInputChange("advanceCheckNumber", e.target.value)} className="h-12 bg-white" />
+                        <Input placeholder="Bank Name" value={form.advanceBankName} onChange={(e) => handleInputChange("advanceBankName", e.target.value)} className="h-12 bg-white" />
+                      </div>
+                    )}
+                  </div>
+                )}
               </section>
             </div>
 

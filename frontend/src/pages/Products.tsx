@@ -294,6 +294,7 @@ const Products = () => {
   const [branches, setBranches] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   // printQueue stored as Map for O(1) lookup
   const [printQueueMap, setPrintQueueMap] = useState<Map<string, any>>(new Map());
@@ -389,7 +390,7 @@ const Products = () => {
       all.forEach(p => next.set(p.id, p));
       return next;
     });
-    fireToast(`Added ${all.length} items to print queue`);
+    fireToast(`Selected ${all.length} products`);
   }, [fireToast]);
 
   // ── exports ───────────────────────────────────────────
@@ -502,6 +503,90 @@ const Products = () => {
       setIsLoading(false);
     }
   }, [token, fireToast]);
+
+  const clearSelection = useCallback(() => {
+    setPrintQueueMap(new Map());
+    fireToast("Selection cleared");
+  }, [fireToast]);
+
+  const handleDeleteSelected = useCallback(async () => {
+    const ids = Array.from(printQueueMap.keys());
+
+    if (ids.length === 0) {
+      fireToast("Select at least one product to delete.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete ${ids.length} selected product${ids.length === 1 ? "" : "s"}?\n\nThis action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setIsBulkDeleting(true);
+
+    try {
+      // Use the existing [id] route for a single selected product.
+      // Use the dedicated /bulk route only when two or more products are selected.
+      const isSingleDelete = ids.length === 1;
+      const deleteUrl = isSingleDelete
+        ? `http://localhost:3000/api/products/delete/${encodeURIComponent(ids[0])}`
+        : "http://localhost:3000/api/products/delete/bulk";
+
+      const res = await fetch(deleteUrl, {
+        method: "DELETE",
+        headers: {
+          ...(isSingleDelete ? {} : { "Content-Type": "application/json" }),
+          Authorization: `Bearer ${token}`,
+        },
+        ...(isSingleDelete ? {} : { body: JSON.stringify({ ids }) }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        fireToast(data.error || "Failed to delete selected products.");
+        return;
+      }
+
+      const deletedIds = new Set<string>(
+        Array.isArray(data.deletedIds) && data.deletedIds.length > 0
+          ? data.deletedIds
+          : ids
+      );
+
+      setProducts(prev => {
+        const next = prev.filter(p => !deletedIds.has(p.id));
+        productsCache = next;
+        return next;
+      });
+
+      setPrintQueueMap(prev => {
+        const next = new Map(prev);
+        deletedIds.forEach(id => next.delete(id));
+        return next;
+      });
+
+      const deletedCount = Number(data.deletedCount ?? deletedIds.size);
+      const missingCount = Array.isArray(data.notFoundIds)
+        ? data.notFoundIds.length
+        : 0;
+
+      fireToast(
+        missingCount > 0
+          ? `${deletedCount} product${deletedCount === 1 ? "" : "s"} deleted. ${missingCount} already missing.`
+          : `${deletedCount} product${deletedCount === 1 ? "" : "s"} deleted successfully.`
+      );
+
+      await fetchProducts(true);
+    } catch (error) {
+      console.error("Selected product delete error:", error);
+      fireToast(ids.length === 1 ? "Failed to delete selected product." : "Failed to delete selected products.");
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  }, [printQueueMap, token, fireToast, fetchProducts]);
+
 
   useEffect(() => {
     fetchProducts();
@@ -794,7 +879,7 @@ const Products = () => {
               {filteredProducts.length > 0 && (
                 <Button variant="outline" size="sm" onClick={selectAllFiltered}
                   className="rounded-xl border-2 border-amber-200 bg-amber-50/50 hover:bg-amber-100 text-amber-900 font-black uppercase text-[10px] tracking-widest transition-all">
-                  <CheckSquare className="w-4 h-4 mr-2" /> Select All ({filteredProducts.length})
+                  <CheckSquare className="w-4 h-4 mr-2" /> Select Visible ({filteredProducts.length})
                 </Button>
               )}
               <div className="h-10 w-[2px] bg-amber-50 mx-2" />
@@ -905,10 +990,48 @@ const Products = () => {
                   <span className="text-amber-900 font-black">{filteredProducts.length}</span> products in registry
                 </p>
                 {printQueue.length > 0 && (
-                  <div className="bg-gradient-to-r from-emerald-50 to-green-50 border-2 border-emerald-200 rounded-2xl px-8 py-3 shadow-lg shadow-emerald-100">
-                    <div className="text-center">
-                      <p className="text-[10px] font-black text-emerald-700 uppercase tracking-wider">Selected Items</p>
-                      <p className="text-3xl font-mono font-black text-emerald-900">{printQueue.length}</p>
+                  <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-3 bg-white border-2 border-amber-100 rounded-2xl px-4 py-3 shadow-sm">
+                    <div className="flex items-center gap-3 min-w-[150px]">
+                      <div className="h-10 w-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
+                        <CheckSquare className="w-5 h-5 text-emerald-700" />
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.18em]">
+                          Selected Products
+                        </p>
+                        <p className="text-xl font-mono font-black text-slate-900 leading-none mt-1">
+                          {printQueue.length}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="hidden sm:block h-9 w-px bg-slate-100" />
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={clearSelection}
+                        disabled={isBulkDeleting}
+                        className="h-10 rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50 font-black uppercase text-[9px] tracking-widest"
+                      >
+                        <X className="w-4 h-4 mr-2" />
+                        Clear
+                      </Button>
+
+                      <Button
+                        type="button"
+                        onClick={handleDeleteSelected}
+                        disabled={isBulkDeleting}
+                        className="h-10 rounded-xl bg-red-600 hover:bg-red-700 text-white shadow-md shadow-red-100 font-black uppercase text-[9px] tracking-widest"
+                      >
+                        {isBulkDeleting ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4 mr-2" />
+                        )}
+                        Delete Selected ({printQueue.length})
+                      </Button>
                     </div>
                   </div>
                 )}

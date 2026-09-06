@@ -10,7 +10,16 @@ function corsHeaders() {
   };
 }
 
-// Preflight
+function json(data: unknown, status: number) {
+  return new NextResponse(JSON.stringify(data), {
+    status,
+    headers: {
+      ...corsHeaders(),
+      "Content-Type": "application/json",
+    },
+  });
+}
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
@@ -23,49 +32,84 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // ─────────────────────────────────────────────
+    // AUTH
+    // ─────────────────────────────────────────────
+    const authHeader = req.headers.get("authorization");
+
+    if (!authHeader?.startsWith("Bearer ")) {
+      return json({ error: "Unauthorized" }, 401);
+    }
+
+    const token = authHeader.slice(7).trim();
+
+    if (!token) {
+      return json({ error: "Unauthorized" }, 401);
+    }
+
+    verifyToken(token);
+
+    // ─────────────────────────────────────────────
+    // PRODUCT ID
+    // ─────────────────────────────────────────────
     const { id } = await params;
 
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new NextResponse(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: corsHeaders() }
+    if (!id?.trim()) {
+      return json(
+        { error: "Product ID is required" },
+        400
       );
     }
 
-    const token = authHeader.split(" ")[1];
-    verifyToken(token);
-
-    // Check if product exists
+    // ─────────────────────────────────────────────
+    // CHECK PRODUCT
+    // ─────────────────────────────────────────────
     const product = await prisma.product.findUnique({
-      where: { id },
+      where: {
+        id,
+      },
     });
 
     if (!product) {
-      return new NextResponse(
-        JSON.stringify({ error: "Product not found" }),
-        { status: 404, headers: corsHeaders() }
+      return json(
+        { error: "Product not found" },
+        404
       );
     }
 
-    // Delete the product
+    // ─────────────────────────────────────────────
+    // DELETE PRODUCT
+    // ─────────────────────────────────────────────
     const deleted = await prisma.product.delete({
-      where: { id },
+      where: {
+        id,
+      },
     });
 
-    return new NextResponse(
-      JSON.stringify({
+    return json(
+      {
+        success: true,
         message: "Product deleted successfully",
+        deletedCount: 1,
+        deletedIds: [id],
         product: deleted,
-      }),
-      { status: 200, headers: corsHeaders() }
+      },
+      200
     );
-
   } catch (error) {
     console.error("Delete product error:", error);
-    return new NextResponse(
-      JSON.stringify({ error: "Internal server error" }),
-      { status: 500, headers: corsHeaders() }
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unknown error";
+
+    return json(
+      {
+        error: "Internal server error",
+        details: message,
+      },
+      500
     );
   }
 }

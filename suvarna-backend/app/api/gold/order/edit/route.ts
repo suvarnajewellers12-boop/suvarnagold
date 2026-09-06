@@ -47,11 +47,11 @@ export async function PATCH(req: Request) {
       );
     }
 
-    // Whitelist of editable fields — anything else in the body is ignored
+    // NOTE: advanceCash intentionally excluded — it is only ever changed via /api/gold/order/payment
     const editable = [
       "customerName", "phoneNumber", "itemName", "itemDescription",
       "metalType", "purity", "liveRate", "netWeight", "stoneWeight",
-      "vaPercentage", "stoneCost", "discountAmount", "advanceCash",
+      "vaPercentage", "stoneCost", "discountAmount",
       "exchangeJewelleryName", "exchangeJewelleryGrams", "deadlineDate",
       "weightAdjustmentGrams", "adjustmentCost", "status",
     ];
@@ -63,18 +63,16 @@ export async function PATCH(req: Request) {
       }
     }
 
-    // ── Recompute every derived total server-side ──
     const liveRate = parseFloat(merged.liveRate) || 0;
-    const netWeight = parseFloat(merged.netWeight) || 0;              // grams required
+    const netWeight = parseFloat(merged.netWeight) || 0;
     const stoneWeight = parseFloat(merged.stoneWeight) || 0;
     const vaPercentage = parseFloat(merged.vaPercentage) || 0;
     const stoneCost = parseFloat(merged.stoneCost) || 0;
     const discountAmount = parseFloat(merged.discountAmount) || 0;
-    const advanceCash = parseFloat(merged.advanceCash) || 0;
     const weightAdjustmentGrams = parseFloat(merged.weightAdjustmentGrams) || 0;
     const adjustmentCost = parseFloat(merged.adjustmentCost) || 0;
 
-    const finalWeight = netWeight + weightAdjustmentGrams; // actual weight used for billing
+    const finalWeight = netWeight + weightAdjustmentGrams;
     const grossWeight = finalWeight + stoneWeight;
 
     const goldValue = finalWeight * liveRate;
@@ -84,7 +82,9 @@ export async function PATCH(req: Request) {
     const gstAmount = subtotalAfterDisc * 0.03;
     const totalAmount = subtotalAfterDisc + gstAmount;
     const originalCartValue = subtotalBeforeDisc + subtotalBeforeDisc * 0.03;
-    const balanceAmount = totalAmount - advanceCash;
+
+    // advanceCash is untouched by edit — recompute balance against what's already been paid
+    const balanceAmount = Math.max(0, totalAmount - existing.advanceCash);
 
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
@@ -102,7 +102,6 @@ export async function PATCH(req: Request) {
         vaPercentage,
         stoneCost,
         discountAmount,
-        advanceCash,
         exchangeJewelleryName: merged.exchangeJewelleryName,
         exchangeJewelleryGrams: parseFloat(merged.exchangeJewelleryGrams) || 0,
         deadlineDate: fields.deadlineDate ? new Date(fields.deadlineDate) : existing.deadlineDate,
@@ -113,6 +112,41 @@ export async function PATCH(req: Request) {
         originalCartValue,
         balanceAmount,
         status: fields.status || existing.status,
+      },
+      select: {
+        id: true,
+        orderId: true,
+        customerName: true,
+        phoneNumber: true,
+        itemName: true,
+        itemDescription: true,
+        metalType: true,
+        purity: true,
+        liveRate: true,
+        stoneWeight: true,
+        netWeight: true,
+        grossWeight: true,
+        vaPercentage: true,
+        stoneCost: true,
+        gst: true,
+        originalCartValue: true,
+        exchangeJewelleryName: true,
+        exchangeJewelleryGrams: true,
+        totalAmount: true,
+        advanceCash: true,
+        discountAmount: true,
+        balanceAmount: true,
+        weightAdjustmentGrams: true,
+        adjustmentCost: true,
+        deadlineDate: true,
+        createdAt: true,
+        createdBy: true,
+        status: true,
+        jobWorkId: true,
+        payments: {
+          select: { id: true, amount: true, note: true, paidAt: true, createdBy: true, createdAt: true },
+          orderBy: { paidAt: "asc" },
+        },
       },
     });
 

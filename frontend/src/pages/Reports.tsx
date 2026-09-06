@@ -132,12 +132,20 @@ const Reports = () => {
                         cgst: Number(p.cgstAmount) || 0,
                         sgst: Number(p.sgstAmount) || 0,
                         discount: Number(p.discountAmount) || 0,
-                        exchangeDiscount: Number(p.jewelleryexchangediscount || 0),
-                        exchangeName: p.excahngejewellryname || "None",
-                        exchangeGrams: p.excahngejewellrygrams || 0,
-                        silverExchangeDiscount: Number(p.silverExchangeDiscount || 0),
+                        // Normalized exchange fields. Existing exchange jewellery belongs to GOLD.
+                        // Fallbacks keep older API responses/history compatible.
+                        goldExchangeName: p.goldExchangeName || p.excahngejewellryname || "None",
+                        goldExchangeGrams: Number(p.goldExchangeGrams ?? p.excahngejewellrygrams ?? 0),
+                        goldExchangeValue: Number(p.goldExchangeValue ?? p.jewelleryexchangediscount ?? 0),
                         silverExchangeName: p.silverExchangeName || "None",
-                        silverExchangeGrams: p.silverExchangeGrams || 0,
+                        silverExchangeGrams: Number(p.silverExchangeGrams ?? 0),
+                        silverExchangeValue: Number(p.silverExchangeValue ?? p.silverExchangeDiscount ?? 0),
+
+                        // Legacy aliases used by older receipt/UI code while migrating.
+                        exchangeName: p.goldExchangeName || p.excahngejewellryname || "None",
+                        exchangeGrams: Number(p.goldExchangeGrams ?? p.excahngejewellrygrams ?? 0),
+                        exchangeDiscount: Number(p.goldExchangeValue ?? p.jewelleryexchangediscount ?? 0),
+                        silverExchangeDiscount: Number(p.silverExchangeValue ?? p.silverExchangeDiscount ?? 0),
                         grandTotal: Number(p.finalAmount) || 0,
                         sku: p.sku || "N/A",
                         invoice: p.invoice || "N/A",
@@ -148,8 +156,8 @@ const Reports = () => {
                             upi: Number(p.upiAmount || 0),
                             card: Number(p.cardAmount || 0),
                             cheque: Number(p.chequeAmount || 0),
-                            exchange: Number(p.jewelleryexchangediscount || 0),
-                            silverExchange: Number(p.silverExchangeDiscount || 0),
+                            exchange: Number(p.goldExchangeValue ?? p.jewelleryexchangediscount ?? 0),
+                            silverExchange: Number(p.silverExchangeValue ?? p.silverExchangeDiscount ?? 0),
                         },
                         items: [itemObj],
                     });
@@ -232,12 +240,33 @@ const Reports = () => {
             acc.totalUpi += curr.payments.upi;
             acc.totalCard += curr.payments.card;
             acc.totalCheque += curr.payments.cheque;
-            acc.totalExchange += curr.payments.exchange;
-            acc.totalSilverExchange += curr.payments.silverExchange;
+            acc.totalGoldExchange += curr.goldExchangeValue;
+            acc.totalGoldExchangeGrams += curr.goldExchangeGrams;
+            acc.totalSilverExchange += curr.silverExchangeValue;
+            acc.totalSilverExchangeGrams += curr.silverExchangeGrams;
             acc.grandTotal += curr.grandTotal;
 
+            if (curr.goldExchangeValue > 0 && curr.goldExchangeName && curr.goldExchangeName !== "None") {
+                acc.goldExchangeNames.add(curr.goldExchangeName);
+            }
+            if (curr.silverExchangeValue > 0 && curr.silverExchangeName && curr.silverExchangeName !== "None") {
+                acc.silverExchangeNames.add(curr.silverExchangeName);
+            }
+
             return acc;
-        }, { totalCash: 0, totalUpi: 0, totalCard: 0, totalCheque: 0, totalExchange: 0, totalSilverExchange: 0, grandTotal: 0 });
+        }, {
+            totalCash: 0,
+            totalUpi: 0,
+            totalCard: 0,
+            totalCheque: 0,
+            totalGoldExchange: 0,
+            totalGoldExchangeGrams: 0,
+            totalSilverExchange: 0,
+            totalSilverExchangeGrams: 0,
+            grandTotal: 0,
+            goldExchangeNames: new Set<string>(),
+            silverExchangeNames: new Set<string>(),
+        });
     }, [filteredData]);
 
 
@@ -280,10 +309,12 @@ const Reports = () => {
                     "Subtotal": p.subtotal,
                     "CGST": p.cgst,
                     "SGST": p.sgst,
-                    "Exchange Item": p.exchangeName || "None",
-                    "Exchange Value": p.exchangeDiscount,
-                    "Silver Exchange Item": p.silverExchangeName || "None",
-                    "Silver Exchange Value": p.silverExchangeDiscount,
+                    "Gold Exchange Name": p.goldExchangeName || "None",
+                    "Gold Exchange Grams": p.goldExchangeGrams || 0,
+                    "Gold Exchange Value": p.goldExchangeValue || 0,
+                    "Silver Exchange Name": p.silverExchangeName || "None",
+                    "Silver Exchange Grams": p.silverExchangeGrams || 0,
+                    "Silver Exchange Value": p.silverExchangeValue || 0,
                     "Cash": p.payments?.cash || 0,
                     "UPI": p.payments?.upi || 0,
                     "Card": p.payments?.card || 0,
@@ -334,10 +365,12 @@ const Reports = () => {
             "Subtotal": sum("subtotal", "purchase"),
             "CGST": sum("cgst", "purchase"),
             "SGST": sum("sgst", "purchase"),
-            "Exchange Item": "",
-            "Exchange Value": sum("exchangeDiscount", "purchase"),
-            "Silver Exchange Item": "",
-            "Silver Exchange Value": sum("silverExchangeDiscount", "purchase"),
+            "Gold Exchange Name": "",
+            "Gold Exchange Grams": sum("goldExchangeGrams", "purchase"),
+            "Gold Exchange Value": sum("goldExchangeValue", "purchase"),
+            "Silver Exchange Name": "",
+            "Silver Exchange Grams": sum("silverExchangeGrams", "purchase"),
+            "Silver Exchange Value": sum("silverExchangeValue", "purchase"),
             "Cash": sum("cash", "payments"),
             "UPI": sum("upi", "payments"),
             "Card": sum("card", "payments"),
@@ -378,7 +411,10 @@ const exportToPDF = () => {
 
         // running totals
         let totGross = 0, totNet = 0, totItemCost = 0, totSubtotal = 0,
-            totCgst = 0, totSgst = 0, totExVal = 0, totSilverExVal = 0, totCash = 0, totUpi = 0,
+            totCgst = 0, totSgst = 0,
+            totGoldExGrams = 0, totGoldExVal = 0,
+            totSilverExGrams = 0, totSilverExVal = 0,
+            totCash = 0, totUpi = 0,
             totCard = 0, totCheque = 0, totGrand = 0, totStoneWt = 0, totStoneCost = 0;
 
         // 2. Flatten data (Same logic as Excel, but as an array of arrays for jsPDF)
@@ -390,8 +426,10 @@ const exportToPDF = () => {
                 totSubtotal += Number(p.subtotal) || 0;
                 totCgst += Number(p.cgst) || 0;
                 totSgst += Number(p.sgst) || 0;
-                totExVal += Number(p.exchangeDiscount) || 0;
-                totSilverExVal += Number(p.silverExchangeDiscount) || 0;
+                totGoldExGrams += Number(p.goldExchangeGrams) || 0;
+                totGoldExVal += Number(p.goldExchangeValue) || 0;
+                totSilverExGrams += Number(p.silverExchangeGrams) || 0;
+                totSilverExVal += Number(p.silverExchangeValue) || 0;
                 totCash += Number(p.payments?.cash) || 0;
                 totUpi += Number(p.payments?.upi) || 0;
                 totCard += Number(p.payments?.card) || 0;
@@ -417,10 +455,12 @@ const exportToPDF = () => {
                     p.subtotal,
                     p.cgst,
                     p.sgst,
-                    p.exchangeName || "None",
-                    p.exchangeDiscount,
+                    p.goldExchangeName || "None",
+                    p.goldExchangeGrams || 0,
+                    p.goldExchangeValue || 0,
                     p.silverExchangeName || "None",
-                    p.silverExchangeDiscount,
+                    p.silverExchangeGrams || 0,
+                    p.silverExchangeValue || 0,
                     p.payments?.cash || 0,
                     p.payments?.upi || 0,
                     p.payments?.card || 0,
@@ -440,7 +480,8 @@ const exportToPDF = () => {
                 "Invoice", "Customer", "Phone", "Product Name",
                 "Category", "SKU", "HUID", "Purity", "Gross Wt(g)",
                 "Net Wt(g)", "VA(%)", "Item Cost", "Subtotal", "CGST",
-                "SGST", "Exchange Item", "Ex. Value", "Silver Ex. Item", "Silver Ex. Value",
+                "SGST", "Gold Ex. Name", "Gold Ex. Grams", "Gold Ex. Value",
+                "Silver Ex. Name", "Silver Ex. Grams", "Silver Ex. Value",
                 "Cash", "UPI", "Card", "Cheque", "Total", "Stone Wt", "Stone Cost"
             ]
         ];
@@ -457,8 +498,10 @@ const exportToPDF = () => {
             totCgst.toFixed(2),
             totSgst.toFixed(2),
             "",
-            totExVal.toFixed(2),
+            totGoldExGrams.toFixed(3),
+            totGoldExVal.toFixed(2),
             "",
+            totSilverExGrams.toFixed(3),
             totSilverExVal.toFixed(2),
             totCash.toFixed(2),
             totUpi.toFixed(2),
@@ -880,8 +923,8 @@ const exportToPDF = () => {
                     purchase.payments.upi > 0 ||
                     purchase.payments.card > 0 ||
                     purchase.payments.cheque > 0 ||
-                    purchase.exchangeDiscount > 0 ||
-                    purchase.silverExchangeDiscount > 0;
+                    purchase.goldExchangeValue > 0 ||
+                    purchase.silverExchangeValue > 0;
 
                 if (hasPayments && tY <= SAFE_BOTTOM - 20) {
                     // Section divider line
@@ -906,17 +949,23 @@ const exportToPDF = () => {
                         payRow("Cheque", purchase.payments.cheque);
                     if (purchase.payments.upi > 0)
                         payRow("UPI", purchase.payments.upi);
-                    if (purchase.exchangeDiscount > 0) {
-                        const exchLabel = purchase.exchangeName
-                            ? `Exchange [${purchase.exchangeName}]`
-                            : "Exchange";
-                        payRow(exchLabel, purchase.exchangeDiscount);
+                    if (purchase.goldExchangeValue > 0) {
+                        const goldName = purchase.goldExchangeName && purchase.goldExchangeName !== "None"
+                            ? ` [${purchase.goldExchangeName}]`
+                            : "";
+                        const goldGrams = purchase.goldExchangeGrams > 0
+                            ? ` (${Number(purchase.goldExchangeGrams).toFixed(3)}g)`
+                            : "";
+                        payRow(`Gold Exchange${goldName}${goldGrams}`, purchase.goldExchangeValue);
                     }
-                    if (purchase.silverExchangeDiscount > 0) {
-                        const silverExchLabel = purchase.silverExchangeName
-                            ? `Silver Exchange [${purchase.silverExchangeName}]`
-                            : "Silver Exchange";
-                        payRow(silverExchLabel, purchase.silverExchangeDiscount);
+                    if (purchase.silverExchangeValue > 0) {
+                        const silverName = purchase.silverExchangeName && purchase.silverExchangeName !== "None"
+                            ? ` [${purchase.silverExchangeName}]`
+                            : "";
+                        const silverGrams = purchase.silverExchangeGrams > 0
+                            ? ` (${Number(purchase.silverExchangeGrams).toFixed(3)}g)`
+                            : "";
+                        payRow(`Silver Exchange${silverName}${silverGrams}`, purchase.silverExchangeValue);
                     }
                     if (purchase.payments.card > 0)
                         payRow("Debit / Credit Card", purchase.payments.card);
@@ -1183,7 +1232,7 @@ const exportToPDF = () => {
                                         { key: "upi", label: "upi" },
                                         { key: "card", label: "card" },
                                         { key: "cheque", label: "cheque" },
-                                        { key: "exchange", label: "exchange" },
+                                        { key: "exchange", label: "gold exchange" },
                                         { key: "silverExchange", label: "silver exchange" },
                                     ].map(({ key, label }) => (
                                         <label key={key} className="flex items-center gap-2 cursor-pointer group">
@@ -1228,18 +1277,30 @@ const exportToPDF = () => {
                                 <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalCheque.toLocaleString()}</div>
                             </LuxuryCard>
 
-                            <LuxuryCard className="p-4 border-l-4 border-amber-600 bg-white shadow-sm">
+                            <LuxuryCard className="p-4 border-l-4 border-amber-600 bg-white shadow-sm min-w-0">
                                 <div className="flex items-center gap-2 text-amber-700 mb-1">
-                                    <Repeat className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">EXCHANGE</span>
+                                    <Repeat className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">GOLD EXCHANGE</span>
                                 </div>
-                                <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalExchange.toLocaleString()}</div>
+                                <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalGoldExchange.toLocaleString()}</div>
+                                <div className="text-[11px] font-bold text-amber-700 mt-1">{financialSummary.totalGoldExchangeGrams.toFixed(3)} g</div>
+                                {financialSummary.goldExchangeNames.size > 0 && (
+                                    <div className="text-[9px] text-muted-foreground mt-1 truncate" title={Array.from(financialSummary.goldExchangeNames).join(", ")}>
+                                        {Array.from(financialSummary.goldExchangeNames).join(", ")}
+                                    </div>
+                                )}
                             </LuxuryCard>
 
-                            <LuxuryCard className="p-4 border-l-4 border-slate-500 bg-white shadow-sm">
+                            <LuxuryCard className="p-4 border-l-4 border-slate-500 bg-white shadow-sm min-w-0">
                                 <div className="flex items-center gap-2 text-slate-600 mb-1">
                                     <Repeat className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">SILVER EXCHANGE</span>
                                 </div>
                                 <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalSilverExchange.toLocaleString()}</div>
+                                <div className="text-[11px] font-bold text-slate-600 mt-1">{financialSummary.totalSilverExchangeGrams.toFixed(3)} g</div>
+                                {financialSummary.silverExchangeNames.size > 0 && (
+                                    <div className="text-[9px] text-muted-foreground mt-1 truncate" title={Array.from(financialSummary.silverExchangeNames).join(", ")}>
+                                        {Array.from(financialSummary.silverExchangeNames).join(", ")}
+                                    </div>
+                                )}
                             </LuxuryCard>
 
                             <LuxuryCard className="p-4 bg-primary text-primary-foreground shadow-lg">
@@ -1330,7 +1391,7 @@ const exportToPDF = () => {
                                                                 <span className="text-[8px] bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded border border-orange-200 uppercase">CHQ</span>
                                                             )}
                                                             {row.payments.exchange > 0 && (
-                                                                <span className="text-[8px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded border border-amber-200 uppercase">Exchange</span>
+                                                                <span className="text-[8px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded border border-amber-200 uppercase">Gold Exchange</span>
                                                             )}
                                                             {row.payments.silverExchange > 0 && (
                                                                 <span className="text-[8px] bg-slate-200 text-slate-700 font-bold px-1.5 py-0.5 rounded border border-slate-300 uppercase">Ag Exchange</span>
@@ -1430,22 +1491,28 @@ const exportToPDF = () => {
                                         {selectedCustomer.payments.cheque > 0 && (
                                             <><span className="text-muted-foreground">Cheque / Draft</span><span className="text-right font-bold">₹{selectedCustomer.payments.cheque.toLocaleString()}</span></>
                                         )}
-                                        {selectedCustomer.exchangeDiscount > 0 && (
+                                        {selectedCustomer.goldExchangeValue > 0 && (
                                             <>
-                                                <span className="text-muted-foreground">
-                                                    Exchange{selectedCustomer.exchangeName ? ` — ${selectedCustomer.exchangeName}` : ""}
-                                                    {selectedCustomer.exchangeGrams ? ` (${selectedCustomer.exchangeGrams}g)` : ""}
-                                                </span>
-                                                <span className="text-right font-bold text-red-600">-₹{selectedCustomer.exchangeDiscount.toLocaleString()}</span>
+                                                <div className="text-muted-foreground">
+                                                    <div className="font-bold text-amber-700">Gold Exchange</div>
+                                                    <div className="text-[11px] mt-0.5">
+                                                        Name: {selectedCustomer.goldExchangeName && selectedCustomer.goldExchangeName !== "None" ? selectedCustomer.goldExchangeName : "N/A"}
+                                                        {" • "}Grams: {Number(selectedCustomer.goldExchangeGrams || 0).toFixed(3)}g
+                                                    </div>
+                                                </div>
+                                                <span className="text-right font-bold text-red-600">-₹{selectedCustomer.goldExchangeValue.toLocaleString()}</span>
                                             </>
                                         )}
-                                        {selectedCustomer.silverExchangeDiscount > 0 && (
+                                        {selectedCustomer.silverExchangeValue > 0 && (
                                             <>
-                                                <span className="text-muted-foreground">
-                                                    Silver Exchange{selectedCustomer.silverExchangeName ? ` — ${selectedCustomer.silverExchangeName}` : ""}
-                                                    {selectedCustomer.silverExchangeGrams ? ` (${selectedCustomer.silverExchangeGrams}g)` : ""}
-                                                </span>
-                                                <span className="text-right font-bold text-red-600">-₹{selectedCustomer.silverExchangeDiscount.toLocaleString()}</span>
+                                                <div className="text-muted-foreground">
+                                                    <div className="font-bold text-slate-700">Silver Exchange</div>
+                                                    <div className="text-[11px] mt-0.5">
+                                                        Name: {selectedCustomer.silverExchangeName && selectedCustomer.silverExchangeName !== "None" ? selectedCustomer.silverExchangeName : "N/A"}
+                                                        {" • "}Grams: {Number(selectedCustomer.silverExchangeGrams || 0).toFixed(3)}g
+                                                    </div>
+                                                </div>
+                                                <span className="text-right font-bold text-red-600">-₹{selectedCustomer.silverExchangeValue.toLocaleString()}</span>
                                             </>
                                         )}
                                     </div>

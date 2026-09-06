@@ -66,8 +66,8 @@ model GoldJobWork {
 }
 
 model Order {
-  id                     String       @id @default(uuid())
-  orderId                String       @unique
+  id                     String    @id @default(uuid())
+  orderId                String    @unique
   customerName           String
   phoneNumber            String
   itemName               String
@@ -75,30 +75,61 @@ model Order {
   metalType              String
   purity                 String
   liveRate               Float
-  stoneWeight            Float
   netWeight              Float
+  stoneWeight            Float
   grossWeight            Float
   vaPercentage           Float
   stoneCost              Float
   gst                    Float
-  totalAmount            Float
-  advanceCash            Float
-  discountAmount         Float?       @default(10000)
-  balanceAmount          Float
-  deadlineDate           DateTime
-  createdAt              DateTime     @default(now())
-  createdBy              String
-  status                 String       @default("NOT ASSIGNED")
-  weightAdjustmentGrams Float @default(0)
-  adjustmentCost        Float @default(0) // cost impact of that adjustment (can be negative as a credit)
-
-  jobWorkId              String?
-  originalCartValue      Float        @default(0)
-  exchangeJewelleryGrams Float?       @default(0)
+  originalCartValue      Float
   exchangeJewelleryName  String?
+  exchangeJewelleryGrams Float     @default(0)
+  totalAmount            Float
+  advanceCash            Float     @default(0)   // cached sum of all payments — kept in sync, never edited directly
+  balanceAmount          Float     @default(0)   // cached: totalAmount - advanceCash
+  discountAmount         Float     @default(0)
+  weightAdjustmentGrams  Float     @default(0)
+  adjustmentCost         Float     @default(0)
+  deadlineDate           DateTime
+  status                 String
+  createdBy              String
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt @default(now())
+
+  payments               Payment[]
+
+  
+  jobWorkId              String?
   jobWork                GoldJobWork? @relation(fields: [jobWorkId], references: [id])
 }
 
+enum PaymentMode {
+  CASH
+  UPI
+  CARD
+  CHECK
+}
+
+model Payment {
+  id              String      @id @default(uuid())
+  orderId         String
+  order           Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  amount          Float
+  mode            PaymentMode @default(CASH)
+
+  referenceNumber String?
+  checkNumber     String?
+  bankName        String?
+
+  note            String?
+  paidAt          DateTime    @default(now())
+  createdBy       String
+  createdAt       DateTime    @default(now())
+
+  @@index([orderId, paidAt])
+  @@index([mode])
+}
 model Staff {
   id                 String   @id
   fullName           String

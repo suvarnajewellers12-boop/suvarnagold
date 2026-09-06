@@ -11,34 +11,29 @@ function corsHeaders() {
 }
 
 export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 200,
-    headers: corsHeaders(),
-  });
+  return new NextResponse(null, { status: 200, headers: corsHeaders() });
 }
 
 export async function GET(req: Request) {
   try {
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
-      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { 
-        status: 401, 
-        headers: corsHeaders() 
+      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: corsHeaders(),
       });
     }
 
     const token = authHeader.split(" ")[1];
     const decoded = verifyToken(token) as unknown as { role?: string };
 
-    // Allowing Super Admin to view all orders
     if (decoded.role !== "SUPER_ADMIN") {
-      return new NextResponse(JSON.stringify({ error: "Forbidden" }), { 
-        status: 403, 
-        headers: corsHeaders() 
+      return new NextResponse(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: corsHeaders(),
       });
     }
 
-    // Fetching all records with every field
     const orders = await prisma.order.findMany({
       select: {
         id: true,
@@ -63,37 +58,41 @@ export async function GET(req: Request) {
         advanceCash: true,
         discountAmount: true,
         balanceAmount: true,
+        weightAdjustmentGrams: true,
+        adjustmentCost: true,
         deadlineDate: true,
         createdAt: true,
         createdBy: true,
         status: true,
         jobWorkId: true,
+        payments: {
+          select: {
+            id: true,
+            amount: true,
+            mode: true,
+            referenceNumber: true,
+            checkNumber: true,
+            bankName: true,
+            note: true,
+            paidAt: true,
+            createdBy: true,
+            createdAt: true,
+          },
+          orderBy: { paidAt: "asc" },
+        },
       },
-      orderBy: {
-        createdAt: "desc", // Latest orders first
-      },
+      orderBy: { createdAt: "desc" },
     });
 
     return new NextResponse(
-      JSON.stringify({ 
-        success: true, 
-        count: orders.length, 
-        orders 
-      }),
-      { 
-        status: 200, 
-        headers: corsHeaders() 
-      }
+      JSON.stringify({ success: true, count: orders.length, orders }),
+      { status: 200, headers: corsHeaders() }
     );
-
   } catch (error) {
     console.error("Fetch Orders Error:", error);
-    return new NextResponse(
-      JSON.stringify({ error: "Internal server error" }),
-      { 
-        status: 500, 
-        headers: corsHeaders() 
-      }
-    );
+    return new NextResponse(JSON.stringify({ error: "Internal server error" }), {
+      status: 500,
+      headers: corsHeaders(),
+    });
   }
 }
