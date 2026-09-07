@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
@@ -18,6 +18,95 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
+
+// Business roles are separate from the SUPER_ADMIN authorization role.
+type StaffRole = "CASHIER" | "SALESMAN";
+const ROLE_OPTIONS: { value: StaffRole; label: string }[] = [
+    { value: "CASHIER", label: "Cashier" },
+    { value: "SALESMAN", label: "Salesman" },
+];
+function normalizeRoles(value: unknown): StaffRole[] {
+    if (!Array.isArray(value)) return [];
+    return ROLE_OPTIONS.filter(option => value.includes(option.value)).map(option => option.value);
+}
+function roleLabel(value: unknown) {
+    return normalizeRoles(value).map(role => ROLE_OPTIONS.find(option => option.value === role)!.label).join(", ") || "Not assigned";
+}
+
+// Native disclosure with checkboxes: choose one or both without Ctrl/Cmd.
+function RoleDropdown({ id, value, onChange, disabled = false }: {
+    id: string; value: StaffRole[]; onChange: (roles: StaffRole[]) => void; disabled?: boolean;
+}) {
+    const root = useRef<HTMLDetailsElement>(null);
+    useEffect(() => {
+        const closeOutside = (event: PointerEvent) => {
+            if (root.current && !root.current.contains(event.target as Node)) root.current.open = false;
+        };
+        document.addEventListener("pointerdown", closeOutside);
+        return () => document.removeEventListener("pointerdown", closeOutside);
+    }, []);
+    return (
+        <div className="space-y-1">
+            <span id={`${id}-label`} className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Roles *</span>
+            <details ref={root} className="rounded-md border border-gold/20 bg-white"
+                onKeyDown={event => {
+                    if (event.key === "Escape" && root.current) {
+                        root.current.open = false;
+                        root.current.querySelector("summary")?.focus();
+                    }
+                }}>
+                <summary aria-labelledby={`${id}-label ${id}-value`} aria-disabled={disabled}
+                    onClick={event => { if (disabled) event.preventDefault(); }}
+                    className="cursor-pointer rounded-md px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <span id={`${id}-value`}>{value.length ? roleLabel(value) : "Select one or both roles"}</span>
+                </summary>
+                <fieldset disabled={disabled} className="border-t border-gold/10 p-3 space-y-2">
+                    <legend className="sr-only">Choose staff roles</legend>
+                    {ROLE_OPTIONS.map(option => (
+                        <label key={option.value} className="flex cursor-pointer items-center gap-3 rounded-md p-2 text-sm hover:bg-amber-50">
+                            <input type="checkbox" checked={value.includes(option.value)} className="h-4 w-4 accent-amber-700"
+                                onChange={event => onChange(event.target.checked
+                                    ? normalizeRoles([...value, option.value])
+                                    : value.filter(role => role !== option.value))} />
+                            {option.label}
+                        </label>
+                    ))}
+                </fieldset>
+            </details>
+            <p className="text-xs text-slate-500">Select Cashier, Salesman, or both.</p>
+        </div>
+    );
+}
+function BranchField({ id, value, options, onChange, disabled = false }: {
+    id: string; value: string; options: string[]; onChange: (value: string) => void; disabled?: boolean;
+}) {
+    return (
+        <div className="space-y-1">
+            <label htmlFor={id} className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Branch *</label>
+            <Input id={id} list={`${id}-options`} value={value} onChange={event => onChange(event.target.value)}
+                maxLength={120} disabled={disabled} required autoComplete="off"
+                placeholder="Select or enter a branch" className="h-10 border-gold/20 text-sm" />
+            <datalist id={`${id}-options`}>{options.map(branch => <option key={branch} value={branch} />)}</datalist>
+            <p className="text-xs text-slate-500">Choose an existing branch or enter its name.</p>
+        </div>
+    );
+}
+
+function validateAssignment(branch: string, roles: StaffRole[]): string | null {
+    if (!branch.trim()) return "Please select or enter a branch.";
+    if (branch.trim().length > 120) return "Branch must not exceed 120 characters.";
+    if (!roles.length || roles.some(role => !ROLE_OPTIONS.some(option => option.value === role))) return "Please select at least one valid role.";
+    return null;
+}
+type PasswordMode = "keep" | "custom" | "default";
+function passwordPayload(mode: PasswordMode, password: string, confirmation: string) {
+    if (mode === "default") return { resetPassword: true };
+    if (mode !== "custom") return {};
+    if (password.trim().length < 8) throw new Error("New password needs at least 8 characters excluding leading and trailing spaces.");
+    if (new TextEncoder().encode(password).length > 72) throw new Error("New password must not exceed 72 bytes.");
+    if (password !== confirmation) throw new Error("New password and confirmation do not match.");
+    return { newPassword: password };
+}
 
 // ================= CACHE CONFIGURATION =================
 let staffCache: any[] | null = null;
@@ -122,6 +211,25 @@ export default function StaffManagement() {
     const [selectedStaff, setSelectedStaff] = useState<any | null>(null);
     const [editingStaff, setEditingStaff] = useState<any | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [passwordMode, setPasswordMode] = useState<PasswordMode>("keep");
+    const [newPassword, setNewPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
+    const [formError, setFormError] = useState("");
+    const [editError, setEditError] = useState("");
+    const branchOptions = useMemo(() => Array.from(new Set<string>(staff
+        .map(member => typeof member.branch === "string" ? member.branch.trim() : "")
+        .filter(Boolean))).sort((a, b) => a.localeCompare(b)), [staff]);
+    const closeEditModal = () => {
+        if (isSubmitting) return;
+        setIsEditModalOpen(false);
+        setEditingStaff(null);
+        setNewPassword("");
+        setConfirmPassword("");
+        setPasswordMode("keep");
+        setShowPassword(false);
+        setEditError("");
+    };
     const [currentUser, setCurrentUser] = useState<any | null>(null);
     const [isAuthChecking, setIsAuthChecking] = useState(true);
 
@@ -160,13 +268,18 @@ export default function StaffManagement() {
         nomineeName: "",
         nomineeRelation: "Father",
         nomineePhoneNumber: "",
-        nomineeAddress: ""
+        nomineeAddress: "",
+        branch: "",
+        roles: [] as StaffRole[]
     });
 
     // ================= EXPORT FUNCTIONS =================
     const exportToExcel = () => {
         const dataToExport = filteredStaff.map(s => ({
             "Full Name": s.fullName,
+            "Employee ID": s.id,
+            "Branch": s.branch || "Not assigned",
+            "Roles": roleLabel(s.roles),
             "Gender": s.gender,
             "Phone Number": s.phoneNumber,
             "Aadhar Number": s.aadharNumber,
@@ -196,7 +309,7 @@ export default function StaffManagement() {
     };
 
     const exportToPDF = () => {
-        const doc = new jsPDF();
+        const doc = new jsPDF({ orientation: "landscape", format: "a3" });
 
         // Add Title and Header info
         doc.setFontSize(20);
@@ -209,6 +322,8 @@ export default function StaffManagement() {
 
         const tableColumn = [
             "Name",
+            "Branch",
+            "Roles",
             "Gender",
             "Phone",
             "Aadhar",
@@ -227,6 +342,8 @@ export default function StaffManagement() {
         ];
         const tableRows = filteredStaff.map(s => [
             s.fullName,
+            s.branch || "Not assigned",
+            roleLabel(s.roles),
             s.gender,
             s.phoneNumber,
             s.aadharNumber,
@@ -311,7 +428,11 @@ export default function StaffManagement() {
                 throw new Error(data.error || "Failed to fetch staff");
             }
 
-            const staffData = data.staff || [];
+            const staffData = (Array.isArray(data.staff) ? data.staff : []).map((member: any) => {
+                // Backend must exclude hashes; also avoid retaining them in client state.
+                const { passwordHash, password, newPassword, ...safeMember } = member;
+                return { ...safeMember, branch: typeof member.branch === "string" ? member.branch : "", roles: normalizeRoles(member.roles) };
+            });
             setStaff(staffData);
 
             // Cache only overall data, because dated metrics change by selection.
@@ -319,9 +440,7 @@ export default function StaffManagement() {
                 staffCache = staffData;
             }
 
-            setMessage(
-                `Performance loaded: ${data.period?.label || activeRange}`
-            );
+
         } catch (error) {
             console.error("Fetch Error:", error);
             setMessage(
@@ -373,8 +492,9 @@ export default function StaffManagement() {
 
     const filteredStaff = useMemo(() => {
         const result = [...staff].filter((s) => {
-            const matchesSearch = s.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                s.phoneNumber.includes(searchQuery);
+            const query = searchQuery.trim().toLowerCase();
+            const matchesSearch = [s.fullName, s.id, s.phoneNumber, s.branch, roleLabel(s.roles)]
+                .some(value => String(value ?? "").toLowerCase().includes(query));
             const matchesGender = genderFilter === "all" || s.gender === genderFilter;
             return matchesSearch && matchesGender;
         });
@@ -438,22 +558,31 @@ export default function StaffManagement() {
     }, [staff, searchQuery, genderFilter, salarySort, performanceSort, performanceOrder, minAmountFilter, minCountFilter]);
 
     const createStaff = async () => {
-        if (form.phoneNumber.length !== 10) return alert("Phone must be 10 digits");
-        if (form.aadharNumber.length !== 12) return alert("Aadhar must be 12 digits");
-        if (form.nomineePhoneNumber.length !== 10) return alert("Nominee phone must be 10 digits");
-        if (!form.nomineeName) return alert("Nominee name is required");
-        if (!form.nomineeAddress) return alert("Nominee address is required");
+        if (isSubmitting) return;
+        setFormError("");
+        const assignmentError = validateAssignment(form.branch, form.roles);
+        if (assignmentError) { setFormError(assignmentError); return; }
+        if (!form.fullName.trim() || !form.dateOfJoining || Number.isNaN(new Date(form.dateOfJoining).getTime())) { setFormError("Please enter a name and valid joining date."); return; }
+        if (String(form.monthlySalary).trim() === "" || !Number.isFinite(Number(form.monthlySalary)) || Number(form.monthlySalary) < 0) { setFormError("Please enter a valid non-negative salary."); return; }
+
+        if (form.phoneNumber.length !== 10) return setFormError("Phone must be 10 digits");
+        if (form.aadharNumber.length !== 12) return setFormError("Aadhar must be 12 digits");
+        if (form.nomineePhoneNumber.length !== 10) return setFormError("Nominee phone must be 10 digits");
+        if (!form.nomineeName) return setFormError("Nominee name is required");
+        if (!form.nomineeAddress) return setFormError("Nominee address is required");
 
         setIsSubmitting(true);
         try {
             const res = await fetch("https://suvarnagold-16e5.vercel.app/api/staff/create", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                body: JSON.stringify(form)
+                body: JSON.stringify({ ...form, branch: form.branch.trim(), roles: normalizeRoles(form.roles) })
             });
 
             if (res.ok) {
-                setMessage("Staff Registered Successfully");
+                const result = await res.json();
+                staffCache = null;
+                setMessage(result.message || "Staff Registered Successfully");
                 setToast(true);
                 await fetchStaff(true);
                 setForm({
@@ -467,15 +596,17 @@ export default function StaffManagement() {
                     nomineeName: "",
                     nomineeRelation: "Father",
                     nomineePhoneNumber: "",
-                    nomineeAddress: ""
+                    nomineeAddress: "",
+                    branch: "",
+                    roles: [] as StaffRole[]
                 });
             } else {
                 const errorData = await res.json();
-                alert(errorData.error || "Failed to register staff");
+                setFormError(errorData.error || "Failed to register staff");
             }
         } catch (error) {
             console.error("Create Error:", error);
-            alert("Connection error. Please try again.");
+            setFormError("Connection error. Please try again.");
         } finally {
             setIsSubmitting(false);
         }
@@ -484,24 +615,46 @@ export default function StaffManagement() {
     const openEditModal = (staffMember: any) => {
         setEditingStaff({
             ...staffMember,
+            branch: typeof staffMember.branch === "string" ? staffMember.branch : "",
+            roles: normalizeRoles(staffMember.roles),
+            dateOfJoining: typeof staffMember.dateOfJoining === "string" ? staffMember.dateOfJoining.slice(0, 10) : "",
         });
+        setPasswordMode("keep");
+        setNewPassword("");
+        setConfirmPassword("");
+        setShowPassword(false);
+        setEditError("");
         setIsEditModalOpen(true);
     };
 
     const updateStaff = async () => {
-        if (editingStaff.phoneNumber.length !== 10) return alert("Phone must be 10 digits");
-        if (editingStaff.aadharNumber.length !== 12) return alert("Aadhar must be 12 digits");
-        if (editingStaff.nomineePhoneNumber.length !== 10) return alert("Nominee phone must be 10 digits");
-        if (!editingStaff.nomineeName) return alert("Nominee name is required");
-        if (!editingStaff.nomineeAddress) return alert("Nominee address is required");
+        if (isSubmitting) return;
+        setEditError("");
+        if (!editingStaff) return;
+        const assignmentError = validateAssignment(editingStaff.branch, editingStaff.roles);
+        if (assignmentError) { setEditError(assignmentError); return; }
+        if (!editingStaff.fullName.trim() || !editingStaff.dateOfJoining || Number.isNaN(new Date(editingStaff.dateOfJoining).getTime())) { setEditError("Please enter a name and valid joining date."); return; }
+        if (String(editingStaff.monthlySalary).trim() === "" || !Number.isFinite(Number(editingStaff.monthlySalary)) || Number(editingStaff.monthlySalary) < 0) { setEditError("Please enter a valid non-negative salary."); return; }
+        let passwordUpdate: ReturnType<typeof passwordPayload>;
+        try { passwordUpdate = passwordPayload(passwordMode, newPassword, confirmPassword); }
+        catch (error) { setEditError(error instanceof Error ? error.message : "Invalid password."); return; }
+
+        if (editingStaff.phoneNumber.length !== 10) return setEditError("Phone must be 10 digits");
+        if (editingStaff.aadharNumber.length !== 12) return setEditError("Aadhar must be 12 digits");
+        if (editingStaff.nomineePhoneNumber.length !== 10) return setEditError("Nominee phone must be 10 digits");
+        if (!editingStaff.nomineeName) return setEditError("Nominee name is required");
+        if (!editingStaff.nomineeAddress) return setEditError("Nominee address is required");
 
         setIsSubmitting(true);
         try {
-            const res = await fetch("https://suvarnagold-16e5.vercel.app/api/staff/update", {
+            const res = await fetch("http://suvarnagold-16e5.vercel.app/api/staff/update", {
                 method: "PUT",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                 body: JSON.stringify({
                     staffId: editingStaff.id,
+                    branch: editingStaff.branch.trim(),
+                    roles: normalizeRoles(editingStaff.roles),
+                    ...passwordUpdate,
                     fullName: editingStaff.fullName,
                     dateOfJoining: editingStaff.dateOfJoining,
                     monthlySalary: editingStaff.monthlySalary,
@@ -517,18 +670,24 @@ export default function StaffManagement() {
             });
 
             if (res.ok) {
-                setMessage("Staff Updated Successfully");
+                const result = await res.json();
+                staffCache = null;
+                setNewPassword("");
+                setConfirmPassword("");
+                setPasswordMode("keep");
+                setShowPassword(false);
+                setMessage(result.message || "Staff Updated Successfully");
                 setToast(true);
                 setIsEditModalOpen(false);
                 setEditingStaff(null);
                 await fetchStaff(true);
             } else {
                 const errorData = await res.json();
-                alert(errorData.error || "Failed to update staff");
+                setEditError(errorData.error || "Failed to update staff");
             }
         } catch (error) {
             console.error("Update Error:", error);
-            alert("Connection error. Please try again.");
+            setEditError("Connection error. Please try again.");
         } finally {
             setIsSubmitting(false);
         }
@@ -622,6 +781,9 @@ export default function StaffManagement() {
                                 <div className="pb-4 border-b-2 border-amber-200">
                                     <p className="text-[10px] uppercase font-bold text-slate-400 mb-3">Staff Information</p>
                                     <div className="space-y-2">
+                                        <div className="flex justify-between gap-4"><span>Employee ID</span><span className="font-bold">{selectedStaff.id}</span></div>
+                                        <div className="flex justify-between gap-4"><span>Branch</span><span className="font-bold text-right break-words">{selectedStaff.branch || "Not assigned"}</span></div>
+                                        <div className="flex justify-between gap-4"><span>Roles</span><span className="font-bold text-right">{roleLabel(selectedStaff.roles)}</span></div>
                                         <div className="flex justify-between"><span>Phone</span><span className="font-bold">{selectedStaff.phoneNumber}</span></div>
                                         <div className="flex justify-between"><span>Aadhar</span><span className="font-mono text-xs">{selectedStaff.aadharNumber}</span></div>
                                         {selectedStaff.panCardNumber && <div className="flex justify-between"><span>Pan Card</span><span className="font-mono text-xs">{selectedStaff.panCardNumber}</span></div>}
@@ -688,7 +850,7 @@ export default function StaffManagement() {
                                     <UserCircle className="w-10 h-10" />
                                     <h2 className="text-xl font-serif font-bold">Edit Staff - {editingStaff.fullName}</h2>
                                 </div>
-                                <button onClick={() => { setIsEditModalOpen(false); setEditingStaff(null); }}><X /></button>
+                                <button onClick={closeEditModal} disabled={isSubmitting}><X /></button>
                             </div>
 
                             <div className="p-8 max-h-[90vh] overflow-y-auto">
@@ -771,6 +933,13 @@ export default function StaffManagement() {
                                         />
                                     </div>
 
+                                    <div className="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-blue-100 pt-4">
+                                        <BranchField id="edit-branch" value={editingStaff.branch} options={branchOptions}
+                                            onChange={branch => setEditingStaff({ ...editingStaff, branch })} disabled={isSubmitting} />
+                                        <RoleDropdown id="edit-roles" value={editingStaff.roles}
+                                            onChange={roles => setEditingStaff({ ...editingStaff, roles })} disabled={isSubmitting} />
+                                    </div>
+
                                     {/* Nominee Section Header */}
                                     <div className="col-span-2 mt-4 pt-4 border-t-2 border-blue-100">
                                         <p className="text-[9px] uppercase font-bold text-slate-400 mb-3 flex items-center gap-2">
@@ -829,12 +998,45 @@ export default function StaffManagement() {
                                     </div>
                                 </div>
 
+                                <div className="mt-6 rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
+                                    <label htmlFor="password-action" className="text-sm font-semibold text-slate-800">Staff password</label>
+                                    <select id="password-action" value={passwordMode} disabled={isSubmitting}
+                                        className="w-full rounded-md border border-blue-200 bg-white p-2.5 text-sm"
+                                        onChange={event => { setPasswordMode(event.target.value as PasswordMode); setNewPassword(""); setConfirmPassword(""); setShowPassword(false); setEditError(""); }}>
+                                        <option value="keep">Keep existing password</option>
+                                        <option value="custom">Set a custom password</option>
+                                        <option value="default">Reset to employee ID</option>
+                                    </select>
+                                    {passwordMode === "custom" && (
+                                        <div className="space-y-3">
+                                            <div className="space-y-1">
+                                                <label htmlFor="new-staff-password" className="text-xs font-medium">New password</label>
+                                                <Input id="new-staff-password" type={showPassword ? "text" : "password"}
+                                                    autoComplete="new-password" value={newPassword} disabled={isSubmitting}
+                                                    onChange={event => setNewPassword(event.target.value)} placeholder="At least 8 characters" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label htmlFor="confirm-staff-password" className="text-xs font-medium">Confirm new password</label>
+                                                <Input id="confirm-staff-password" type={showPassword ? "text" : "password"}
+                                                    autoComplete="new-password" value={confirmPassword} disabled={isSubmitting}
+                                                    onChange={event => setConfirmPassword(event.target.value)} />
+                                            </div>
+                                            <label className="flex items-center gap-2 text-xs">
+                                                <input type="checkbox" checked={showPassword} disabled={isSubmitting} onChange={event => setShowPassword(event.target.checked)} /> Show password
+                                            </label>
+                                        </div>
+                                    )}
+                                    {passwordMode === "default" && <p className="text-sm text-amber-800">Saving will replace the password with employee ID <strong>{editingStaff.id}</strong>.</p>}
+                                    {passwordMode === "keep" && <p className="text-xs text-slate-500">Existing passwords stay unchanged. If no password exists yet, it will be initialized to the employee ID.</p>}
+                                </div>
+                                {editError && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{editError}</p>}
+
                                 {/* Action Buttons */}
                                 <div className="flex gap-3 mt-8">
                                     <Button
                                         variant="outline"
                                         className="flex-1 border-slate-300 text-slate-700 hover:bg-slate-100 h-11"
-                                        onClick={() => { setIsEditModalOpen(false); setEditingStaff(null); }}
+                                        onClick={closeEditModal}
                                         disabled={isSubmitting}
                                     >
                                         Cancel
@@ -897,7 +1099,7 @@ export default function StaffManagement() {
                                     <div className="relative flex-1">
                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                         <Input
-                                            placeholder="Search by name or phone..."
+                                            placeholder="Search name, ID, phone, branch or role..."
                                             className="pl-10 bg-white border-gold/10 focus:border-gold"
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
@@ -1058,6 +1260,7 @@ export default function StaffManagement() {
                                                         {s.fullName} <span className="font-sans font-normal text-slate-500">[{s.id}]</span>
                                                     </p>
                                                     <p className="text-xs text-slate-400">{s.phoneNumber}</p>
+                                                    <p className="mt-1 text-xs text-slate-600 break-words">{s.branch || "Branch not assigned"} · {roleLabel(s.roles)}</p>
                                                     <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
                                                         <span className="rounded-full bg-amber-50 px-2 py-1">
                                                             Sales ₹{Number(s.salesAmount ?? 0).toLocaleString("en-IN")}
@@ -1217,6 +1420,15 @@ export default function StaffManagement() {
                                         </div>
                                     </div>
                                 </div>
+
+                                <div className="space-y-4 rounded-lg border border-amber-200/40 bg-amber-50/30 p-4">
+                                    <BranchField id="create-branch" value={form.branch} options={branchOptions}
+                                        onChange={branch => setForm({ ...form, branch })} disabled={isSubmitting} />
+                                    <RoleDropdown id="create-roles" value={form.roles}
+                                        onChange={roles => setForm({ ...form, roles })} disabled={isSubmitting} />
+                                    <p className="text-xs text-slate-600">The initial password will be the employee ID. You can change it from Edit Staff after registration.</p>
+                                </div>
+                                {formError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{formError}</p>}
 
                                 {/* ========== NOMINEE INFORMATION ========== */}
                                 <div>

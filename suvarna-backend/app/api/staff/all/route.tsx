@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
 
+// Always resolve staff credentials and assignments from the current database.
+export const dynamic = "force-dynamic";
+
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Cache-Control": "no-store",
   };
 }
 
@@ -196,18 +200,20 @@ export async function GET(req: Request) {
     // ─────────────────────────────────────────────
     const authHeader = req.headers.get("authorization");
 
-    if (!authHeader?.startsWith("Bearer ")) {
-      return json({ error: "Unauthorized" }, 401);
-    }
+    const match = /^Bearer\s+(\S+)$/i.exec(authHeader ?? "");
+    if (!match) return json({ error: "Unauthorized" }, 401);
 
-    const token = authHeader.slice(7).trim();
-    const decoded: any = verifyToken(token);
-
-    if (!decoded) {
+    let decoded;
+    try {
+      decoded = await verifyToken(match[1]);
+    } catch {
       return json({ error: "Invalid Token" }, 401);
     }
 
-    if (decoded.role !== "SUPER_ADMIN") {
+    if (!decoded || typeof decoded !== "object") {
+      return json({ error: "Invalid Token" }, 401);
+    }
+    if (!("role" in decoded) || decoded.role !== "SUPER_ADMIN") {
       return json({ error: "Forbidden" }, 403);
     }
 
@@ -273,6 +279,26 @@ export async function GET(req: Request) {
     const staff = await prisma.staff.findMany({
       orderBy: {
         createdAt: "desc",
+      },
+      select: {
+        id: true,
+        fullName: true,
+        dateOfJoining: true,
+        monthlySalary: true,
+        gender: true,
+        phoneNumber: true,
+        aadharNumber: true,
+        panCardNumber: true,
+        nomineeName: true,
+        nomineeRelation: true,
+        nomineePhoneNumber: true,
+        nomineeAddress: true,
+        createdAt: true,
+        createdBy: true,
+        roles: true,
+        branch: true,
+        // Server-side only: derive setup status and never serialize this field.
+        passwordHash: true,
       },
     });
 
@@ -353,6 +379,11 @@ export async function GET(req: Request) {
         cardCollected +
         chequeCollected;
 
+      // Status describes setup only; the current schema cannot tell when
+      // a password changed or whether it is still the initial employee ID.
+      const hasPassword = typeof staffMember.passwordHash === "string" &&
+        staffMember.passwordHash.length > 0;
+
       return {
         id: staffMember.id,
         fullName: staffMember.fullName,
@@ -368,6 +399,12 @@ export async function GET(req: Request) {
         nomineeAddress: staffMember.nomineeAddress,
         createdAt: staffMember.createdAt,
         createdBy: staffMember.createdBy,
+
+        // Keep the plural roles array for the frontend multi-select.
+        roles: staffMember.roles ?? [],
+        branch: staffMember.branch ?? null,
+        hasPassword,
+        passwordStatus: hasPassword ? "SET" : "NOT_SET",
 
         // Salesman metrics
         salesAmount:
@@ -430,7 +467,7 @@ export async function GET(req: Request) {
       summary,
     });
   } catch (error) {
-    console.error("Fetch staff error:", error);
+    console.error("Fetch staff operation failed");
 
     return json(
       {

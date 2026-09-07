@@ -130,23 +130,38 @@ model Payment {
   @@index([orderId, paidAt])
   @@index([mode])
 }
+enum StaffRole {
+  CASHIER
+  SALESMAN
+}
+
 model Staff {
-  id                 String   @id
+  id                 String      @id
   fullName           String
   dateOfJoining      DateTime
   monthlySalary      Float
   gender             String
-  phoneNumber        String   @unique
-  aadharNumber       String   @unique
-  panCardNumber      String?  @unique
+  phoneNumber        String      @unique
+  aadharNumber       String      @unique
+  panCardNumber      String?     @unique
   nomineeName        String
   nomineeRelation    String
-  nomineePhoneNumber String   @unique
+  nomineePhoneNumber String      @unique
   nomineeAddress     String
-  createdAt          DateTime @default(now())
+  createdAt          DateTime    @default(now())
   createdBy          String
-}
 
+  // Stores the hashed password, never plain text.
+  passwordHash       String?
+
+  // Nullable to preserve existing employees during migration.
+  branch             String?
+
+  // Assign CASHIER, SALESMAN, or both.
+  roles              StaffRole[] @default([])
+
+  @@index([branch])
+}
 model Product {
   id              String         @id @default(uuid())
   name            String

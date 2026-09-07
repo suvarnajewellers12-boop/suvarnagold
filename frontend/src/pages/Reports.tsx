@@ -502,171 +502,397 @@ const Reports = () => {
 
 const exportToPDF = () => {
     try {
-        const uniqueDates = [...new Set(filteredData.map((p) => format(p.date, "dd-MM-yyyy")))];
+        const uniqueDates = [
+            ...new Set(
+                filteredData.map((p) =>
+                    format(p.date, "dd-MM-yyyy")
+                )
+            ),
+        ];
+
         const isSingleDay = uniqueDates.length === 1;
 
-        // 1. Initialize empty array for rows
         const tableRows: any[][] = [];
 
-        // running totals
-        let totGross = 0, totNet = 0, totItemCost = 0, totSubtotal = 0,
-            totCgst = 0, totSgst = 0,
-            totGoldExGrams = 0, totGoldExVal = 0,
-            totSilverExGrams = 0, totSilverExVal = 0,
-            totCash = 0, totUpi = 0,
-            totCard = 0, totCheque = 0, totGrand = 0, totStoneWt = 0, totStoneCost = 0;
+        // ─────────────────────────────────────────────
+        // Running Totals
+        // ─────────────────────────────────────────────
+        let totGross = 0;
+        let totNet = 0;
+        let totItemCost = 0;
 
-        // 2. Flatten data (Same logic as Excel, but as an array of arrays for jsPDF)
+        let totSubtotal = 0;
+        let totCgst = 0;
+        let totSgst = 0;
+
+        let totGoldExGrams = 0;
+        let totGoldExVal = 0;
+
+        let totSilverExGrams = 0;
+        let totSilverExVal = 0;
+
+        let totCash = 0;
+        let totUpi = 0;
+        let totCard = 0;
+        let totCheque = 0;
+
+        let totGrand = 0;
+
+        let totStoneWt = 0;
+        let totStoneCost = 0;
+
+        // ─────────────────────────────────────────────
+        // Loop purchases
+        // ─────────────────────────────────────────────
         filteredData.forEach((p: any) => {
-            p.items.forEach((item: any) => {
+
+            // ============================================================
+            // PURCHASE / INVOICE LEVEL TOTALS
+            // Add ONLY ONCE per purchase
+            // ============================================================
+
+            totSubtotal += Number(p.subtotal) || 0;
+            totCgst += Number(p.cgst) || 0;
+            totSgst += Number(p.sgst) || 0;
+
+            totGoldExGrams += Number(p.goldExchangeGrams) || 0;
+            totGoldExVal += Number(p.goldExchangeValue) || 0;
+
+            totSilverExGrams += Number(p.silverExchangeGrams) || 0;
+            totSilverExVal += Number(p.silverExchangeValue) || 0;
+
+            totCash += Number(p.payments?.cash) || 0;
+            totUpi += Number(p.payments?.upi) || 0;
+            totCard += Number(p.payments?.card) || 0;
+            totCheque += Number(p.payments?.cheque) || 0;
+
+            totGrand += Number(p.grandTotal) || 0;
+
+            totStoneWt += Number(p.stoneWeight) || 0;
+            totStoneCost += Number(p.stoneCost) || 0;
+
+            // ============================================================
+            // ITEM LEVEL DATA
+            // ============================================================
+
+            p.items.forEach((item: any, itemIndex: number) => {
+
+                // Item-specific totals
                 totGross += Number(item.grossWt) || 0;
                 totNet += Number(item.netWt) || 0;
                 totItemCost += Number(item.itemCost) || 0;
-                totSubtotal += Number(p.subtotal) || 0;
-                totCgst += Number(p.cgst) || 0;
-                totSgst += Number(p.sgst) || 0;
-                totGoldExGrams += Number(p.goldExchangeGrams) || 0;
-                totGoldExVal += Number(p.goldExchangeValue) || 0;
-                totSilverExGrams += Number(p.silverExchangeGrams) || 0;
-                totSilverExVal += Number(p.silverExchangeValue) || 0;
-                totCash += Number(p.payments?.cash) || 0;
-                totUpi += Number(p.payments?.upi) || 0;
-                totCard += Number(p.payments?.card) || 0;
-                totCheque += Number(p.payments?.cheque) || 0;
-                totGrand += Number(p.grandTotal) || 0;
-                totStoneWt += Number(p.stoneWeight) || 0;
-                totStoneCost += Number(p.stoneCost) || 0;
+
+                // Only first item should display invoice-level information
+                const isFirstItem = itemIndex === 0;
 
                 const rowData = [
-                    ...(isSingleDay ? [] : [format(p.date, "dd-MM-yyyy")]),
-                    p.invoice,
-                    p.customer,
-                    p.phone,
+                    ...(isSingleDay
+                        ? []
+                        : [
+                            isFirstItem
+                                ? format(p.date, "dd-MM-yyyy")
+                                : "",
+                        ]),
+
+                    // Invoice information
+                    isFirstItem ? p.invoice : "",
+                    isFirstItem ? p.customer : "",
+                    isFirstItem ? p.phone : "",
+
+                    // Item information
                     item.productName,
                     item.category,
                     item.sku || "N/A",
                     item.huid || "N/A",
                     item.purity,
-                    item.grossWt,
-                    item.netWt,
-                    item.va,
-                    item.itemCost,
-                    p.subtotal,
-                    p.cgst,
-                    p.sgst,
-                    p.goldExchangeName || "None",
-                    p.goldExchangeGrams || 0,
-                    p.goldExchangeValue || 0,
-                    p.silverExchangeName || "None",
-                    p.silverExchangeGrams || 0,
-                    p.silverExchangeValue || 0,
-                    p.payments?.cash || 0,
-                    p.payments?.upi || 0,
-                    p.payments?.card || 0,
-                    p.payments?.cheque || 0,
-                    p.grandTotal,
-                    p.stoneWeight,
-                    p.stoneCost,
+                    Number(item.grossWt) || 0,
+                    Number(item.netWt) || 0,
+                    Number(item.va) || 0,
+                    Number(item.itemCost) || 0,
+
+                    // Purchase totals - FIRST ITEM ONLY
+                    isFirstItem
+                        ? Number(p.subtotal) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.cgst) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.sgst) || 0
+                        : "",
+
+                    // ─────────────────────────────────
+                    // GOLD EXCHANGE
+                    // ─────────────────────────────────
+                    isFirstItem
+                        ? p.goldExchangeName || "None"
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.goldExchangeGrams) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.goldExchangeValue) || 0
+                        : "",
+
+                    // ─────────────────────────────────
+                    // SILVER EXCHANGE
+                    // ─────────────────────────────────
+                    isFirstItem
+                        ? p.silverExchangeName || "None"
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.silverExchangeGrams) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.silverExchangeValue) || 0
+                        : "",
+
+                    // ─────────────────────────────────
+                    // PAYMENTS
+                    // ─────────────────────────────────
+                    isFirstItem
+                        ? Number(p.payments?.cash) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.payments?.upi) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.payments?.card) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.payments?.cheque) || 0
+                        : "",
+
+                    // Grand Total
+                    isFirstItem
+                        ? Number(p.grandTotal) || 0
+                        : "",
+
+                    // Stone
+                    isFirstItem
+                        ? Number(p.stoneWeight) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.stoneCost) || 0
+                        : "",
                 ];
+
                 tableRows.push(rowData);
             });
         });
 
-        // 3. Define Table Headers
+        // ─────────────────────────────────────────────
+        // Table Headers
+        // ─────────────────────────────────────────────
+
         const tableHeaders = [
             [
                 ...(isSingleDay ? [] : ["Date"]),
-                "Invoice", "Customer", "Phone", "Product Name",
-                "Category", "SKU", "HUID", "Purity", "Gross Wt(g)",
-                "Net Wt(g)", "VA(%)", "Item Cost", "Subtotal", "CGST",
-                "SGST", "Gold Ex. Name", "Gold Ex. Grams", "Gold Ex. Value",
-                "Silver Ex. Name", "Silver Ex. Grams", "Silver Ex. Value",
-                "Cash", "UPI", "Card", "Cheque", "Total", "Stone Wt", "Stone Cost"
-            ]
+
+                "Invoice",
+                "Customer",
+                "Phone",
+
+                "Product Name",
+                "Category",
+                "SKU",
+                "HUID",
+                "Purity",
+
+                "Gross Wt(g)",
+                "Net Wt(g)",
+                "VA(%)",
+                "Item Cost",
+
+                "Subtotal",
+                "CGST",
+                "SGST",
+
+                "Gold Ex. Name",
+                "Gold Ex. Grams",
+                "Gold Ex. Value",
+
+                "Silver Ex. Name",
+                "Silver Ex. Grams",
+                "Silver Ex. Value",
+
+                "Cash",
+                "UPI",
+                "Card",
+                "Cheque",
+
+                "Total",
+
+                "Stone Wt",
+                "Stone Cost",
+            ],
         ];
 
-        // ── Totals row ─────────────────────────────────────────────────
+        // ─────────────────────────────────────────────
+        // TOTAL ROW
+        // ─────────────────────────────────────────────
+
         const totalsRow = [
             ...(isSingleDay ? [] : [""]),
-            "TOTAL", "", "", "", "", "", "", "",
-            totGross.toFixed(2),
-            totNet.toFixed(2),
+
+            "TOTAL",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+
+            // Item totals
+            totGross.toFixed(3),
+            totNet.toFixed(3),
             "",
             totItemCost.toFixed(2),
+
+            // Invoice totals
             totSubtotal.toFixed(2),
             totCgst.toFixed(2),
             totSgst.toFixed(2),
+
+            // Gold Exchange
             "",
             totGoldExGrams.toFixed(3),
             totGoldExVal.toFixed(2),
+
+            // Silver Exchange
             "",
             totSilverExGrams.toFixed(3),
             totSilverExVal.toFixed(2),
+
+            // Payments
             totCash.toFixed(2),
             totUpi.toFixed(2),
             totCard.toFixed(2),
             totCheque.toFixed(2),
+
+            // Grand Total
             totGrand.toFixed(2),
-            totStoneWt.toFixed(2),
+
+            // Stone
+            totStoneWt.toFixed(3),
             totStoneCost.toFixed(2),
         ];
+
         tableRows.push(totalsRow);
 
-        // 4. Create jsPDF instance
-        const doc = new jsPDF('l', 'pt', 'a3');
+        // ─────────────────────────────────────────────
+        // PDF
+        // ─────────────────────────────────────────────
 
-        // Title
+        const doc = new jsPDF("l", "pt", "a3");
+
         doc.setFontSize(14);
-        doc.text("Detailed Sales Report", 40, 40);
 
-        // If single day, print the date once at the top instead of per-row
+        doc.text(
+            "Detailed Sales Report",
+            40,
+            40
+        );
+
         let startY = 50;
+
         if (isSingleDay) {
+
             doc.setFontSize(10);
-            doc.text(`Date: ${uniqueDates[0]}`, 40, 58);
+
+            doc.text(
+                `Date: ${uniqueDates[0]}`,
+                40,
+                58
+            );
+
             startY = 68;
         }
 
-        // 5. Generate the Table
+        // ─────────────────────────────────────────────
+        // Generate Table
+        // ─────────────────────────────────────────────
+
         autoTable(doc, {
+
             head: tableHeaders,
+
             body: tableRows,
+
             startY,
+
             styles: {
                 fontSize: 7,
                 cellPadding: 3,
-                overflow: 'linebreak'
+                overflow: "linebreak",
+                valign: "middle",
             },
+
             headStyles: {
                 fillColor: [41, 128, 185],
                 textColor: 255,
-                fontStyle: 'bold'
+                fontStyle: "bold",
             },
+
             alternateRowStyles: {
-                fillColor: [245, 245, 245]
+                fillColor: [245, 245, 245],
             },
-            // bold + highlight the totals row (last row)
+
             didParseCell: (data) => {
-                if (data.row.index === tableRows.length - 1 && data.section === 'body') {
-                    data.cell.styles.fontStyle = 'bold';
-                    data.cell.styles.fillColor = [230, 230, 230];
+
+                // TOTAL row
+                if (
+                    data.section === "body" &&
+                    data.row.index === tableRows.length - 1
+                ) {
+
+                    data.cell.styles.fontStyle = "bold";
+                    data.cell.styles.fillColor = [
+                        230,
+                        230,
+                        230,
+                    ];
                 }
             },
         });
 
-        // 6. Download the PDF
-        const fileName = `Suvarna_Detailed_Export_${format(new Date(), "ddMMyy")}.pdf`;
+        // ─────────────────────────────────────────────
+        // Save
+        // ─────────────────────────────────────────────
+
+        const fileName =
+            `Suvarna_Detailed_Export_${format(
+                new Date(),
+                "ddMMyy"
+            )}.pdf`;
+
         doc.save(fileName);
 
-        // 7. Update UI State
-        setToastMessage("PDF exported with separate item columns");
+        setToastMessage(
+            "PDF exported successfully with correct totals"
+        );
+
         setShowToast(true);
 
     } catch (err) {
-        console.error("PDF Export Error:", err);
+
+        console.error(
+            "PDF Export Error:",
+            err
+        );
     }
 };
-
 
     const handleReceiptAction = async (purchase: any, ratesData: any, mode: "download" | "print") => {
         if (!ratesData) return;
