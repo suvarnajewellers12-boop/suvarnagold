@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     const token = authHeader.split(" ")[1];
     const decoded = verifyToken(token) as { id: string; role: string };
 
-    if (!decoded || decoded.role !== "SUPER_ADMIN") {
+    if (!decoded || decoded.role !== "SUPER_ADMIN" && decoded.role !== "ADMIN") {
       return new NextResponse(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: corsHeaders(),
@@ -83,17 +83,17 @@ export async function POST(req: Request) {
       });
     }
 
-    const initialPayment = Math.max(0, Number(advanceCash) || 0);
+    const rawInitialPayment = Math.max(0, Number(advanceCash) || 0);
     const mode = (advancePaymentMode || "CASH") as PaymentMode;
 
-    if (initialPayment > 0 && !PAYMENT_MODES.includes(mode)) {
+    if (rawInitialPayment > 0 && !PAYMENT_MODES.includes(mode)) {
       return new NextResponse(JSON.stringify({ error: "Invalid initial payment mode" }), {
         status: 400,
         headers: corsHeaders(),
       });
     }
 
-    if (initialPayment > 0 && mode === "CHECK" && !String(advanceCheckNumber || "").trim()) {
+    if (rawInitialPayment > 0 && mode === "CHECK" && !String(advanceCheckNumber || "").trim()) {
       return new NextResponse(JSON.stringify({ error: "Check number is required for check payment" }), {
         status: 400,
         headers: corsHeaders(),
@@ -117,11 +117,25 @@ export async function POST(req: Request) {
     const subtotalBase = goldValue + vaAmount + stoneCostValue;
     const derivedOriginalCartValue = subtotalBase + subtotalBase * 0.03;
 
-    const totalAmountValue = Math.max(0, Number(totalAmount) || 0);
+    const roundMoney = (value: number) =>
+      Math.round((value + Number.EPSILON) * 100) / 100;
+
+    const totalAmountValue = roundMoney(Math.max(0, Number(totalAmount) || 0));
+
+    // The UI previously displayed the projected total rounded to a whole rupee.
+    // If an operator enters that displayed whole-rupee amount as the first payment,
+    // clamp it to the exact payable amount instead of rejecting a full settlement.
+    const initialPayment =
+      rawInitialPayment > totalAmountValue &&
+      Math.abs(rawInitialPayment - Math.round(totalAmountValue)) < 0.01
+        ? totalAmountValue
+        : roundMoney(rawInitialPayment);
 
     if (initialPayment > totalAmountValue + 0.01) {
       return new NextResponse(
-        JSON.stringify({ error: "Initial payment cannot be greater than the total order amount" }),
+        JSON.stringify({
+          error: `Initial payment cannot be greater than the total order amount (${totalAmountValue.toFixed(2)})`,
+        }),
         { status: 400, headers: corsHeaders() }
       );
     }
@@ -149,7 +163,7 @@ export async function POST(req: Request) {
 
         // Cached payment totals.
         advanceCash: initialPayment,
-        balanceAmount: Math.max(0, totalAmountValue - initialPayment),
+        balanceAmount: roundMoney(Math.max(0, totalAmountValue - initialPayment)),
 
         weightAdjustmentGrams: 0,
         adjustmentCost: 0,

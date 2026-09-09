@@ -1281,7 +1281,7 @@ const exportToPDF = () => {
                         const goldGrams = purchase.goldExchangeGrams > 0
                             ? ` (${Number(purchase.goldExchangeGrams).toFixed(3)}g)`
                             : "";
-                        payRow(`Gold Exchange${goldName}${goldGrams}`, purchase.goldExchangeValue);
+                        payRow(`Gold Exchange${goldName}$`, purchase.goldExchangeValue);
                     }
                     if (purchase.silverExchangeValue > 0) {
                         const silverName = purchase.silverExchangeName && purchase.silverExchangeName !== "None"
@@ -1290,7 +1290,7 @@ const exportToPDF = () => {
                         const silverGrams = purchase.silverExchangeGrams > 0
                             ? ` (${Number(purchase.silverExchangeGrams).toFixed(3)}g)`
                             : "";
-                        payRow(`Silver Exchange${silverName}${silverGrams}`, purchase.silverExchangeValue);
+                        payRow(`Silver Exchange${silverName}`, purchase.silverExchangeValue);
                     }
                     if (purchase.payments.card > 0)
                         payRow("Debit / Credit Card", purchase.payments.card);

@@ -5,7 +5,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { format } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
-
+import { AdminSidebar } from "@/components/AdminSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
@@ -1003,7 +1003,7 @@ export default function OrderManagementPage() {
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-[#FCFBF7] font-sans">
-        <DashboardSidebar />
+        <AdminSidebar />
 
         <main className="flex-1 min-w-0 flex flex-col min-h-screen text-left">
           <header className="bg-white/95 backdrop-blur-md border-b border-gold/10 px-6 lg:px-10 py-5 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 sticky top-0 z-30">

@@ -251,6 +251,7 @@ const AdminProducts = () => {
       const data = await res.json();
       const fetched = data.products || [];
       productsCache = fetched;
+      console.log("Fetched products:", fetched.length);
       setProducts(fetched);
     } catch (err) {
       console.error("Fetch Error:", err);

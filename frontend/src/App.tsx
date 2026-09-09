@@ -10,7 +10,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-
+import  AdminCustomerorder  from "./pages/admin/AdminCustomerorder";
 import Index from "./pages/Index";
 import EstimationTerminal from "./pages/EstimationTerminal";
 import Login from "./pages/Login";
@@ -185,11 +185,13 @@ const App = () => (
             <Route path="/admin/products" element={<AdminProducts />} />
             <Route path="/admin/billing" element={<AdminBilling />} />
             <Route path="/admin/reports" element={<AdminReports />} />
+            <Route path ="/admin/order" element={<AdminCustomerorder />} />
             <Route path="/admin/credit-notes" element={<AdminCreditNotes />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/create-scheme" element={<AdminCreateScheme />} />
             <Route path="/admin/customers" element={<AdminCustomerManagement />} />
             <Route path="/admin/photos" element={<AdminProductList />} />
+
 
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />

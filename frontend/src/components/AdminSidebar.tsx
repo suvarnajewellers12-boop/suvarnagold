@@ -34,6 +34,7 @@ const menuItems = [
   { title: "Billing", url: "/admin/billing", icon: Receipt },
   { title: "Reports", url: "/admin/reports", icon: FileText },
   // { title: "Settings", url: "/admin/settings", icon: Settings },
+  {title:"Order",url:"/admin/order",icon:Settings},
   {title:"credit notes",url:"/admin/credit-notes",icon:Settings},
   {title:"Photos",url:"/admin/photos",icon:Settings},
 ];

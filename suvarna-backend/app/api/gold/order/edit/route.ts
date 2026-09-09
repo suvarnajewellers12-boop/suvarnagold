@@ -24,7 +24,7 @@ export async function PATCH(req: Request) {
     const token = authHeader.split(" ")[1];
     const decoded: any = verifyToken(token);
 
-    if (!decoded || decoded.role !== "SUPER_ADMIN") {
+    if (!decoded || decoded.role !== "SUPER_ADMIN" && decoded.role !== "ADMIN") {
       return new NextResponse(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: corsHeaders() });
     }
 

@@ -27,7 +27,7 @@ export async function GET(req: Request) {
     const token = authHeader.split(" ")[1];
     const decoded = verifyToken(token) as unknown as { role?: string };
 
-    if (decoded.role !== "SUPER_ADMIN") {
+    if (decoded.role !== "SUPER_ADMIN" && decoded.role !== "ADMIN") {
       return new NextResponse(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: corsHeaders(),
