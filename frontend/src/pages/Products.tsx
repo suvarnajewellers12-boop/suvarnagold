@@ -349,6 +349,8 @@ const Products = () => {
     });
   }, []);
 
+
+
   const filteredProductsRef = useRef<any[]>([]);
 
   /**
@@ -688,6 +690,33 @@ const Products = () => {
     );
   }, [products, filters, searchQuery]);
 
+
+  const metalWeightTotals = useMemo(() => {
+    return filteredProducts.reduce(
+      (totals, product) => {
+        const metal = String(product.metalType || "")
+          .trim()
+          .toLowerCase();
+
+        const netWeight = Number(product.netWeight) || 0;
+
+        if (metal === "gold") {
+          totals.gold += netWeight;
+        }
+
+        if (metal === "silver") {
+          totals.silver += netWeight;
+        }
+
+        return totals;
+      },
+      {
+        gold: 0,
+        silver: 0,
+      }
+    );
+  }, [filteredProducts]);
+
   // Keep ref in sync so callbacks always see latest filteredProducts
   useEffect(() => { filteredProductsRef.current = filteredProducts; }, [filteredProducts]);
 
@@ -975,10 +1004,58 @@ const Products = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <Button variant="ghost" onClick={resetFilters}
-                className="h-11 px-6 text-[10px] font-black uppercase tracking-widest text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all">
-                Reset Filters
-              </Button>
+              <div className="flex items-center gap-3 ml-auto relative z-10">
+                {/* RESET FILTER */}
+                <Button
+                  variant="ghost"
+                  onClick={resetFilters}
+                  className="h-11 px-5 text-[10px] font-black uppercase tracking-widest text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                >
+                  Reset Filters
+                </Button>
+
+                {/* GOLD TOTAL */}
+                <div className="h-14 min-w-[150px] px-4 rounded-xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50 flex items-center gap-3 shadow-sm">
+                  <div className="w-9 h-9 rounded-lg bg-amber-500 flex items-center justify-center shadow-sm">
+                    <span className="text-white text-sm font-black">Au</span>
+                  </div>
+
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-[0.15em] text-amber-600">
+                      Gold Net Weight
+                    </p>
+
+                    <p className="text-lg leading-none mt-1 font-mono font-black text-amber-950">
+                      {metalWeightTotals.gold.toLocaleString("en-IN", {
+                        minimumFractionDigits: 3,
+                        maximumFractionDigits: 3,
+                      })}
+                      <span className="ml-1 text-[10px] font-bold text-amber-600">g</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* SILVER TOTAL */}
+                <div className="h-14 min-w-[150px] px-4 rounded-xl border-2 border-slate-200 bg-gradient-to-br from-slate-50 to-gray-100 flex items-center gap-3 shadow-sm">
+                  <div className="w-9 h-9 rounded-lg bg-slate-500 flex items-center justify-center shadow-sm">
+                    <span className="text-white text-sm font-black">Ag</span>
+                  </div>
+
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-[0.15em] text-slate-500">
+                      Silver Net Weight
+                    </p>
+
+                    <p className="text-lg leading-none mt-1 font-mono font-black text-slate-900">
+                      {metalWeightTotals.silver.toLocaleString("en-IN", {
+                        minimumFractionDigits: 3,
+                        maximumFractionDigits: 3,
+                      })}
+                      <span className="ml-1 text-[10px] font-bold text-slate-500">g</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="py-4"><GoldDivider opacity={30} /></div>
