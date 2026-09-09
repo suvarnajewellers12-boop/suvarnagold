@@ -1282,19 +1282,19 @@ export default function OrderManagementPage() {
 
       {/* ================= VIEW & SETTLE DIALOG ================= */}
       <Dialog open={!!viewingOrder} onOpenChange={() => setViewingOrder(null)}>
-        <DialogContent className="max-w-5xl rounded-[3rem] p-0 overflow-hidden border-gold/20 shadow-2xl bg-white outline-none">
-          <DialogHeader className="p-12 bg-slate-900 text-white flex flex-row justify-between items-center relative overflow-hidden">
+        <DialogContent className="max-w-5xl w-[calc(100vw-2rem)] max-h-[92vh] rounded-[3rem] p-0 overflow-hidden border-gold/20 shadow-2xl bg-white outline-none flex flex-col">
+          <DialogHeader className="shrink-0 p-6 md:p-8 lg:p-10 bg-slate-900 text-white flex flex-col lg:flex-row lg:justify-between lg:items-center gap-6 relative overflow-hidden">
             <div className="absolute top-0 right-0 p-20 bg-gold/5 rounded-full -mr-10 -mt-10 blur-3xl pointer-events-none" />
             <div className="relative z-10 text-left">
               <div className="flex items-center gap-3 text-gold mb-3">
                 <Hash className="w-6 h-6" />
                 <span className="text-lg font-mono font-bold tracking-[0.3em] uppercase">{viewingOrder?.orderId}</span>
               </div>
-              <DialogTitle className="text-4xl font-serif font-bold italic tracking-tight">Booking Ledger</DialogTitle>
+              <DialogTitle className="text-2xl md:text-3xl lg:text-4xl font-serif font-bold italic tracking-tight">Booking Ledger</DialogTitle>
               <p className="text-slate-400 text-xs mt-2 uppercase tracking-[0.1em] font-bold">Client Transaction Record</p>
             </div>
 
-            <div className="flex gap-4 relative z-10">
+            <div className="flex flex-wrap gap-3 relative z-10">
               <div className="flex flex-col gap-2">
                 <p className="text-[10px] uppercase text-slate-300 font-bold tracking-widest text-center">Edit</p>
                 <Button
@@ -1336,7 +1336,7 @@ export default function OrderManagementPage() {
             </div>
           </DialogHeader>
 
-          <div className="p-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 text-left bg-white">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6 md:p-8 lg:p-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 text-left bg-white custom-scrollbar">
             {/* METAL COMPOSITION */}
             <div className="space-y-6">
               <div className="flex items-center gap-3 border-b border-gold/10 pb-4">
