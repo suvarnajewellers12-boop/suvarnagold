@@ -67,7 +67,10 @@ const BillingPOS = () => {
 
   const [isExchangeApplied, setIsExchangeApplied] = useState(() => getSaved("pos_exchange_active", false));
   const [exchangeData, setExchangeData] = useState(() => getSaved("pos_exchange_data", { name: "", grams: 0, discount: 0 }));
-
+  const [isSilverExchangeApplied, setIsSilverExchangeApplied] = useState(() => getSaved("pos_silver_exchange_active", false));
+  const [silverExchangeData, setSilverExchangeData] = useState(() =>
+    getSaved("pos_silver_exchange_data", { name: "", grams: 0, discount: 0 })
+  );
   const [checkoutStep, setCheckoutStep] = useState(1);
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
   const [showToast, setShowToast] = useState(false);
@@ -75,6 +78,11 @@ const BillingPOS = () => {
 
   const [paymentMethods, setPaymentMethods] = useState({ cash: false, upi: false, card: false, cheque: false });
   const [paymentAmounts, setPaymentAmounts] = useState({ cash: 0, upi: 0, card: 0, cheque: 0 });
+  const [staffList, setStaffList] = useState<any[]>(() => getSaved("pos_staff_list", []));
+  const [isStaffLoading, setIsStaffLoading] = useState(false);
+  const [staffLoadError, setStaffLoadError] = useState("");
+  const [selectedSalesmanId, setSelectedSalesmanId] = useState<string>(() => getSaved("pos_selected_salesman", ""));
+  const [selectedCashierId, setSelectedCashierId] = useState<string>(() => getSaved("pos_selected_cashier", ""));
 
   // Credit Note Coupon Mode
   const [isCreditNoteCoupon, setIsCreditNoteCoupon] = useState(() => getSaved("pos_credit_note_mode", false));
@@ -101,8 +109,12 @@ const BillingPOS = () => {
     setResendCountdown(0);
     setIsExchangeApplied(false);
     setExchangeData({ name: "", grams: 0, discount: 0 });
+    setIsSilverExchangeApplied(false);
+    setSilverExchangeData({ name: "", grams: 0, discount: 0 });
     setPaymentMethods({ cash: false, upi: false, card: false, cheque: false });
     setPaymentAmounts({ cash: 0, upi: 0, card: 0, cheque: 0 });
+    setSelectedSalesmanId("");
+    setSelectedCashierId("");
     setIsCreditNoteCoupon(false);
     setSearch("");
     setShowDropdown(false);
@@ -117,8 +129,13 @@ const BillingPOS = () => {
     sessionStorage.setItem("pos_otp_verified", JSON.stringify(isOtpVerified));
     sessionStorage.setItem("pos_exchange_active", JSON.stringify(isExchangeApplied));
     sessionStorage.setItem("pos_exchange_data", JSON.stringify(exchangeData));
+    sessionStorage.setItem("pos_silver_exchange_active", JSON.stringify(isSilverExchangeApplied));
+    sessionStorage.setItem("pos_silver_exchange_data", JSON.stringify(silverExchangeData));
     sessionStorage.setItem("pos_credit_note_mode", JSON.stringify(isCreditNoteCoupon));
-  }, [cart, customer, couponData, couponCode, managerDiscountPercent, isOtpVerified, isExchangeApplied, exchangeData, isCreditNoteCoupon]);
+    sessionStorage.setItem("pos_staff_list", JSON.stringify(staffList));
+    sessionStorage.setItem("pos_selected_salesman", JSON.stringify(selectedSalesmanId));
+    sessionStorage.setItem("pos_selected_cashier", JSON.stringify(selectedCashierId));
+  }, [cart, customer, couponData, couponCode, managerDiscountPercent, isOtpVerified, isExchangeApplied, exchangeData, isSilverExchangeApplied, silverExchangeData, isCreditNoteCoupon, staffList, selectedSalesmanId, selectedCashierId]);
 
   useEffect(() => {
     if (resendCountdown <= 0) return;
@@ -163,8 +180,9 @@ const BillingPOS = () => {
       id: item.id,
       name: item.name,
       manualBasePrice: item.manualBasePrice,
+      pieceCost: item.pieceCost,
       grams: item.grams,
-      netWeight: item.netWeight,
+      netWeight: item.grams-(item.stoneWeight || 0),
       carats: item.carats,
       va: item.va,
       stoneCost: item.stoneCost
@@ -174,10 +192,14 @@ const BillingPOS = () => {
       console.log("Using manual base price:", item.manualBasePrice);
       return Number(item.manualBasePrice);
     }
+    const isSilverPieceItem = String(item.metalType || "").toLowerCase() === "silver" && (!item.grams || Number(item.grams) === 0);
+    if (isSilverPieceItem && item.pieceCost !== undefined && item.pieceCost !== null) {
+      return Number(item.pieceCost);
+    }
     if (!liveRates || !item.grams) return 0;
 
     const rate = getRateForItem(item);
-    const netWeight = parseFloat(item.netWeight || item.grams);
+    const netWeight = parseFloat(item.grams- (item.stoneWeight || 0) || item.grams);
     const baseAmount = rate * netWeight;
     const vaPercent = parseFloat(item.va || 0);
     const vaAmount = baseAmount * (vaPercent / 100);
@@ -205,7 +227,7 @@ const BillingPOS = () => {
       </div>
     );
     const rate = getRateForItem(item);
-    const netWeight = parseFloat(item.netWeight || item.grams);
+    const netWeight = parseFloat(item.grams-(item.stoneWeight || 0) || item.grams);
     const baseAmount = netWeight * rate;
     const vaPercent = parseFloat(item.va || 0);
     const vaAmt = baseAmount * (vaPercent / 100);
@@ -349,6 +371,7 @@ const BillingPOS = () => {
 
   // Exchange value as payment contribution
   const exchangePaymentValue = isExchangeApplied ? (exchangeData.discount || 0) : 0;
+  const silverExchangePaymentValue = isSilverExchangeApplied ? (silverExchangeData.discount || 0) : 0;
 
   // ==========================================
   // 5. PAYMENT METHODS
@@ -368,6 +391,7 @@ const BillingPOS = () => {
       .filter(([, active]) => active)
       .reduce((sum, [method]) => sum + (paymentAmounts[method as keyof typeof paymentAmounts] || 0), 0)
     + exchangePaymentValue
+    + silverExchangePaymentValue
   );
 
   const remainingToPay = Math.round(total - totalPaidSoFar);
@@ -387,7 +411,12 @@ const BillingPOS = () => {
       setShowToast(true);
       return;
     }
-    const newCartItem = { ...product, quantity: 1 };
+    const isSilverPieceItem = String(product.metalType || "").toLowerCase() === "silver" && (!product.grams || Number(product.grams) === 0);
+    const newCartItem = {
+      ...product,
+      quantity: 1,
+      manualBasePrice: product.manualBasePrice ?? (isSilverPieceItem ? Number(product.pieceCost || 0) : undefined),
+    };
     console.log("Item Added to Cart:", newCartItem);
     setCart(prev => [...prev, newCartItem]);
     setToastMessage(`${product.name} Secured`);
@@ -614,9 +643,16 @@ const BillingPOS = () => {
             jewelleryexchangediscount: exchangePaymentValue || 0,
             excahngejewellryname: isExchangeApplied ? exchangeData.name : null,
             excahngejewellrygrams: isExchangeApplied ? exchangeData.grams : null,
+            silverExchangeDiscount: silverExchangePaymentValue || 0,
+            silverExchangeName: isSilverExchangeApplied ? silverExchangeData.name : null,
+            silverExchangeGrams: isSilverExchangeApplied ? silverExchangeData.grams : null,
             discountAmount: managerWaiver || 0,
             finalAmount: total,
             couponDiscount: totalCouponDiscount || 0,
+            salesmanId: selectedSalesmanId || null,
+            salesmanName: staffList.find(s => s.id === selectedSalesmanId)?.fullName || null,
+            cashierId: selectedCashierId || null,
+            cashierName: staffList.find(s => s.id === selectedCashierId)?.fullName || null,
             items: cart.map(item => ({
               productId: item.id,
               name: item.name,
@@ -630,7 +666,8 @@ const BillingPOS = () => {
             upi: paymentAmounts.upi,
             card: paymentAmounts.card,
             cheque: paymentAmounts.cheque,
-            oldGoldExchange: exchangePaymentValue
+            oldGoldExchange: exchangePaymentValue,
+            oldSilverExchange: silverExchangePaymentValue
           }
         }),
       });
@@ -671,13 +708,78 @@ const BillingPOS = () => {
     }
   };
 
+  const fetchStaffList = useCallback(async () => {
+    if (!token) return;
+
+    setIsStaffLoading(true);
+    setStaffLoadError("");
+
+    try {
+      const res = await fetch(
+        "https://suvarnagold-16e5.vercel.app/api/staff/all",
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          cache: "no-store",
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || "Unable to fetch employee details.");
+      }
+
+      // Support the response used by Billing.tsx plus common API wrappers.
+      const employees = Array.isArray(data?.staff)
+        ? data.staff
+        : Array.isArray(data?.staffs)
+          ? data.staffs
+          : Array.isArray(data?.employees)
+            ? data.employees
+            : Array.isArray(data?.data)
+              ? data.data
+              : [];
+
+      const normalizedEmployees = employees
+        .filter((employee: any) => employee && employee.id)
+        .map((employee: any) => ({
+          ...employee,
+          fullName:
+            employee.fullName ||
+            employee.name ||
+            employee.staffName ||
+            employee.employeeName ||
+            employee.username ||
+            "Unnamed Employee",
+        }));
+
+      setStaffList(normalizedEmployees);
+      sessionStorage.setItem("pos_staff_list", JSON.stringify(normalizedEmployees));
+    } catch (error: any) {
+      console.error("Error fetching staff list:", error);
+      setStaffLoadError(error?.message || "Unable to load employees.");
+      setStaffList([]);
+    } finally {
+      setIsStaffLoading(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     const init = async () => {
       try {
         const [r, p] = await Promise.all([
           fetch("https://suvarnagold-16e5.vercel.app/api/rates"),
-          fetch("https://suvarnagold-16e5.vercel.app/api/products/all", { headers: { Authorization: `Bearer ${token}` } })
+          fetch("https://suvarnagold-16e5.vercel.app/api/products/all", {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          }),
+          fetchStaffList(),
         ]);
+
         setLiveRates(await r.json());
         const prodJson = await p.json();
         setInventory(prodJson.products || []);
@@ -685,8 +787,9 @@ const BillingPOS = () => {
         console.error("Initialization Critical Error", e);
       }
     };
+
     if (token) init();
-  }, [token]);
+  }, [token, fetchStaffList]);
 
   const filteredProducts = useMemo(() => {
     if (!search) return [];
@@ -1205,7 +1308,7 @@ const BillingPOS = () => {
                                   className="accent-gold h-5 w-5 cursor-pointer rounded"
                                 />
                                 <RefreshCcw className={cn("text-amber-600", isExchangeApplied && "animate-spin-slow")} size={14} />
-                                <span className="text-[10px] font-black uppercase tracking-tighter">Old Gold Exchange</span>
+                                <span className="text-[10px] font-black uppercase tracking-tighter">Old Jewellery Exchange</span>
                               </div>
                               {/* Show exchange value as payment contribution when entered */}
                               {isExchangeApplied && exchangePaymentValue > 0 && (
@@ -1246,10 +1349,70 @@ const BillingPOS = () => {
                               </div>
                             )}
                           </div>
+
+                          {/* OLD SILVER EXCHANGE AS PAYMENT METHOD */}
+                          <div
+                            className={cn(
+                              "col-span-2 p-5 rounded-3xl border-4 transition-all duration-300",
+                              isSilverExchangeApplied
+                                ? "border-slate-400 bg-slate-50/60 shadow-lg"
+                                : "opacity-40 bg-slate-100 border-transparent"
+                            )}
+                          >
+                            <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isSilverExchangeApplied}
+                                  onChange={(e) => setIsSilverExchangeApplied(e.target.checked)}
+                                  className="accent-gold h-5 w-5 cursor-pointer rounded"
+                                />
+                                <RefreshCcw className={cn("text-slate-500", isSilverExchangeApplied && "animate-spin-slow")} size={14} />
+                                <span className="text-[10px] font-black uppercase tracking-tighter">Old Silver Exchange</span>
+                              </div>
+                              {/* Show silver exchange value as payment contribution when entered */}
+                              {isSilverExchangeApplied && silverExchangePaymentValue > 0 && (
+                                <span className="text-[10px] font-black text-slate-600 bg-slate-200 px-3 py-1 rounded-full">
+                                  ₹{silverExchangePaymentValue.toLocaleString()} credited
+                                </span>
+                              )}
+                            </div>
+                            {isSilverExchangeApplied && (
+                              <div className="space-y-4 animate-in fade-in slide-in-from-top-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                  <Input
+                                    placeholder="Description"
+                                    value={silverExchangeData.name}
+                                    onChange={(e) => setSilverExchangeData({ ...silverExchangeData, name: e.target.value })}
+                                    className="h-11 rounded-xl text-xs font-bold"
+                                  />
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder="Net Wt (g)"
+                                    value={silverExchangeData.grams || ""}
+                                    onChange={(e) => setSilverExchangeData({ ...silverExchangeData, grams: Number(e.target.value) })}
+                                    className="h-11 rounded-xl text-xs font-bold"
+                                  />
+                                </div>
+                                <div className="relative">
+                                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold">₹</span>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder="Approved Exchange Value"
+                                    className="h-12 pl-10 rounded-xl font-black text-lg bg-white border-slate-200"
+                                    value={silverExchangeData.discount || ""}
+                                    onChange={(e) => setSilverExchangeData({ ...silverExchangeData, discount: Number(e.target.value) })}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         {/* PAYMENT SUMMARY BREAKDOWN */}
-                        {(Object.values(paymentMethods).some(Boolean) || (isExchangeApplied && exchangePaymentValue > 0)) && (
+                        {(Object.values(paymentMethods).some(Boolean) || (isExchangeApplied && exchangePaymentValue > 0) || (isSilverExchangeApplied && silverExchangePaymentValue > 0)) && (
                           <div className="space-y-2 pt-4 border-t-2 border-gold/10">
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Payment Breakdown</p>
                             {Object.entries(paymentMethods).map(([method, active]) =>
@@ -1266,14 +1429,91 @@ const BillingPOS = () => {
                               <div className="flex justify-between text-[11px] font-black text-amber-700 uppercase bg-amber-50 px-4 py-2 rounded-xl border border-amber-100">
                                 <span className="flex items-center gap-2">
                                   <RefreshCcw size={10} className="text-amber-600" />
-                                  Old Gold Exchange
+                                  Old Jewellery Exchange
                                   {exchangeData.name && <span className="text-amber-500 normal-case font-medium">({exchangeData.name})</span>}
                                 </span>
                                 <span>₹{exchangePaymentValue.toLocaleString()}</span>
+                              </div>                              
+                            )}
+                            {isSilverExchangeApplied && silverExchangePaymentValue > 0 && (
+                              <div className="flex justify-between text-[11px] font-black text-slate-600 uppercase bg-slate-50 px-4 py-2 rounded-xl border border-slate-200">
+                                <span className="flex items-center gap-2">
+                                  <RefreshCcw size={10} className="text-slate-500" />
+                                  Old Silver Exchange
+                                  {silverExchangeData.name && <span className="text-slate-500 normal-case font-medium">({silverExchangeData.name})</span>}
+                                </span>
+                                <span>₹{silverExchangePaymentValue.toLocaleString()}</span>
                               </div>
                             )}
                           </div>
+
+                          
                         )}
+
+                        <div className="space-y-4 pt-4 border-t-2 border-gold/10">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2 text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                              <User size={14} /> Assign Staff
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={fetchStaffList}
+                              disabled={isStaffLoading}
+                              className="inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-gold hover:text-slate-900 disabled:opacity-50"
+                            >
+                              <RefreshCcw size={12} className={cn(isStaffLoading && "animate-spin")} />
+                              {isStaffLoading ? "Loading" : "Refresh Staff"}
+                            </button>
+                          </div>
+
+                          {staffLoadError && (
+                            <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-600">
+                              {staffLoadError}
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <label className="space-y-2 text-[11px] font-black uppercase text-slate-600">
+                              Seller / Salesman
+                              <select
+                                value={selectedSalesmanId}
+                                onChange={(e) => setSelectedSalesmanId(e.target.value)}
+                                disabled={isStaffLoading}
+                                className="w-full h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm normal-case disabled:bg-slate-50 disabled:text-slate-400"
+                              >
+                                <option value="">
+                                  {isStaffLoading ? "Loading employees..." : staffList.length ? "Select Seller / Salesman" : "No employees available"}
+                                </option>
+                                {staffList.map((staff) => (
+                                  <option key={`sales-${staff.id}`} value={staff.id}>
+                                    {staff.fullName}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+
+                            <label className="space-y-2 text-[11px] font-black uppercase text-slate-600">
+                              Cashier
+                              <select
+                                value={selectedCashierId}
+                                onChange={(e) => setSelectedCashierId(e.target.value)}
+                                disabled={isStaffLoading}
+                                className="w-full h-12 rounded-2xl border border-slate-200 bg-white px-4 text-sm normal-case disabled:bg-slate-50 disabled:text-slate-400"
+                              >
+                                <option value="">
+                                  {isStaffLoading ? "Loading employees..." : staffList.length ? "Select Cashier" : "No employees available"}
+                                </option>
+                                {staffList.map((staff) => (
+                                  <option key={`cashier-${staff.id}`} value={staff.id}>
+                                    {staff.fullName}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                        </div>
+
                       </div>
                     </div>
 

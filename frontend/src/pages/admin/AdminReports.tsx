@@ -28,6 +28,9 @@ import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import QRCode from "qrcode";
 
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
 let reportsCache: any[] | null = null;
 
 
@@ -50,7 +53,7 @@ const Reports = () => {
     // Start with undefined so it doesn't immediately filter by "Today" on load
     const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedPayments, setSelectedPayments] = useState<string[]>(["cash", "upi", "card", "cheque"]);
+    const [selectedPayments, setSelectedPayments] = useState<string[]>(["cash", "upi", "card", "cheque", "exchange", "silverExchange"]);
     const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
     const [ALL_PURCHASES, setPurchases] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -125,18 +128,85 @@ const Reports = () => {
                         subtotal: Number(p.subtotal || 0),
                         cgst: Number(p.cgst || 0),
                         sgst: Number(p.sgst || 0),
-                        discount: Number(p.discount || 0),
-                        exchangeDiscount: Number(p.exchangeDiscount || 0),
-                        exchangeName: p.exchangeName || null,
-                        exchangeGrams: p.exchangeGrams || null,
-                        grandTotal: Number(p.grandTotal || 0),
+                        discount: Number(p.discount ?? p.discountAmount ?? 0),
+
+                        // GOLD EXCHANGE
+                        // Supports both the newer report fields and the older billing field names.
+                        goldExchangeName:
+                            p.goldExchangeName ||
+                            p.exchangeName ||
+                            p.excahngejewellryname ||
+                            "None",
+                        goldExchangeGrams: Number(
+                            p.goldExchangeGrams ??
+                            p.exchangeGrams ??
+                            p.excahngejewellrygrams ??
+                            0
+                        ),
+                        goldExchangeValue: Number(
+                            p.goldExchangeValue ??
+                            p.exchangeDiscount ??
+                            p.jewelleryexchangediscount ??
+                            0
+                        ),
+
+                        // SILVER EXCHANGE
+                        silverExchangeName: p.silverExchangeName || "None",
+                        silverExchangeGrams: Number(p.silverExchangeGrams ?? 0),
+                        silverExchangeValue: Number(
+                            p.silverExchangeValue ??
+                            p.silverExchangeDiscount ??
+                            0
+                        ),
+
+                        // Legacy aliases retained so any older Admin UI code keeps working.
+                        exchangeName:
+                            p.goldExchangeName ||
+                            p.exchangeName ||
+                            p.excahngejewellryname ||
+                            "None",
+                        exchangeGrams: Number(
+                            p.goldExchangeGrams ??
+                            p.exchangeGrams ??
+                            p.excahngejewellrygrams ??
+                            0
+                        ),
+                        exchangeDiscount: Number(
+                            p.goldExchangeValue ??
+                            p.exchangeDiscount ??
+                            p.jewelleryexchangediscount ??
+                            0
+                        ),
+                        silverExchangeDiscount: Number(
+                            p.silverExchangeValue ??
+                            p.silverExchangeDiscount ??
+                            0
+                        ),
+
+                        grandTotal: Number(p.grandTotal ?? p.finalAmount ?? 0),
                         sku: p.sku,
                         invoice: p.invoice,
+
+                        // STAFF ASSIGNMENT
+                        salesman: p.salesmanName || p.salesman || "Unassigned",
+                        cashier: p.cashierName || p.cashier || "Unassigned",
+
                         payments: {
-                            cash: Number(p.payments?.cash || 0),
-                            upi: Number(p.payments?.upi || 0),
-                            card: Number(p.payments?.card || 0),
-                            cheque: Number(p.payments?.cheque || 0),
+                            cash: Number(p.payments?.cash ?? p.cashAmount ?? 0),
+                            upi: Number(p.payments?.upi ?? p.upiAmount ?? 0),
+                            card: Number(p.payments?.card ?? p.cardAmount ?? 0),
+                            cheque: Number(p.payments?.cheque ?? p.chequeAmount ?? 0),
+                            exchange: Number(
+                                p.goldExchangeValue ??
+                                p.exchangeDiscount ??
+                                p.jewelleryexchangediscount ??
+                                0
+                            ),
+                            silverExchange: Number(
+                                p.silverExchangeValue ??
+                                p.silverExchangeDiscount ??
+                                0
+                            ),
                         },
                         items: [itemObj],
                     });
@@ -206,14 +276,47 @@ const Reports = () => {
 
     const financialSummary = useMemo(() => {
         return filteredData.reduce((acc, curr) => {
-            acc.totalCash += curr.payments.cash;
-            acc.totalUpi += curr.payments.upi;
-            acc.totalCard += curr.payments.card;
-            acc.totalCheque += curr.payments.cheque;
-            acc.grandTotal += curr.grandTotal;
+            acc.totalCash += Number(curr.payments?.cash || 0);
+            acc.totalUpi += Number(curr.payments?.upi || 0);
+            acc.totalCard += Number(curr.payments?.card || 0);
+            acc.totalCheque += Number(curr.payments?.cheque || 0);
+
+            acc.totalGoldExchange += Number(
+                curr.goldExchangeValue ??
+                curr.payments?.exchange ??
+                curr.exchangeDiscount ??
+                0
+            );
+            acc.totalGoldExchangeGrams += Number(
+                curr.goldExchangeGrams ??
+                curr.exchangeGrams ??
+                0
+            );
+
+            acc.totalSilverExchange += Number(
+                curr.silverExchangeValue ??
+                curr.payments?.silverExchange ??
+                curr.silverExchangeDiscount ??
+                0
+            );
+            acc.totalSilverExchangeGrams += Number(
+                curr.silverExchangeGrams ?? 0
+            );
+
+            acc.grandTotal += Number(curr.grandTotal || 0);
 
             return acc;
-        }, { totalCash: 0, totalUpi: 0, totalCard: 0, totalCheque: 0, grandTotal: 0 });
+        }, {
+            totalCash: 0,
+            totalUpi: 0,
+            totalCard: 0,
+            totalCheque: 0,
+            totalGoldExchange: 0,
+            totalGoldExchangeGrams: 0,
+            totalSilverExchange: 0,
+            totalSilverExchangeGrams: 0,
+            grandTotal: 0,
+        });
     }, [filteredData]);
 
 
@@ -224,52 +327,523 @@ const Reports = () => {
     };
 
     const exportToExcel = () => {
-        try {
-            // Create a flat array where each item is its own row
-            const flattenedData: any[] = [];
+    try {
+        // Check if all records fall on a single day
+        const uniqueDates = [...new Set(filteredData.map((p) => format(p.date, "dd-MM-yyyy")))];
+        const isSingleDay = uniqueDates.length === 1;
 
-            filteredData.forEach((p) => {
-                p.items.forEach((item: any) => {
-                    flattenedData.push({
-                        "Date": format(p.date, "dd-MM-yyyy"),
-                        "Invoice": p.invoice,
-                        "Customer": p.customer,
-                        "Phone": p.phone,
-                        "Product Name": item.productName, // Separate Column
-                        "Category": item.category,       // Separate Column
-                        "SKU": item.sku || "N/A",        // Separate Column
-                        "HUID": item.huid || "N/A",      // Separate Column
-                        "Purity": item.purity,           // Separate Column
-                        "Gross Wt (g)": item.grossWt,    // Separate Column
-                        "Net Wt (g)": item.netWt,        // Separate Column
-                        "VA (%)": item.va,               // Separate Column
-                        "Item Cost": item.itemCost,      // Separate Column
-                        "Subtotal": p.subtotal,
-                        "CGST": p.cgst,
-                        "SGST": p.sgst,
-                        "Discount": p.discount || 0,
-                        "Exchange Item": p.exchangeName || "None",
-                        "Exchange Value": p.exchangeDiscount,
-                        "Grand Total": p.grandTotal,
-                        "Payment Status": p.paymentStatus,
-                        "Stone Weight": p.stoneWeight,
-                        "Stone Cost": p.stoneCost,
+        // Create a flat array where each item is its own row
+        const flattenedData: any[] = [];
 
-                    });
+        filteredData.forEach((p) => {
+            p.items.forEach((item: any) => {
+                const row: any = {};
+
+                if (!isSingleDay) row["Date"] = format(p.date, "dd-MM-yyyy");
+
+                Object.assign(row, {
+                    "Invoice": p.invoice,
+                    "Customer": p.customer,
+                    "Phone": p.phone,
+                    "Salesman": p.salesman || "Unassigned",
+                    "Cashier": p.cashier || "Unassigned",
+                    "Product Name": item.productName,
+                    "Category": item.category,
+                    "SKU": item.sku || "N/A",
+                    "HUID": item.huid || "N/A",
+                    "Purity": item.purity,
+                    "Gross Wt (g)": item.grossWt,
+                    "Net Wt (g)": item.netWt,
+                    "VA (%)": item.va,
+                    "Item Cost": item.itemCost,
+                    "Subtotal": p.subtotal,
+                    "CGST": p.cgst,
+                    "SGST": p.sgst,
+                    "Gold Exchange Name": p.goldExchangeName || "None",
+                    "Gold Exchange Grams": p.goldExchangeGrams || 0,
+                    "Gold Exchange Value": p.goldExchangeValue || 0,
+                    "Silver Exchange Name": p.silverExchangeName || "None",
+                    "Silver Exchange Grams": p.silverExchangeGrams || 0,
+                    "Silver Exchange Value": p.silverExchangeValue || 0,
+                    "Cash": p.payments?.cash || 0,
+                    "UPI": p.payments?.upi || 0,
+                    "Card": p.payments?.card || 0,
+                    "Cheque": p.payments?.cheque || 0,
+                    "Grand Total": p.grandTotal,
+                    "Stone Weight": p.stoneWeight,
+                    "Stone Cost": p.stoneCost,
                 });
+
+                flattenedData.push(row);
             });
+        });
 
-            const worksheet = XLSX.utils.json_to_sheet(flattenedData);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Detailed_Sales");
-            XLSX.writeFile(workbook, `Suvarna_Detailed_Export_${format(new Date(), "ddMMyy")}.xlsx`);
+        // ── Totals row ────────────────────────────────────────────────
+        const sum = (key: string, source: "item" | "purchase" | "payments") => {
+            let total = 0;
+            filteredData.forEach((p: any) => {
+                if (source === "purchase") {
+                    total += Number(p[key]) || 0;
+                } else if (source === "payments") {
+                    total += Number(p.payments?.[key]) || 0;
+                } else {
+                    p.items.forEach((item: any) => {
+                        total += Number(item[key]) || 0;
+                    });
+                }
+            });
+            return total;
+        };
 
-            setToastMessage("Excel exported with separate item columns");
-            setShowToast(true);
-        } catch (err) {
-            console.error("Excel Export Error:", err);
+        const totalsRow: any = {};
+        if (!isSingleDay) totalsRow["Date"] = "";
+        Object.assign(totalsRow, {
+            "Invoice": "TOTAL",
+            "Customer": "",
+            "Phone": "",
+            "Salesman": "",
+            "Cashier": "",
+            "Product Name": "",
+            "Category": "",
+            "SKU": "",
+            "HUID": "",
+            "Purity": "",
+            "Gross Wt (g)": sum("grossWt", "item"),
+            "Net Wt (g)": sum("netWt", "item"),
+            "VA (%)": "",
+            "Item Cost": sum("itemCost", "item"),
+            "Subtotal": sum("subtotal", "purchase"),
+            "CGST": sum("cgst", "purchase"),
+            "SGST": sum("sgst", "purchase"),
+            "Gold Exchange Name": "",
+            "Gold Exchange Grams": sum("goldExchangeGrams", "purchase"),
+            "Gold Exchange Value": sum("goldExchangeValue", "purchase"),
+            "Silver Exchange Name": "",
+            "Silver Exchange Grams": sum("silverExchangeGrams", "purchase"),
+            "Silver Exchange Value": sum("silverExchangeValue", "purchase"),
+            "Cash": sum("cash", "payments"),
+            "UPI": sum("upi", "payments"),
+            "Card": sum("card", "payments"),
+            "Cheque": sum("cheque", "payments"),
+            "Grand Total": sum("grandTotal", "purchase"),
+            "Stone Weight": sum("stoneWeight", "purchase"),
+            "Stone Cost": sum("stoneCost", "purchase"),
+        });
+
+        flattenedData.push(totalsRow);
+
+        const worksheet = XLSX.utils.json_to_sheet(flattenedData, {
+            origin: isSingleDay ? "A2" : "A1", // leave row 1 free for the date banner
+        });
+
+        if (isSingleDay) {
+            XLSX.utils.sheet_add_aoa(worksheet, [[`Date: ${uniqueDates[0]}`]], { origin: "A1" });
         }
-    };
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Detailed_Sales");
+        XLSX.writeFile(workbook, `Suvarna_Detailed_Export_${format(new Date(), "ddMMyy")}.xlsx`);
+
+        setToastMessage("Excel exported with separate item columns");
+        setShowToast(true);
+    } catch (err) {
+        console.error("Excel Export Error:", err);
+    }
+};
+
+const exportToPDF = () => {
+    try {
+        const uniqueDates = [
+            ...new Set(
+                filteredData.map((p) =>
+                    format(p.date, "dd-MM-yyyy")
+                )
+            ),
+        ];
+
+        const isSingleDay = uniqueDates.length === 1;
+
+        const tableRows: any[][] = [];
+
+        // ─────────────────────────────────────────────
+        // Running Totals
+        // ─────────────────────────────────────────────
+        let totGross = 0;
+        let totNet = 0;
+        let totItemCost = 0;
+
+        let totSubtotal = 0;
+        let totCgst = 0;
+        let totSgst = 0;
+
+        let totGoldExGrams = 0;
+        let totGoldExVal = 0;
+
+        let totSilverExGrams = 0;
+        let totSilverExVal = 0;
+
+        let totCash = 0;
+        let totUpi = 0;
+        let totCard = 0;
+        let totCheque = 0;
+
+        let totGrand = 0;
+
+        let totStoneWt = 0;
+        let totStoneCost = 0;
+
+        // ─────────────────────────────────────────────
+        // Loop purchases
+        // ─────────────────────────────────────────────
+        filteredData.forEach((p: any) => {
+
+            // ============================================================
+            // PURCHASE / INVOICE LEVEL TOTALS
+            // Add ONLY ONCE per purchase
+            // ============================================================
+
+            totSubtotal += Number(p.subtotal) || 0;
+            totCgst += Number(p.cgst) || 0;
+            totSgst += Number(p.sgst) || 0;
+
+            totGoldExGrams += Number(p.goldExchangeGrams) || 0;
+            totGoldExVal += Number(p.goldExchangeValue) || 0;
+
+            totSilverExGrams += Number(p.silverExchangeGrams) || 0;
+            totSilverExVal += Number(p.silverExchangeValue) || 0;
+
+            totCash += Number(p.payments?.cash) || 0;
+            totUpi += Number(p.payments?.upi) || 0;
+            totCard += Number(p.payments?.card) || 0;
+            totCheque += Number(p.payments?.cheque) || 0;
+
+            totGrand += Number(p.grandTotal) || 0;
+
+            totStoneWt += Number(p.stoneWeight) || 0;
+            totStoneCost += Number(p.stoneCost) || 0;
+
+            // ============================================================
+            // ITEM LEVEL DATA
+            // ============================================================
+
+            p.items.forEach((item: any, itemIndex: number) => {
+
+                // Item-specific totals
+                totGross += Number(item.grossWt) || 0;
+                totNet += Number(item.netWt) || 0;
+                totItemCost += Number(item.itemCost) || 0;
+
+                // Only first item should display invoice-level information
+                const isFirstItem = itemIndex === 0;
+
+                const rowData = [
+                    ...(isSingleDay
+                        ? []
+                        : [
+                            isFirstItem
+                                ? format(p.date, "dd-MM-yyyy")
+                                : "",
+                        ]),
+
+                    // Invoice information
+                    isFirstItem ? p.invoice : "",
+                    isFirstItem ? p.customer : "",
+                    isFirstItem ? p.phone : "",
+
+                    // Item information
+                    item.productName,
+                    item.category,
+                    item.sku || "N/A",
+                    item.huid || "N/A",
+                    item.purity,
+                    Number(item.grossWt) || 0,
+                    Number(item.netWt) || 0,
+                    Number(item.va) || 0,
+                    Number(item.itemCost) || 0,
+
+                    // Purchase totals - FIRST ITEM ONLY
+                    isFirstItem
+                        ? Number(p.subtotal) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.cgst) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.sgst) || 0
+                        : "",
+
+                    // ─────────────────────────────────
+                    // GOLD EXCHANGE
+                    // ─────────────────────────────────
+                    isFirstItem
+                        ? p.goldExchangeName || "None"
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.goldExchangeGrams) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.goldExchangeValue) || 0
+                        : "",
+
+                    // ─────────────────────────────────
+                    // SILVER EXCHANGE
+                    // ─────────────────────────────────
+                    isFirstItem
+                        ? p.silverExchangeName || "None"
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.silverExchangeGrams) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.silverExchangeValue) || 0
+                        : "",
+
+                    // ─────────────────────────────────
+                    // PAYMENTS
+                    // ─────────────────────────────────
+                    isFirstItem
+                        ? Number(p.payments?.cash) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.payments?.upi) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.payments?.card) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.payments?.cheque) || 0
+                        : "",
+
+                    // Grand Total
+                    isFirstItem
+                        ? Number(p.grandTotal) || 0
+                        : "",
+
+                    // Stone
+                    isFirstItem
+                        ? Number(p.stoneWeight) || 0
+                        : "",
+
+                    isFirstItem
+                        ? Number(p.stoneCost) || 0
+                        : "",
+                ];
+
+                tableRows.push(rowData);
+            });
+        });
+
+        // ─────────────────────────────────────────────
+        // Table Headers
+        // ─────────────────────────────────────────────
+
+        const tableHeaders = [
+            [
+                ...(isSingleDay ? [] : ["Date"]),
+
+                "Invoice",
+                "Customer",
+                "Phone",
+
+                "Product Name",
+                "Category",
+                "SKU",
+                "HUID",
+                "Purity",
+
+                "Gross Wt(g)",
+                "Net Wt(g)",
+                "VA(%)",
+                "Item Cost",
+
+                "Subtotal",
+                "CGST",
+                "SGST",
+
+                "Gold Ex. Name",
+                "Gold Ex. Grams",
+                "Gold Ex. Value",
+
+                "Silver Ex. Name",
+                "Silver Ex. Grams",
+                "Silver Ex. Value",
+
+                "Cash",
+                "UPI",
+                "Card",
+                "Cheque",
+
+                "Total",
+
+                "Stone Wt",
+                "Stone Cost",
+            ],
+        ];
+
+        // ─────────────────────────────────────────────
+        // TOTAL ROW
+        // ─────────────────────────────────────────────
+
+        const totalsRow = [
+            ...(isSingleDay ? [] : [""]),
+
+            "TOTAL",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+
+            // Item totals
+            totGross.toFixed(3),
+            totNet.toFixed(3),
+            "",
+            totItemCost.toFixed(2),
+
+            // Invoice totals
+            totSubtotal.toFixed(2),
+            totCgst.toFixed(2),
+            totSgst.toFixed(2),
+
+            // Gold Exchange
+            "",
+            totGoldExGrams.toFixed(3),
+            totGoldExVal.toFixed(2),
+
+            // Silver Exchange
+            "",
+            totSilverExGrams.toFixed(3),
+            totSilverExVal.toFixed(2),
+
+            // Payments
+            totCash.toFixed(2),
+            totUpi.toFixed(2),
+            totCard.toFixed(2),
+            totCheque.toFixed(2),
+
+            // Grand Total
+            totGrand.toFixed(2),
+
+            // Stone
+            totStoneWt.toFixed(3),
+            totStoneCost.toFixed(2),
+        ];
+
+        tableRows.push(totalsRow);
+
+        // ─────────────────────────────────────────────
+        // PDF
+        // ─────────────────────────────────────────────
+
+        const doc = new jsPDF("l", "pt", "a3");
+
+        doc.setFontSize(14);
+
+        doc.text(
+            "Detailed Sales Report",
+            40,
+            40
+        );
+
+        let startY = 50;
+
+        if (isSingleDay) {
+
+            doc.setFontSize(10);
+
+            doc.text(
+                `Date: ${uniqueDates[0]}`,
+                40,
+                58
+            );
+
+            startY = 68;
+        }
+
+        // ─────────────────────────────────────────────
+        // Generate Table
+        // ─────────────────────────────────────────────
+
+        autoTable(doc, {
+
+            head: tableHeaders,
+
+            body: tableRows,
+
+            startY,
+
+            styles: {
+                fontSize: 7,
+                cellPadding: 3,
+                overflow: "linebreak",
+                valign: "middle",
+            },
+
+            headStyles: {
+                fillColor: [41, 128, 185],
+                textColor: 255,
+                fontStyle: "bold",
+            },
+
+            alternateRowStyles: {
+                fillColor: [245, 245, 245],
+            },
+
+            didParseCell: (data) => {
+
+                // TOTAL row
+                if (
+                    data.section === "body" &&
+                    data.row.index === tableRows.length - 1
+                ) {
+
+                    data.cell.styles.fontStyle = "bold";
+                    data.cell.styles.fillColor = [
+                        230,
+                        230,
+                        230,
+                    ];
+                }
+            },
+        });
+
+        // ─────────────────────────────────────────────
+        // Save
+        // ─────────────────────────────────────────────
+
+        const fileName =
+            `Suvarna_Detailed_Export_${format(
+                new Date(),
+                "ddMMyy"
+            )}.pdf`;
+
+        doc.save(fileName);
+
+        setToastMessage(
+            "PDF exported successfully with correct totals"
+        );
+
+        setShowToast(true);
+
+    } catch (err) {
+
+        console.error(
+            "PDF Export Error:",
+            err
+        );
+    }
+};
 
     const handleReceiptAction = async (purchase: any, ratesData: any, mode: "download" | "print") => {
         if (!ratesData) return;
@@ -584,7 +1158,8 @@ const Reports = () => {
                     purchase.payments.upi > 0 ||
                     purchase.payments.card > 0 ||
                     purchase.payments.cheque > 0 ||
-                    purchase.exchangeDiscount > 0;
+                    purchase.goldExchangeValue > 0 ||
+                    purchase.silverExchangeValue > 0;
 
                 if (hasPayments && tY <= SAFE_BOTTOM - 20) {
                     // Section divider line
@@ -609,12 +1184,41 @@ const Reports = () => {
                         payRow("Cheque", purchase.payments.cheque);
                     if (purchase.payments.upi > 0)
                         payRow("UPI", purchase.payments.upi);
-                    if (purchase.exchangeDiscount > 0) {
-                        const exchLabel = purchase.exchangeName
-                            ? `Exchange (${purchase.exchangeName}${purchase.exchangeGrams ? ` | ${purchase.exchangeGrams}g` : ""})`
-                            : "Exchange";
-                        payRow(exchLabel, purchase.exchangeDiscount);
+
+                    if (purchase.goldExchangeValue > 0) {
+                        const goldName =
+                            purchase.goldExchangeName &&
+                            purchase.goldExchangeName !== "None"
+                                ? ` [${purchase.goldExchangeName}]`
+                                : "";
+                        const goldGrams =
+                            Number(purchase.goldExchangeGrams || 0) > 0
+                                ? ` (${Number(purchase.goldExchangeGrams).toFixed(3)}g)`
+                                : "";
+
+                        payRow(
+                            `Gold Exchange${goldName}${goldGrams}`,
+                            purchase.goldExchangeValue
+                        );
                     }
+
+                    if (purchase.silverExchangeValue > 0) {
+                        const silverName =
+                            purchase.silverExchangeName &&
+                            purchase.silverExchangeName !== "None"
+                                ? ` [${purchase.silverExchangeName}]`
+                                : "";
+                        const silverGrams =
+                            Number(purchase.silverExchangeGrams || 0) > 0
+                                ? ` (${Number(purchase.silverExchangeGrams).toFixed(3)}g)`
+                                : "";
+
+                        payRow(
+                            `Silver Exchange${silverName}${silverGrams}`,
+                            purchase.silverExchangeValue
+                        );
+                    }
+
                     if (purchase.payments.card > 0)
                         payRow("Debit / Credit Card", purchase.payments.card);
 
@@ -788,6 +1392,10 @@ const Reports = () => {
                                 <Button variant="gold-outline" onClick={exportToExcel} className="font-bold">
                                     <FileSpreadsheet className="w-4 h-4 mr-2" /> Export Excel
                                 </Button>
+
+                                <Button variant="gold-outline" onClick={exportToPDF} className="font-bold">
+                                    <FileText className="w-4 h-4 mr-2" /> Export PDF
+                                </Button>
                             </div>
                         </div>
                     </header>
@@ -840,13 +1448,22 @@ const Reports = () => {
                             <div className="flex flex-col gap-2">
                                 <span className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Filter className="w-3 h-3" /> Payment Methods</span>
                                 <div className="flex gap-4 items-center bg-secondary/30 px-4 py-2 rounded-lg border border-primary/5">
-                                    {["cash", "upi", "card", "cheque"].map((type) => (
-                                        <label key={type} className="flex items-center gap-2 cursor-pointer group">
+                                    {[
+                                        { key: "cash", label: "Cash" },
+                                        { key: "upi", label: "UPI" },
+                                        { key: "card", label: "Card" },
+                                        { key: "cheque", label: "Cheque" },
+                                        { key: "exchange", label: "Gold Exchange" },
+                                        { key: "silverExchange", label: "Silver Exchange" },
+                                    ].map(({ key, label }) => (
+                                        <label key={key} className="flex items-center gap-2 cursor-pointer group">
                                             <Checkbox
-                                                checked={selectedPayments.includes(type)}
-                                                onCheckedChange={() => togglePaymentFilter(type)}
+                                                checked={selectedPayments.includes(key)}
+                                                onCheckedChange={() => togglePaymentFilter(key)}
                                             />
-                                            <span className="text-xs font-bold uppercase text-gray-600 group-hover:text-primary transition-colors">{type}</span>
+                                            <span className="text-xs font-bold uppercase text-gray-600 group-hover:text-primary transition-colors">
+                                                {label}
+                                            </span>
                                         </label>
                                     ))}
                                 </div>
@@ -854,38 +1471,86 @@ const Reports = () => {
                         </LuxuryCard>
 
                         {/* SUMMARY CARDS */}
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-4">
                             <LuxuryCard className="p-4 border-l-4 border-green-500 bg-white shadow-sm">
                                 <div className="flex items-center gap-2 text-green-600 mb-1">
-                                    <Banknote className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">CASH</span>
+                                    <Banknote className="w-4 h-4" />
+                                    <span className="text-[10px] font-bold uppercase tracking-wider">CASH</span>
                                 </div>
-                                <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalCash.toLocaleString()}</div>
+                                <div className="text-2xl font-serif font-bold text-gray-800">
+                                    ₹{financialSummary.totalCash.toLocaleString()}
+                                </div>
                             </LuxuryCard>
 
                             <LuxuryCard className="p-4 border-l-4 border-blue-500 bg-white shadow-sm">
                                 <div className="flex items-center gap-2 text-blue-600 mb-1">
-                                    <Smartphone className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">UPI</span>
+                                    <Smartphone className="w-4 h-4" />
+                                    <span className="text-[10px] font-bold uppercase tracking-wider">UPI</span>
                                 </div>
-                                <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalUpi.toLocaleString()}</div>
+                                <div className="text-2xl font-serif font-bold text-gray-800">
+                                    ₹{financialSummary.totalUpi.toLocaleString()}
+                                </div>
                             </LuxuryCard>
 
                             <LuxuryCard className="p-4 border-l-4 border-purple-500 bg-white shadow-sm">
                                 <div className="flex items-center gap-2 text-purple-600 mb-1">
-                                    <CreditCard className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">CARD</span>
+                                    <CreditCard className="w-4 h-4" />
+                                    <span className="text-[10px] font-bold uppercase tracking-wider">CARD</span>
                                 </div>
-                                <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalCard.toLocaleString()}</div>
+                                <div className="text-2xl font-serif font-bold text-gray-800">
+                                    ₹{financialSummary.totalCard.toLocaleString()}
+                                </div>
                             </LuxuryCard>
 
                             <LuxuryCard className="p-4 border-l-4 border-orange-500 bg-white shadow-sm">
                                 <div className="flex items-center gap-2 text-orange-600 mb-1">
-                                    <ScrollText className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase tracking-wider">CHEQUE</span>
+                                    <ScrollText className="w-4 h-4" />
+                                    <span className="text-[10px] font-bold uppercase tracking-wider">CHEQUE</span>
                                 </div>
-                                <div className="text-2xl font-serif font-bold text-gray-800">₹{financialSummary.totalCheque.toLocaleString()}</div>
+                                <div className="text-2xl font-serif font-bold text-gray-800">
+                                    ₹{financialSummary.totalCheque.toLocaleString()}
+                                </div>
+                            </LuxuryCard>
+
+                            <LuxuryCard className="p-4 border-l-4 border-amber-500 bg-white shadow-sm">
+                                <div className="flex items-center gap-2 text-amber-700 mb-1">
+                                    <Repeat className="w-4 h-4" />
+                                    <span className="text-[10px] font-bold uppercase tracking-wider">GOLD EXCHANGE</span>
+                                </div>
+                                <div className="text-xl font-serif font-bold text-gray-800">
+                                    ₹{financialSummary.totalGoldExchange.toLocaleString()}
+                                </div>
+                                <div className="text-[10px] font-bold text-muted-foreground mt-1">
+                                    {financialSummary.totalGoldExchangeGrams.toLocaleString("en-IN", {
+                                        minimumFractionDigits: 3,
+                                        maximumFractionDigits: 3,
+                                    })}g exchanged
+                                </div>
+                            </LuxuryCard>
+
+                            <LuxuryCard className="p-4 border-l-4 border-slate-500 bg-white shadow-sm">
+                                <div className="flex items-center gap-2 text-slate-600 mb-1">
+                                    <Repeat className="w-4 h-4" />
+                                    <span className="text-[10px] font-bold uppercase tracking-wider">SILVER EXCHANGE</span>
+                                </div>
+                                <div className="text-xl font-serif font-bold text-gray-800">
+                                    ₹{financialSummary.totalSilverExchange.toLocaleString()}
+                                </div>
+                                <div className="text-[10px] font-bold text-muted-foreground mt-1">
+                                    {financialSummary.totalSilverExchangeGrams.toLocaleString("en-IN", {
+                                        minimumFractionDigits: 3,
+                                        maximumFractionDigits: 3,
+                                    })}g exchanged
+                                </div>
                             </LuxuryCard>
 
                             <LuxuryCard className="p-4 bg-primary text-primary-foreground shadow-lg">
-                                <div className="text-[10px] font-bold uppercase opacity-70 mb-1 tracking-wider">TOTAL REVENUE</div>
-                                <div className="text-3xl font-serif font-bold italic">₹{financialSummary.grandTotal.toLocaleString()}</div>
+                                <div className="text-[10px] font-bold uppercase opacity-70 mb-1 tracking-wider">
+                                    TOTAL REVENUE
+                                </div>
+                                <div className="text-3xl font-serif font-bold italic">
+                                    ₹{financialSummary.grandTotal.toLocaleString()}
+                                </div>
                             </LuxuryCard>
                         </div>
 
@@ -969,6 +1634,16 @@ const Reports = () => {
                                                             )}
                                                             {row.payments.cheque > 0 && (
                                                                 <span className="text-[8px] bg-orange-100 text-orange-700 font-bold px-1.5 py-0.5 rounded border border-orange-200 uppercase">CHQ</span>
+                                                            )}
+                                                            {Number(row.goldExchangeValue ?? row.payments?.exchange ?? 0) > 0 && (
+                                                                <span className="text-[8px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded border border-amber-200 uppercase">
+                                                                    Gold Exchange
+                                                                </span>
+                                                            )}
+                                                            {Number(row.silverExchangeValue ?? row.payments?.silverExchange ?? 0) > 0 && (
+                                                                <span className="text-[8px] bg-slate-100 text-slate-700 font-bold px-1.5 py-0.5 rounded border border-slate-200 uppercase">
+                                                                    Silver Exchange
+                                                                </span>
                                                             )}
                                                         </div>
                                                     </TableCell>
@@ -1065,16 +1740,62 @@ const Reports = () => {
                                         {selectedCustomer.payments.cheque > 0 && (
                                             <><span className="text-muted-foreground">Cheque / Draft</span><span className="text-right font-bold">₹{selectedCustomer.payments.cheque.toLocaleString()}</span></>
                                         )}
-                                        {selectedCustomer.exchangeDiscount > 0 && (
+                                        {selectedCustomer.goldExchangeValue > 0 && (
                                             <>
-                                                <span className="text-muted-foreground">
-                                                    Exchange{selectedCustomer.exchangeName ? ` — ${selectedCustomer.exchangeName}` : ""}
-                                                    {selectedCustomer.exchangeGrams ? ` (${selectedCustomer.exchangeGrams}g)` : ""}
+                                                <div className="text-muted-foreground">
+                                                    <div className="font-bold text-amber-700">Gold Exchange</div>
+                                                    <div className="text-[11px] mt-0.5">
+                                                        Name: {selectedCustomer.goldExchangeName && selectedCustomer.goldExchangeName !== "None"
+                                                            ? selectedCustomer.goldExchangeName
+                                                            : "N/A"}
+                                                        {" • "}Grams: {Number(selectedCustomer.goldExchangeGrams || 0).toFixed(3)}g
+                                                    </div>
+                                                </div>
+                                                <span className="text-right font-bold text-red-600">
+                                                    -₹{selectedCustomer.goldExchangeValue.toLocaleString()}
                                                 </span>
-                                                <span className="text-right font-bold text-red-600">-₹{selectedCustomer.exchangeDiscount.toLocaleString()}</span>
+                                            </>
+                                        )}
+
+                                        {selectedCustomer.silverExchangeValue > 0 && (
+                                            <>
+                                                <div className="text-muted-foreground">
+                                                    <div className="font-bold text-slate-700">Silver Exchange</div>
+                                                    <div className="text-[11px] mt-0.5">
+                                                        Name: {selectedCustomer.silverExchangeName && selectedCustomer.silverExchangeName !== "None"
+                                                            ? selectedCustomer.silverExchangeName
+                                                            : "N/A"}
+                                                        {" • "}Grams: {Number(selectedCustomer.silverExchangeGrams || 0).toFixed(3)}g
+                                                    </div>
+                                                </div>
+                                                <span className="text-right font-bold text-red-600">
+                                                    -₹{selectedCustomer.silverExchangeValue.toLocaleString()}
+                                                </span>
                                             </>
                                         )}
                                     </div>
+
+                                    {/* STAFF USED FOR THIS PURCHASE */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] uppercase text-slate-500 mt-4">
+                                        <div className="bg-white/80 border border-slate-100 rounded-2xl p-3">
+                                            <div className="text-[9px] font-bold uppercase text-slate-400">
+                                                Seller / Salesman
+                                            </div>
+                                            <div className="text-sm font-bold text-slate-800 normal-case mt-1">
+                                                {selectedCustomer.salesman || "Unassigned"}
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white/80 border border-slate-100 rounded-2xl p-3">
+                                            <div className="text-[9px] font-bold uppercase text-slate-400">
+                                                Cashier
+                                            </div>
+                                            <div className="text-sm font-bold text-slate-800 normal-case mt-1">
+                                                {selectedCustomer.cashier || "Unassigned"}
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div className="pt-3 border-t border-primary/20 flex justify-between items-end">
                                         <span className="text-xs font-bold uppercase text-primary tracking-widest">Total Amount</span>
                                         <span className="text-3xl font-serif font-bold text-primary italic">₹{selectedCustomer.grandTotal.toLocaleString()}</span>

@@ -213,7 +213,7 @@ export async function GET(req: Request) {
     if (!decoded || typeof decoded !== "object") {
       return json({ error: "Invalid Token" }, 401);
     }
-    if (!("role" in decoded) || decoded.role !== "SUPER_ADMIN") {
+    if (!("role" in decoded) || decoded.role !== "SUPER_ADMIN" && decoded.role !== "ADMIN") {
       return json({ error: "Forbidden" }, 403);
     }
 

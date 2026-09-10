@@ -219,7 +219,7 @@ const AdminProducts = () => {
 
   const [products, setProducts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "gold" | "silver" | "other">("all");
+  const [filter, setFilter] = useState<"all" | "gold" | "silver" | "silver-92.5" | "other">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -298,14 +298,44 @@ const AdminProducts = () => {
   // ── filtering (memoised — no re-compute on unrelated state changes) ──
   const filteredProducts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+
     return products.filter(p => {
-      const matchesMetal = filter === "all" || p.metalType?.toLowerCase() === filter;
-      const matchesSearch = !q ||
-        p.name?.toLowerCase().includes(q) ||
-        p.id?.toLowerCase().includes(q);
+      const metal = String(p.metalType || "").trim().toLowerCase();
+      const purity = String(p.carats || p.purity || "").trim();
+
+      const matchesMetal =
+        filter === "all" ||
+        (filter === "silver-92.5"
+          ? metal === "silver" && (purity === "92.5%" || purity === "92.5" || purity === "925")
+          : filter === "other"
+            ? metal !== "gold" && metal !== "silver"
+            : metal === filter);
+
+      const matchesSearch =
+        !q ||
+        String(p.name || "").toLowerCase().includes(q) ||
+        String(p.id || "").toLowerCase().includes(q) ||
+        String(p.sku || "").toLowerCase().includes(q) ||
+        String(p.itemCode || "").toLowerCase().includes(q);
+
       return matchesMetal && matchesSearch;
     });
   }, [products, filter, searchQuery]);
+
+  const metalWeightTotals = useMemo(() => {
+    return filteredProducts.reduce(
+      (totals, product) => {
+        const metal = String(product.metalType || "").trim().toLowerCase();
+        const netWeight = Number(product.netWeight) || 0;
+
+        if (metal === "gold") totals.gold += netWeight;
+        if (metal === "silver") totals.silver += netWeight;
+
+        return totals;
+      },
+      { gold: 0, silver: 0 }
+    );
+  }, [filteredProducts]);
 
   const handleRefetch = useCallback(() => fetchProducts(true), [fetchProducts]);
 
@@ -385,29 +415,69 @@ const AdminProducts = () => {
           </header>
 
           <div className="p-8 space-y-8 max-w-[1600px] mx-auto">
-            {/* FILTER TABS */}
+            {/* FILTER TABS + METAL TOTALS */}
             <div className="flex items-center justify-between flex-wrap gap-4">
-              <div className="flex gap-2 p-1.5 bg-muted/30 rounded-2xl border border-border/40 w-fit">
-                {(["all", "gold", "silver", "other"] as const).map(t => (
+              <div className="flex flex-wrap gap-2 p-1.5 bg-muted/30 rounded-2xl border border-border/40 w-fit">
+                {(["all", "gold", "silver", "silver-92.5", "other"] as const).map(t => (
                   <button
                     key={t}
                     onClick={() => setFilter(t)}
                     className={cn(
-                      "px-6 py-2 rounded-xl text-xs font-bold tracking-widest uppercase transition-all duration-300",
+                      "px-5 py-2 rounded-xl text-xs font-bold tracking-widest uppercase transition-all duration-300",
                       filter === t
                         ? "bg-amber-500 text-white shadow-md shadow-amber-500/20"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                   >
-                    {t}
+                    {t === "silver-92.5" ? "92.5% Silver" : t}
                   </button>
                 ))}
               </div>
 
-              {/* Live product count */}
-              <p className="text-sm font-bold text-muted-foreground">
-                <span className="text-foreground font-black">{filteredProducts.length}</span> products
-              </p>
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                {/* GOLD TOTAL */}
+                <div className="h-14 min-w-[155px] px-4 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50 flex items-center gap-3 shadow-sm">
+                  <div className="w-9 h-9 rounded-lg bg-amber-500 flex items-center justify-center shrink-0">
+                    <span className="text-white text-sm font-black">Au</span>
+                  </div>
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-[0.14em] text-amber-600">
+                      Gold Net Weight
+                    </p>
+                    <p className="text-lg leading-none mt-1 font-mono font-black text-amber-950">
+                      {metalWeightTotals.gold.toLocaleString("en-IN", {
+                        minimumFractionDigits: 3,
+                        maximumFractionDigits: 3,
+                      })}
+                      <span className="ml-1 text-[10px] font-bold text-amber-600">g</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* SILVER TOTAL */}
+                <div className="h-14 min-w-[155px] px-4 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-gray-100 flex items-center gap-3 shadow-sm">
+                  <div className="w-9 h-9 rounded-lg bg-slate-500 flex items-center justify-center shrink-0">
+                    <span className="text-white text-sm font-black">Ag</span>
+                  </div>
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-[0.14em] text-slate-500">
+                      Silver Net Weight
+                    </p>
+                    <p className="text-lg leading-none mt-1 font-mono font-black text-slate-900">
+                      {metalWeightTotals.silver.toLocaleString("en-IN", {
+                        minimumFractionDigits: 3,
+                        maximumFractionDigits: 3,
+                      })}
+                      <span className="ml-1 text-[10px] font-bold text-slate-500">g</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Live product count */}
+                <p className="text-sm font-bold text-muted-foreground px-2">
+                  <span className="text-foreground font-black">{filteredProducts.length}</span> products
+                </p>
+              </div>
             </div>
 
             <GoldDivider />
