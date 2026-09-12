@@ -255,15 +255,17 @@ export default function OrderManagementPage() {
       const discAmt = Number(order.discountAmount) || 0;
       const originalCartValue = Number(order.originalCartValue) || 0;
 
-      const goldValue = netWt * rate;
+      // IMPORTANT:
+      // Metal Cost and VA always stay based on the BOOKED weight.
+      // +/- adjustment grams must never recalculate Metal Cost, VA or GST.
+      const goldValue = bookedWt * rate;
       const vaAmount = goldValue * (vaPer / 100);
 
-      // GST is calculated only on Metal Cost + VA + Stone Cost.
-      // Exchange value is applied AFTER GST and never changes the GST amount.
+      // GST is calculated only on booked Metal Cost + VA + Stone Cost.
+      // Exchange value is applied AFTER GST and also does not change GST.
       const gstTaxableBase = Math.max(0, goldValue + vaAmount + stoneC);
       const gstAmount = gstTaxableBase * 0.03;
-      const itemValueBeforeExchange = Math.max(0, gstTaxableBase + adjustmentCost);
-      const grandTotal = Math.max(0, itemValueBeforeExchange + gstAmount - discAmt);
+      const basePayable = Math.max(0, gstTaxableBase + gstAmount - discAmt);
 
       // advanceCash is the cached TOTAL RECEIVED. Do not add payments again.
       const advancePaid = Number(order.advanceCash) || 0;
@@ -272,7 +274,18 @@ export default function OrderManagementPage() {
       const legacyAdvance = Math.max(0, advancePaid - recordedPaymentsTotal);
 
       const totalPaid = advancePaid;
-      const balance = Math.max(0, Number(order.balanceAmount ?? (grandTotal - totalPaid)));
+
+      // Adjustment cost affects BALANCE DUE only.
+      // + cost => increases balance, - cost => reduces balance.
+      const balanceBeforeAdjustment = Math.max(0, basePayable - totalPaid);
+      const calculatedAdjustedBalance = Math.max(
+        0,
+        balanceBeforeAdjustment + adjustmentCost
+      );
+      const balance = Math.max(
+        0,
+        Number(order.balanceAmount ?? calculatedAdjustedBalance)
+      );
 
       // ── HEADER ──
       const HDR_Y = SAFE_TOP + 10;
@@ -319,7 +332,7 @@ export default function OrderManagementPage() {
         drawR(value, MARGIN_R, y, 6.5, valueColor);
       };
 
-      const storedOriginalCartValue = originalCartValue || (itemValueBeforeExchange + gstAmount);
+      const storedOriginalCartValue = originalCartValue || (gstTaxableBase + gstAmount);
       let offset = 14;
       cartRow("Original Cart Value", `₹${Math.round(storedOriginalCartValue).toLocaleString()}`, cursorY + offset, gold);
       offset += 7;
@@ -332,21 +345,11 @@ export default function OrderManagementPage() {
       );
       offset += 7;
 
-      if (weightAdj !== 0) {
-        cartRow(
-          `Weight Adjustment (${weightAdj > 0 ? "+" : ""}${weightAdj}g)`,
-          `${adjustmentCost >= 0 ? "" : "-"}₹${Math.round(Math.abs(adjustmentCost)).toLocaleString()}`,
-          cursorY + offset,
-          weightAdj > 0 ? emerald : rose
-        );
-        offset += 7;
-      }
-
       cartRow("GST Taxable Base (Before Exchange)", `₹${Math.round(gstTaxableBase).toLocaleString()}`, cursorY + offset);
       offset += 7;
       cartRow("GST (3%)", `₹${Math.round(gstAmount).toLocaleString()}`, cursorY + offset);
       offset += 7;
-      cartRow("Final Payable", `₹${Math.round(grandTotal).toLocaleString()}`, cursorY + offset, emerald);
+      cartRow("Base Payable (Before Adjustment)", `₹${Math.round(basePayable).toLocaleString()}`, cursorY + offset, emerald);
       hLine(cursorY + offset + 6);
       cursorY = cursorY + offset + 6;
 
@@ -359,9 +362,9 @@ export default function OrderManagementPage() {
       cursorY += 10;
       draw("WEIGHT DETAILS", MARGIN_L, cursorY, 7.5, grey);
       hLine(cursorY + 8);
-      finRow(`Required (Booked)`, `${bookedWt}g`, cursorY + 14);
-      finRow(`Adjustment`, `${weightAdj > 0 ? "+" : ""}${weightAdj}g`, cursorY + 21);
-      finRow(`Final Net Weight`, `${netWt}g`, cursorY + 28);
+      finRow(`Required (Booked / Pricing Weight)`, `${bookedWt}g`, cursorY + 14);
+      finRow(`Weight Adjustment (Balance Only)`, `${weightAdj > 0 ? "+" : ""}${weightAdj}g`, cursorY + 21);
+      finRow(`Final Physical Net Weight`, `${netWt}g`, cursorY + 28);
       hLine(cursorY + 34);
       cursorY += 34;
 
@@ -391,10 +394,32 @@ export default function OrderManagementPage() {
       finRow(`Total Paid`, `₹${Math.round(totalPaid).toLocaleString()}`, payLineY, emerald);
       payLineY += 7;
 
+      finRow(
+        `Balance Before Adjustment`,
+        `₹${Math.round(balanceBeforeAdjustment).toLocaleString()}`,
+        payLineY
+      );
+      payLineY += 7;
+
+      if (weightAdj !== 0 || adjustmentCost !== 0) {
+        const adjustmentLabel =
+          adjustmentCost >= 0
+            ? `Balance Adjustment (+${weightAdj || 0}g)`
+            : `Balance Deduction (${weightAdj || 0}g)`;
+
+        finRow(
+          adjustmentLabel,
+          `${adjustmentCost >= 0 ? "+" : "-"}₹${Math.round(Math.abs(adjustmentCost)).toLocaleString()}`,
+          payLineY,
+          adjustmentCost >= 0 ? rose : emerald
+        );
+        payLineY += 7;
+      }
+
       if (type === "DELIVERY" || balance <= 0) {
-        finRow(`Balance Due`, `₹ 0 (Paid)`, payLineY, emerald);
+        finRow(`Final Balance Due`, `₹ 0 (Paid)`, payLineY, emerald);
       } else {
-        finRow(`Balance Due`, `₹${Math.round(balance).toLocaleString()}`, payLineY, rose);
+        finRow(`Final Balance Due`, `₹${Math.round(balance).toLocaleString()}`, payLineY, rose);
       }
       hLine(payLineY + 6);
       cursorY = payLineY + 6;
@@ -610,23 +635,39 @@ export default function OrderManagementPage() {
     const roundMoney = (value: number) =>
       Math.round((value + Number.EPSILON) * 100) / 100;
 
-    const editedNetWeight =
-      Math.max(0, Number(editForm.netWeight) || 0) +
-      (Number(editForm.weightAdjustmentGrams) || 0);
+    const editedBookedNetWeight = Math.max(0, Number(editForm.netWeight) || 0);
     const editedRate = Math.max(0, Number(editForm.liveRate) || 0);
     const editedVaPercent = Math.max(0, Number(editForm.vaPercentage) || 0);
     const editedStoneCost = Math.max(0, Number(editForm.stoneCost) || 0);
     const editedExchangeValue = Math.max(0, Number(editForm.discountAmount) || 0);
     const editedAdjustmentCost = Number(editForm.adjustmentCost) || 0;
 
-    const editedMetalCost = roundMoney(editedNetWeight * editedRate);
+    // Pricing remains based ONLY on the booked net weight.
+    // weightAdjustmentGrams is deliberately excluded from Metal Cost and VA.
+    const editedMetalCost = roundMoney(editedBookedNetWeight * editedRate);
     const editedVaAmount = roundMoney(editedMetalCost * (editedVaPercent / 100));
-    const editedGstBase = roundMoney(editedMetalCost + editedVaAmount + editedStoneCost);
+    const editedGstBase = roundMoney(
+      editedMetalCost + editedVaAmount + editedStoneCost
+    );
     const editedGstAmount = roundMoney(editedGstBase * 0.03);
-    const editedOriginalCartValue = roundMoney(editedGstBase + editedAdjustmentCost + editedGstAmount);
-    const editedTotalAmount = roundMoney(Math.max(0, editedOriginalCartValue - editedExchangeValue));
+
+    // Base order amount is completely independent of +/- adjustment.
+    const editedOriginalCartValue = roundMoney(
+      editedGstBase + editedGstAmount
+    );
+    const editedTotalAmount = roundMoney(
+      Math.max(0, editedOriginalCartValue - editedExchangeValue)
+    );
+
     const alreadyPaid = Math.max(0, Number(viewingOrder.advanceCash) || 0);
-    const editedBalanceAmount = roundMoney(Math.max(0, editedTotalAmount - alreadyPaid));
+    const balanceBeforeAdjustment = roundMoney(
+      Math.max(0, editedTotalAmount - alreadyPaid)
+    );
+
+    // ONLY Balance Due receives the adjustment cost.
+    const editedBalanceAmount = roundMoney(
+      Math.max(0, balanceBeforeAdjustment + editedAdjustmentCost)
+    );
 
     setIsSubmitting(true);
     try {
@@ -961,11 +1002,16 @@ export default function OrderManagementPage() {
 
         sectionTitle("Weight Details");
         fieldRow("Booked Net Weight", `${bookedWeight.toFixed(3)} g`);
-        fieldRow("Weight Adjustment", `${adjustment >= 0 ? "+" : ""}${adjustment.toFixed(3)} g`);
-        fieldRow("Final Net Weight", `${finalNetWeight.toFixed(3)} g`);
+        fieldRow("Weight Adjustment (Balance Only)", `${adjustment >= 0 ? "+" : ""}${adjustment.toFixed(3)} g`);
+        fieldRow("Final Physical Net Weight", `${finalNetWeight.toFixed(3)} g`);
         fieldRow("Stone Weight", `${stoneWeight.toFixed(3)} g`);
         fieldRow("Gross Weight", `${grossWeight.toFixed(3)} g`);
-        fieldRow("Adjustment Cost", `₹${Number(order.adjustmentCost || 0).toLocaleString()}`);
+        fieldRow(
+          Number(order.adjustmentCost || 0) >= 0
+            ? "Balance Adjustment Added"
+            : "Balance Adjustment Deducted",
+          `${Number(order.adjustmentCost || 0) >= 0 ? "+" : "-"}₹${Math.abs(Number(order.adjustmentCost || 0)).toLocaleString()}`
+        );
 
         sectionTitle("Exchange & Charges");
         fieldRow("Exchange Jewellery", order.exchangeJewelleryName || "-");
@@ -976,8 +1022,25 @@ export default function OrderManagementPage() {
         fieldRow("GST (3% on Metal + VA + Stone)", `₹${Number(order.gst ?? order.gstAmount ?? 0).toLocaleString()}`);
 
         sectionTitle("Payment Summary");
-        fieldRow("Final Order Amount", `₹${Number(order.totalAmount || 0).toLocaleString()}`, { color: black });
+        fieldRow("Base Order Amount (Adjustment Excluded)", `₹${Number(order.totalAmount || 0).toLocaleString()}`, { color: black });
         fieldRow("Total Received", `₹${totalPaid.toLocaleString()}`, { color: emerald });
+        const registryBalanceBeforeAdjustment = Math.max(
+          0,
+          Number(order.totalAmount || 0) - totalPaid
+        );
+        fieldRow(
+          "Balance Before Adjustment",
+          `₹${registryBalanceBeforeAdjustment.toLocaleString()}`
+        );
+        if (Number(order.adjustmentCost || 0) !== 0) {
+          fieldRow(
+            Number(order.adjustmentCost || 0) > 0
+              ? "Adjustment Added to Balance"
+              : "Adjustment Deducted from Balance",
+            `${Number(order.adjustmentCost || 0) > 0 ? "+" : "-"}₹${Math.abs(Number(order.adjustmentCost || 0)).toLocaleString()}`,
+            { color: Number(order.adjustmentCost || 0) > 0 ? rose : emerald }
+          );
+        }
         const orderModeTotals = getPaymentModeTotals([order]);
         fieldRow("Cash Collected", `₹${orderModeTotals.CASH.toLocaleString()}`);
         fieldRow("UPI Collected", `₹${orderModeTotals.UPI.toLocaleString()}`);
@@ -1411,7 +1474,9 @@ export default function OrderManagementPage() {
                   <p className="text-2xl font-serif font-bold text-slate-900">
                     {Number(viewingOrder?.weightAdjustmentGrams || 0) >= 0 ? "+" : ""}{viewingOrder?.weightAdjustmentGrams || 0}g
                   </p>
-                  <p className="text-xs text-slate-500 mt-1">Cost impact: ₹{Number(viewingOrder?.adjustmentCost || 0).toLocaleString()}</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Balance-only impact: {Number(viewingOrder?.adjustmentCost || 0) >= 0 ? "+" : "-"}₹{Math.abs(Number(viewingOrder?.adjustmentCost || 0)).toLocaleString()}
+                  </p>
                 </div>
                 <div className="p-4 bg-gold/10 rounded-2xl border border-gold/20 border-dashed">
                   <p className="text-[10px] font-bold text-gold uppercase tracking-widest mb-1">Final Net Weight</p>
@@ -1692,7 +1757,7 @@ export default function OrderManagementPage() {
             />
           </div>
           <p className="text-[10px] text-slate-400 mt-2">
-            Note: Advance/payments already collected are not editable here — use "Add Payment" for new amounts received.
+            Note: +/- weight and adjustment cost affect Balance Due only. They do not recalculate Metal Cost, VA, GST, or Base Order Amount. Advance/payments already collected are not editable here.
           </p>
           <Button onClick={handleSaveEdit} disabled={isSubmitting} className="w-full h-14 mt-4 bg-slate-900 text-gold rounded-2xl font-bold">
             {isSubmitting ? <Loader2 className="animate-spin" /> : "Save Changes"}
