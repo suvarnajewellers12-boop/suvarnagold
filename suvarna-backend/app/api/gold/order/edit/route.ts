@@ -257,6 +257,21 @@ export async function PATCH(req: Request) {
     );
 
     // -------------------------------------------------------------------------
+    // GUARD: cannot mark DELIVERED while a balance is still outstanding
+    // -------------------------------------------------------------------------
+    const incomingStatus = fields.status || existing.status;
+
+    if (incomingStatus === "DELIVERED" && balanceAmount > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Cannot mark order as delivered: balance of ₹${balanceAmount} is still outstanding`,
+        },
+        { status: 409, headers: corsHeaders() }
+      );
+    }
+
+    // -------------------------------------------------------------------------
     // DEADLINE
     // -------------------------------------------------------------------------
     let deadlineDate = existing.deadlineDate;

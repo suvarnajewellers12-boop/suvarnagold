@@ -177,11 +177,20 @@ const getFinalPaymentAmount = (order: any) => {
 
 const getAdjustedPaymentRows = (order: any) => {
   const payments = getOriginalPaymentRows(order);
+  const adjustmentCost = Number(order?.adjustmentCost) || 0;
 
-  if (!payments.length) return payments;
+  // Normal/new orders must keep the real payment amounts.
+  if (!payments.length || adjustmentCost === 0) {
+    return payments;
+  }
+
+  // Only a delivered/final settlement receipt may rewrite the last payment
+  // to show the final adjusted payment.
+  if (order?.status !== "DELIVERED") {
+    return payments;
+  }
 
   const lastIndex = payments.length - 1;
-  const adjustmentCost = Number(order?.adjustmentCost) || 0;
 
   payments[lastIndex] = {
     ...payments[lastIndex],
@@ -218,20 +227,23 @@ const getTotalPaymentCleared = (order: any) =>
     Math.max(0, getExchangeValue(order))
   );
 
-const getAdjustedSettlementTarget = (order: any) =>
-  roundMoneyValue(
-    getTotalPaymentCleared(order)
-  );
-
-// Final balance is zero once the final adjusted payment + exchange is accounted for.
+// Balance due must always reflect the real payment rows, regardless of
+// order.status. "DELIVERED" is a fulfillment state, not proof of payment —
+// an order can be marked DELIVERED (manually, or via a bug) while still
+// owing a balance, and the UI must not silently hide that by forcing the
+// balance to 0.
 const getFinalBalanceDue = (order: any) => {
-  if (order?.status === "DELIVERED") return 0;
+  const original = calculateOriginalCartValue(order);
+  const exchange = getExchangeValue(order);
+  const realMoneyPaid = getOriginalPaymentRows(order).reduce(
+    (sum: number, payment: any) =>
+      sum + Math.max(0, Number(payment?.amount) || 0),
+    0
+  );
+  const adjustmentCost = Number(order?.adjustmentCost) || 0;
 
   return roundMoneyValue(
-    Math.max(
-      0,
-      calculateOriginalCartValue(order) - getTotalPaymentCleared(order)
-    )
+    Math.max(0, original - exchange - realMoneyPaid + adjustmentCost)
   );
 };
 
@@ -995,7 +1007,17 @@ export default function OrderManagementPage() {
     return filteredOrders.reduce(
       (summary, order) => {
         summary.orderValue += calculateOriginalCartValue(order);
-        summary.received += getPaidAmount(order);
+
+        const actualRecordedPayments = getOriginalPaymentRows(order).reduce(
+          (sum: number, payment: any) =>
+            sum + Math.max(0, Number(payment?.amount) || 0),
+          0
+        );
+
+        summary.received += actualRecordedPayments > 0
+          ? actualRecordedPayments
+          : getPaidAmount(order);
+
         summary.pending += getFinalBalanceDue(order);
         summary.count += 1;
         return summary;
@@ -1613,9 +1635,9 @@ export default function OrderManagementPage() {
                               <Receipt className="w-3 h-3" /> {o.payments.length} payment{o.payments.length > 1 ? "s" : ""}
                             </p>
                           )}
-                          <div className={cn("flex items-center gap-1.5 text-[11px] font-bold mt-1", o.status === "DELIVERED" ? "text-emerald-500" : "text-rose-500")}>
-                            {o.status === "DELIVERED" ? <CheckCircle2 className="w-3 h-3" /> : <Wallet className="w-3 h-3" />}
-                            {o.status === "DELIVERED" ? "Payment Completed" : `Balance: ₹${getFinalBalanceDue(o).toLocaleString()}`}
+                          <div className={cn("flex items-center gap-1.5 text-[11px] font-bold mt-1", getFinalBalanceDue(o) <= 0 ? "text-emerald-500" : "text-rose-500")}>
+                            {getFinalBalanceDue(o) <= 0 ? <CheckCircle2 className="w-3 h-3" /> : <Wallet className="w-3 h-3" />}
+                            {getFinalBalanceDue(o) <= 0 ? "Payment Completed" : `Balance: ₹${getFinalBalanceDue(o).toLocaleString()}`}
                           </div>
                         </td>
                         <td className="px-6 py-4">

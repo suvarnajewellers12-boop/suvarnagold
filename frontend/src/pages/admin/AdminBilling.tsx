@@ -695,7 +695,7 @@ const BillingPOS = () => {
         setShowToast(true);
         performHardReset();
         setTimeout(() => {
-          window.location.href = "/dashboard/reports";
+          window.location.href = "/admin/reports";
         }, 2000);
       } else {
         throw new Error(data.error || "Verification failed on server side.");
