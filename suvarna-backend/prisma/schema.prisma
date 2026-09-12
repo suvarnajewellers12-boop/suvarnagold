@@ -90,7 +90,7 @@ model Order {
   discountAmount         Float     @default(0)
   weightAdjustmentGrams  Float     @default(0)
   adjustmentCost         Float     @default(0)
-  deadlineDate           DateTime
+  deadlineDate           DateTime?
   status                 String
   createdBy              String
   createdAt              DateTime  @default(now())
