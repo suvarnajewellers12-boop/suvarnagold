@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
-import { format, isWithinInterval, startOfDay, endOfDay } from "date-fns";
+import { format, isWithinInterval, startOfDay, endOfDay, startOfWeek, endOfWeek } from "date-fns";
 import { DateRange } from "react-day-picker";
 
 // PDF & QR Printing Imports
@@ -47,7 +47,7 @@ const STORE_INFO = {
 const Reports = () => {
     const [showToast, setShowToast] = useState(false);
     const [toastMessage, setToastMessage] = useState("");
-    const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year" | "custom">("month");
+    const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year" | "custom">("day");
     const [liveRates, setLiveRates] = useState<any>(null);
 
     // Start with undefined so it doesn't immediately filter by "Today" on load
@@ -243,9 +243,16 @@ const Reports = () => {
             let matchesTime = true;
 
             if (timeRange === "day") {
-                matchesTime = itemDate.toDateString() === now.toDateString();
+                matchesTime = isWithinInterval(itemDate, {
+                    start: startOfDay(now),
+                    end: endOfDay(now),
+                });
             } else if (timeRange === "week") {
-                matchesTime = itemDate >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                // Current calendar week: Monday 00:00 through Sunday 23:59:59.
+                matchesTime = isWithinInterval(itemDate, {
+                    start: startOfWeek(now, { weekStartsOn: 1 }),
+                    end: endOfWeek(now, { weekStartsOn: 1 }),
+                });
             } else if (timeRange === "month") {
                 matchesTime = itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
             } else if (timeRange === "year") {
@@ -326,8 +333,59 @@ const Reports = () => {
         );
     };
 
+    const getReportMeta = () => {
+        const now = new Date();
+
+        if (timeRange === "day") {
+            return {
+                title: "Daily Sales Report",
+                fileLabel: `Daily_${format(now, "ddMMyyyy")}`,
+                periodLabel: format(now, "dd MMM yyyy"),
+            };
+        }
+
+        if (timeRange === "week") {
+            const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+            const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+            return {
+                title: "Weekly Sales Report",
+                fileLabel: `Weekly_${format(weekStart, "ddMMyyyy")}_to_${format(weekEnd, "ddMMyyyy")}`,
+                periodLabel: `${format(weekStart, "dd MMM yyyy")} - ${format(weekEnd, "dd MMM yyyy")}`,
+            };
+        }
+
+        if (timeRange === "month") {
+            return {
+                title: "Monthly Sales Report",
+                fileLabel: `Monthly_${format(now, "MMyyyy")}`,
+                periodLabel: format(now, "MMMM yyyy"),
+            };
+        }
+
+        if (timeRange === "year") {
+            return {
+                title: "Yearly Sales Report",
+                fileLabel: `Yearly_${format(now, "yyyy")}`,
+                periodLabel: format(now, "yyyy"),
+            };
+        }
+
+        const from = dateRange?.from;
+        const to = dateRange?.to || dateRange?.from;
+        return {
+            title: "Custom Sales Report",
+            fileLabel: from && to
+                ? `Custom_${format(from, "ddMMyyyy")}_to_${format(to, "ddMMyyyy")}`
+                : `Custom_${format(now, "ddMMyyyy")}`,
+            periodLabel: from && to
+                ? `${format(from, "dd MMM yyyy")} - ${format(to, "dd MMM yyyy")}`
+                : "Custom range",
+        };
+    };
+
     const exportToExcel = () => {
     try {
+        const reportMeta = getReportMeta();
         // Check if all records fall on a single day
         const uniqueDates = [...new Set(filteredData.map((p) => format(p.date, "dd-MM-yyyy")))];
         const isSingleDay = uniqueDates.length === 1;
@@ -433,16 +491,18 @@ const Reports = () => {
         flattenedData.push(totalsRow);
 
         const worksheet = XLSX.utils.json_to_sheet(flattenedData, {
-            origin: isSingleDay ? "A2" : "A1", // leave row 1 free for the date banner
+            origin: "A4",
         });
 
-        if (isSingleDay) {
-            XLSX.utils.sheet_add_aoa(worksheet, [[`Date: ${uniqueDates[0]}`]], { origin: "A1" });
-        }
+        XLSX.utils.sheet_add_aoa(worksheet, [
+            [reportMeta.title],
+            [`Period: ${reportMeta.periodLabel}`],
+            [`Generated: ${format(new Date(), "dd MMM yyyy, hh:mm a")}`],
+        ], { origin: "A1" });
 
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Detailed_Sales");
-        XLSX.writeFile(workbook, `Suvarna_Detailed_Export_${format(new Date(), "ddMMyy")}.xlsx`);
+        XLSX.writeFile(workbook, `Suvarna_${reportMeta.fileLabel}_Report.xlsx`);
 
         setToastMessage("Excel exported with separate item columns");
         setShowToast(true);
@@ -453,6 +513,7 @@ const Reports = () => {
 
 const exportToPDF = () => {
     try {
+        const reportMeta = getReportMeta();
         const uniqueDates = [
             ...new Set(
                 filteredData.map((p) =>
@@ -751,25 +812,16 @@ const exportToPDF = () => {
         doc.setFontSize(14);
 
         doc.text(
-            "Detailed Sales Report",
+            reportMeta.title,
             40,
             40
         );
 
-        let startY = 50;
+        doc.setFontSize(10);
+        doc.text(`Period: ${reportMeta.periodLabel}`, 40, 58);
+        doc.text(`Generated: ${format(new Date(), "dd MMM yyyy, hh:mm a")}`, 40, 72);
 
-        if (isSingleDay) {
-
-            doc.setFontSize(10);
-
-            doc.text(
-                `Date: ${uniqueDates[0]}`,
-                40,
-                58
-            );
-
-            startY = 68;
-        }
+        let startY = 84;
 
         // ─────────────────────────────────────────────
         // Generate Table
@@ -822,11 +874,7 @@ const exportToPDF = () => {
         // Save
         // ─────────────────────────────────────────────
 
-        const fileName =
-            `Suvarna_Detailed_Export_${format(
-                new Date(),
-                "ddMMyy"
-            )}.pdf`;
+        const fileName = `Suvarna_${reportMeta.fileLabel}_Report.pdf`;
 
         doc.save(fileName);
 
@@ -1406,8 +1454,16 @@ const exportToPDF = () => {
                             <div className="flex flex-col gap-2">
                                 <span className="text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-1"><Calendar className="w-3 h-3" /> Date Filtering</span>
                                 <div className="flex gap-1 bg-secondary/50 p-1 rounded-lg w-fit border border-primary/10">
-                                    {(["day"] as const).map((range) => (
-                                        <Button key={range} variant={timeRange === range ? "gold" : "ghost"} size="sm" onClick={() => { setTimeRange(range); setDateRange(undefined); }} className="capitalize px-4 h-8 text-xs">{range}</Button>
+                                    {(["day", "week"] as const).map((range) => (
+                                        <Button
+                                            key={range}
+                                            variant={timeRange === range ? "gold" : "ghost"}
+                                            size="sm"
+                                            onClick={() => { setTimeRange(range); setDateRange(undefined); }}
+                                            className="px-4 h-8 text-xs font-semibold"
+                                        >
+                                            {range === "day" ? "Daily" : range === "week" ? "Weekly" : range === "month" ? "Monthly" : "Yearly"}
+                                        </Button>
                                     ))}
 
                                     {/* <Popover>

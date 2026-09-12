@@ -433,51 +433,6 @@ const AdminProducts = () => {
                   </button>
                 ))}
               </div>
-
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                {/* GOLD TOTAL */}
-                <div className="h-14 min-w-[155px] px-4 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50 flex items-center gap-3 shadow-sm">
-                  <div className="w-9 h-9 rounded-lg bg-amber-500 flex items-center justify-center shrink-0">
-                    <span className="text-white text-sm font-black">Au</span>
-                  </div>
-                  <div>
-                    <p className="text-[8px] font-black uppercase tracking-[0.14em] text-amber-600">
-                      Gold Net Weight
-                    </p>
-                    <p className="text-lg leading-none mt-1 font-mono font-black text-amber-950">
-                      {metalWeightTotals.gold.toLocaleString("en-IN", {
-                        minimumFractionDigits: 3,
-                        maximumFractionDigits: 3,
-                      })}
-                      <span className="ml-1 text-[10px] font-bold text-amber-600">g</span>
-                    </p>
-                  </div>
-                </div>
-
-                {/* SILVER TOTAL */}
-                <div className="h-14 min-w-[155px] px-4 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-gray-100 flex items-center gap-3 shadow-sm">
-                  <div className="w-9 h-9 rounded-lg bg-slate-500 flex items-center justify-center shrink-0">
-                    <span className="text-white text-sm font-black">Ag</span>
-                  </div>
-                  <div>
-                    <p className="text-[8px] font-black uppercase tracking-[0.14em] text-slate-500">
-                      Silver Net Weight
-                    </p>
-                    <p className="text-lg leading-none mt-1 font-mono font-black text-slate-900">
-                      {metalWeightTotals.silver.toLocaleString("en-IN", {
-                        minimumFractionDigits: 3,
-                        maximumFractionDigits: 3,
-                      })}
-                      <span className="ml-1 text-[10px] font-bold text-slate-500">g</span>
-                    </p>
-                  </div>
-                </div>
-
-                {/* Live product count */}
-                <p className="text-sm font-bold text-muted-foreground px-2">
-                  <span className="text-foreground font-black">{filteredProducts.length}</span> products
-                </p>
-              </div>
             </div>
 
             <GoldDivider />

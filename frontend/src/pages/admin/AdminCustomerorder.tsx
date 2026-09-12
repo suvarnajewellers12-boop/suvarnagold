@@ -6,6 +6,7 @@ import fontkit from "@pdf-lib/fontkit";
 import { format } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { AdminSidebar } from "@/components/AdminSidebar";
+
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
@@ -36,25 +37,34 @@ type PaymentMode = "CASH" | "UPI" | "CARD" | "CHECK";
 
 const getPaidAmount = (order: any) => Number(order?.advanceCash) || 0;
 
+const getOrderPayments = (order: any) => {
+  if (Array.isArray(order?.payments)) return order.payments;
+  if (Array.isArray(order?.paymentHistory)) return order.paymentHistory;
+  if (Array.isArray(order?.transactions)) return order.transactions;
+  return [];
+};
+
 const getPaymentsTotal = (order: any) =>
-  (order?.payments || []).reduce(
+  getOrderPayments(order).reduce(
     (sum: number, payment: any) => sum + (Number(payment?.amount) || 0),
     0
   );
 
-// Supports old orders where the initial advance existed only on Order.advanceCash.
-const getLegacyUntrackedAdvance = (order: any) =>
-  Math.max(0, getPaidAmount(order) - getPaymentsTotal(order));
+const getLegacyUntrackedAdvance = (order: any) => {
+  const remainder = Math.max(0, getPaidAmount(order) - getPaymentsTotal(order));
+  const mode = String(order?.advancePaymentMode || "").toUpperCase();
+  return ["CASH", "UPI", "CARD", "CHECK"].includes(mode) ? 0 : remainder;
+};
 
 const getPaymentModeTotals = (orders: any[]) => {
   const totals = { CASH: 0, UPI: 0, CARD: 0, CHECK: 0, tracked: 0, untracked: 0 };
 
   orders.forEach((order) => {
-    const payments = Array.isArray(order?.payments) ? order.payments : [];
+    const payments = getOrderPayments(order);
 
     payments.forEach((payment: any) => {
       const amount = Math.max(0, Number(payment?.amount) || 0);
-      const mode = String(payment?.mode || "").toUpperCase() as PaymentMode;
+      const mode = String(payment?.mode || payment?.paymentMode || "").toUpperCase() as PaymentMode;
 
       if (mode === "CASH" || mode === "UPI" || mode === "CARD" || mode === "CHECK") {
         totals[mode] += amount;
@@ -62,9 +72,16 @@ const getPaymentModeTotals = (orders: any[]) => {
       }
     });
 
-    // Older orders may have money inside advanceCash without a Payment row.
-    // Keep it separate because its historical mode cannot be determined safely.
-    totals.untracked += getLegacyUntrackedAdvance(order);
+    const remainingAdvance = Math.max(0, getPaidAmount(order) - getPaymentsTotal(order));
+    if (remainingAdvance > 0) {
+      const advanceMode = String(order?.advancePaymentMode || "").toUpperCase() as PaymentMode;
+      if (advanceMode === "CASH" || advanceMode === "UPI" || advanceMode === "CARD" || advanceMode === "CHECK") {
+        totals[advanceMode] += remainingAdvance;
+        totals.tracked += remainingAdvance;
+      } else {
+        totals.untracked += remainingAdvance;
+      }
+    }
   });
 
   return totals;
@@ -74,6 +91,149 @@ const paymentModeLabel = (mode?: string) => {
   if (!mode) return "Payment";
   if (mode === "CHECK") return "Check";
   return mode.charAt(0) + mode.slice(1).toLowerCase();
+};
+
+// ---------------------------------------------------------------------------
+// CANONICAL ORDER FINANCIALS
+// originalCartValue is the source of truth for the original bill.
+// Exchange and +/- adjustment must NEVER mutate that original value.
+// ---------------------------------------------------------------------------
+const roundMoneyValue = (value: number) =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
+const calculateOriginalCartValue = (order: any) => {
+  const stored = Number(order?.originalCartValue);
+  if (Number.isFinite(stored) && stored > 0) return roundMoneyValue(stored);
+
+  // Fallback only for legacy rows that do not have originalCartValue.
+  const bookedWeight = Math.max(0, Number(order?.netWeight) || 0);
+  const rate = Math.max(0, Number(order?.liveRate) || 0);
+  const vaPercent = Math.max(0, Number(order?.vaPercentage) || 0);
+  const stoneCost = Math.max(0, Number(order?.stoneCost) || 0);
+
+  const metalCost = roundMoneyValue(bookedWeight * rate);
+  const vaAmount = roundMoneyValue(metalCost * (vaPercent / 100));
+  const gstBase = roundMoneyValue(metalCost + vaAmount + stoneCost);
+  const gst = roundMoneyValue(gstBase * 0.03);
+
+  return roundMoneyValue(gstBase + gst);
+};
+
+const getExchangeValue = (order: any) =>
+  Math.max(0, Number(order?.discountAmount) || 0);
+
+const getBasePayableAfterExchange = (order: any) =>
+  roundMoneyValue(
+    Math.max(0, calculateOriginalCartValue(order) - getExchangeValue(order))
+  );
+
+// The adjustment changes the FINAL payment only.
+//
+// Example:
+// Balance before adjustment = ₹88,199
+// adjustmentCost = -₹710
+// Final payment = ₹87,489
+//
+// The ₹710 is shown only once as part of the final-payment formula.
+const getOriginalPaymentRows = (order: any) =>
+  getOrderPayments(order).map((payment: any) => ({
+    ...payment,
+    amount: Math.max(0, Number(payment?.amount) || 0),
+  }));
+
+const getMoneyPaidBeforeFinalPayment = (order: any) => {
+  const payments = getOriginalPaymentRows(order);
+
+  if (payments.length <= 1) return 0;
+
+  return roundMoneyValue(
+    payments
+      .slice(0, -1)
+      .reduce(
+        (sum: number, payment: any) =>
+          sum + Math.max(0, Number(payment?.amount) || 0),
+        0
+      )
+  );
+};
+
+const getPreAdjustmentBalanceForFinalPayment = (order: any) =>
+  roundMoneyValue(
+    Math.max(
+      0,
+      calculateOriginalCartValue(order) -
+        getExchangeValue(order) -
+        getMoneyPaidBeforeFinalPayment(order)
+    )
+  );
+
+const getFinalPaymentAmount = (order: any) => {
+  const preAdjustmentBalance = getPreAdjustmentBalanceForFinalPayment(order);
+  const adjustmentCost = Number(order?.adjustmentCost) || 0;
+
+  return roundMoneyValue(
+    Math.max(0, preAdjustmentBalance + adjustmentCost)
+  );
+};
+
+const getAdjustedPaymentRows = (order: any) => {
+  const payments = getOriginalPaymentRows(order);
+
+  if (!payments.length) return payments;
+
+  const lastIndex = payments.length - 1;
+  const adjustmentCost = Number(order?.adjustmentCost) || 0;
+
+  payments[lastIndex] = {
+    ...payments[lastIndex],
+    originalAmount: Number(payments[lastIndex].amount || 0),
+    amount: getFinalPaymentAmount(order),
+    appliedAdjustment: adjustmentCost,
+  };
+
+  return payments;
+};
+
+const getActualCashPaid = (order: any) =>
+  roundMoneyValue(
+    getAdjustedPaymentRows(order).reduce((sum: number, payment: any) => {
+      const mode = String(payment?.mode || payment?.paymentMode || "").toUpperCase();
+      return mode === "CASH"
+        ? sum + Math.max(0, Number(payment?.amount) || 0)
+        : sum;
+    }, 0)
+  );
+
+const getActualMoneyPaid = (order: any) =>
+  roundMoneyValue(
+    getAdjustedPaymentRows(order).reduce(
+      (sum: number, payment: any) =>
+        sum + Math.max(0, Number(payment?.amount) || 0),
+      0
+    )
+  );
+
+const getTotalPaymentCleared = (order: any) =>
+  roundMoneyValue(
+    getActualMoneyPaid(order) +
+    Math.max(0, getExchangeValue(order))
+  );
+
+const getAdjustedSettlementTarget = (order: any) =>
+  roundMoneyValue(
+    getTotalPaymentCleared(order)
+  );
+
+// Final balance is zero once the final adjusted payment + exchange is accounted for.
+const getFinalBalanceDue = (order: any) => {
+  if (order?.status === "DELIVERED") return 0;
+
+  return roundMoneyValue(
+    Math.max(
+      0,
+      calculateOriginalCartValue(order) - getTotalPaymentCleared(order)
+    )
+  );
 };
 
 const parseDateInput = (value: string, endOfDay = false) => {
@@ -237,23 +397,29 @@ export default function OrderManagementPage() {
       const vaPer = Number(order.vaPercentage) || 0;
       const stoneC = Number(order.stoneCost) || 0;
       const discAmt = Number(order.discountAmount) || 0;
-      const originalCartValue = Number(order.originalCartValue) || 0;
+      const originalCartValue = calculateOriginalCartValue(order);
 
-      const goldValue = netWt * rate;
+      // Component breakdown is informational only.
+      // Original Cart Value remains the stored/source-of-truth amount.
+      const goldValue = bookedWt * rate;
       const vaAmount = goldValue * (vaPer / 100);
-      const subtotalBeforeDisc = goldValue + vaAmount + stoneC + adjustmentCost;
-      const subtotalAfterDisc = Math.max(0, subtotalBeforeDisc - discAmt);
-      const halfGst = subtotalAfterDisc * 0.015;
-      const grandTotal = subtotalAfterDisc + halfGst * 2;
+      const gstTaxableBase = Math.max(0, goldValue + vaAmount + stoneC);
+      const gstAmount = Number(order.gst ?? order.gstAmount) || (gstTaxableBase * 0.03);
 
-      // advanceCash is the cached TOTAL RECEIVED. Do not add payments again.
-      const advancePaid = Number(order.advanceCash) || 0;
-      const payments: any[] = order.payments || [];
-      const recordedPaymentsTotal = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-      const legacyAdvance = Math.max(0, advancePaid - recordedPaymentsTotal);
+      // Exchange changes payable only; it never changes Original Cart Value or GST.
+      const basePayable = getBasePayableAfterExchange(order);
 
-      const totalPaid = advancePaid;
-      const balance = Math.max(0, Number(order.balanceAmount ?? (grandTotal - totalPaid)));
+      // Receipt uses adjusted payment rows.
+      // The +/- adjustment is applied to the LAST payment amount.
+      const originalPayments: any[] = getOrderPayments(order);
+      const payments: any[] = getAdjustedPaymentRows(order);
+      const recordedPaymentsTotal = payments.reduce(
+        (sum, p) => sum + Math.max(0, Number(p.amount || 0)),
+        0
+      );
+
+      const totalPaid = recordedPaymentsTotal;
+      const balance = getFinalBalanceDue(order);
 
       // ── HEADER ──
       const HDR_Y = SAFE_TOP + 10;
@@ -300,7 +466,7 @@ export default function OrderManagementPage() {
         drawR(value, MARGIN_R, y, 6.5, valueColor);
       };
 
-      const storedOriginalCartValue = originalCartValue || (subtotalBeforeDisc + subtotalBeforeDisc * 0.03);
+      const storedOriginalCartValue = originalCartValue;
       let offset = 14;
       cartRow("Original Cart Value", `₹${Math.round(storedOriginalCartValue).toLocaleString()}`, cursorY + offset, gold);
       offset += 7;
@@ -313,21 +479,11 @@ export default function OrderManagementPage() {
       );
       offset += 7;
 
-      if (weightAdj !== 0) {
-        cartRow(
-          `Weight Adjustment (${weightAdj > 0 ? "+" : ""}${weightAdj}g)`,
-          `${adjustmentCost >= 0 ? "" : "-"}₹${Math.round(Math.abs(adjustmentCost)).toLocaleString()}`,
-          cursorY + offset,
-          weightAdj > 0 ? emerald : rose
-        );
-        offset += 7;
-      }
-
-      cartRow("Taxable Total", `₹${Math.round(subtotalAfterDisc).toLocaleString()}`, cursorY + offset);
+      cartRow("GST Taxable Base (Before Exchange)", `₹${Math.round(gstTaxableBase).toLocaleString()}`, cursorY + offset);
       offset += 7;
-      cartRow("GST (3%)", `₹${Math.round(halfGst * 2).toLocaleString()}`, cursorY + offset);
+      cartRow("GST (3%)", `₹${Math.round(gstAmount).toLocaleString()}`, cursorY + offset);
       offset += 7;
-      cartRow("Final Payable", `₹${Math.round(grandTotal).toLocaleString()}`, cursorY + offset, emerald);
+      cartRow("Base Payable (Before Adjustment)", `₹${Math.round(basePayable).toLocaleString()}`, cursorY + offset, emerald);
       hLine(cursorY + offset + 6);
       cursorY = cursorY + offset + 6;
 
@@ -340,9 +496,9 @@ export default function OrderManagementPage() {
       cursorY += 10;
       draw("WEIGHT DETAILS", MARGIN_L, cursorY, 7.5, grey);
       hLine(cursorY + 8);
-      finRow(`Required (Booked)`, `${bookedWt}g`, cursorY + 14);
-      finRow(`Adjustment`, `${weightAdj > 0 ? "+" : ""}${weightAdj}g`, cursorY + 21);
-      finRow(`Final Net Weight`, `${netWt}g`, cursorY + 28);
+      finRow(`Required (Booked / Pricing Weight)`, `${bookedWt}g`, cursorY + 14);
+      finRow(`Weight Adjustment (Balance Only)`, `${weightAdj > 0 ? "+" : ""}${weightAdj}g`, cursorY + 21);
+      finRow(`Final Physical Net Weight`, `${netWt}g`, cursorY + 28);
       hLine(cursorY + 34);
       cursorY += 34;
 
@@ -354,28 +510,91 @@ export default function OrderManagementPage() {
 
       let payLineY = cursorY + 6;
 
-      if (legacyAdvance > 0) {
-        finRow(`Initial / Legacy Advance`, `₹${Math.round(legacyAdvance).toLocaleString()}`, payLineY);
-        payLineY += 7;
-      }
-
       if (payments.length > 0) {
-        payments.forEach((p: any) => {
+        payments.forEach((p: any, paymentIndex: number) => {
           const dateStr = p.paidAt ? format(new Date(p.paidAt), "dd MMM yy") : "Payment";
-          const mode = paymentModeLabel(p.mode);
+          const mode = paymentModeLabel(p.mode || p.paymentMode);
           const ref = p.checkNumber || p.referenceNumber;
-          finRow(`${mode} • ${dateStr}${ref ? ` • ${ref}` : ""}`, `₹${Math.round(Number(p.amount)).toLocaleString()}`, payLineY);
+
+          const isLastPayment = paymentIndex === payments.length - 1;
+
+          const label = isLastPayment
+            ? `${mode} • ${dateStr} • Final Payment`
+            : `${mode} • ${dateStr}${ref ? ` • ${ref}` : ""}`;
+
+          finRow(
+            label,
+            `₹${Math.round(Number(p.amount)).toLocaleString()}`,
+            payLineY,
+            isLastPayment ? gold : black
+          );
+
           payLineY += 7;
         });
       }
 
-      finRow(`Total Paid`, `₹${Math.round(totalPaid).toLocaleString()}`, payLineY, emerald);
+      const actualCashPaid = getActualCashPaid(order);
+      const actualMoneyPaid = getActualMoneyPaid(order);
+      const balanceBeforeAdjustment = getPreAdjustmentBalanceForFinalPayment(order);
+      const finalPaymentAmount = getFinalPaymentAmount(order);
+
+      finRow(
+        `Balance Due Before Adjustment`,
+        `₹${Math.round(balanceBeforeAdjustment).toLocaleString()}`,
+        payLineY,
+        black
+      );
       payLineY += 7;
 
-      if (type === "DELIVERY" || balance <= 0) {
-        finRow(`Balance Due`, `₹ 0 (Paid)`, payLineY, emerald);
+      if (adjustmentCost !== 0) {
+        finRow(
+          `Final Payment`,
+          `₹${Math.round(balanceBeforeAdjustment).toLocaleString()} ${adjustmentCost > 0 ? "+" : "-"} ₹${Math.round(Math.abs(adjustmentCost)).toLocaleString()} = ₹${Math.round(finalPaymentAmount).toLocaleString()}`,
+          payLineY,
+          gold
+        );
+        payLineY += 7;
       } else {
-        finRow(`Balance Due`, `₹${Math.round(balance).toLocaleString()}`, payLineY, rose);
+        finRow(
+          `Final Payment`,
+          `₹${Math.round(finalPaymentAmount).toLocaleString()}`,
+          payLineY,
+          gold
+        );
+        payLineY += 7;
+      }
+
+      finRow(
+        `Total Cash Paid`,
+        `₹${Math.round(actualCashPaid).toLocaleString()}`,
+        payLineY,
+        emerald
+      );
+      payLineY += 7;
+
+      if (discAmt > 0) {
+        finRow(
+          `Jewellery Exchange Cleared`,
+          `₹${Math.round(discAmt).toLocaleString()}`,
+          payLineY,
+          emerald
+        );
+        payLineY += 7;
+      }
+
+      const totalPaymentCleared = getTotalPaymentCleared(order);
+      finRow(
+        `Total Payment`,
+        `₹${Math.round(totalPaymentCleared).toLocaleString()}`,
+        payLineY,
+        emerald
+      );
+      payLineY += 7;
+
+      if (balance <= 0) {
+        finRow(`Final Balance Due`, `₹ 0 — FULLY PAID`, payLineY, emerald);
+      } else {
+        finRow(`Final Balance Due`, `₹${Math.round(balance).toLocaleString()}`, payLineY, rose);
       }
       hLine(payLineY + 6);
       cursorY = payLineY + 6;
@@ -399,7 +618,7 @@ export default function OrderManagementPage() {
 
       page.drawText("SETTLEMENT", { x: settBoxX + 10, y: settBoxBottomY + 23, size: 7, font: customFont, color: grey });
 
-      if (type === "DELIVERY" || balance <= 0) {
+      if (balance <= 0) {
         const balanceText = "FULLY PAID ";
         const balanceW = customFont.widthOfTextAtSize(balanceText, 10);
         page.drawText(balanceText, { x: settBoxX + (settBoxW - balanceW) / 2, y: settBoxBottomY + 6, size: 10, font: customFont, color: emerald });
@@ -468,9 +687,12 @@ export default function OrderManagementPage() {
     const goldValue = roundMoney(netWeight * rate);
     const vaAmount = roundMoney(goldValue * (vaPer / 100));
     const subtotalBase = roundMoney(goldValue + vaAmount + sCost);
-    const subtotalAfterDisc = roundMoney(Math.max(0, subtotalBase - disc));
-    const gstAmount = roundMoney(subtotalAfterDisc * 0.03);
-    const totalWithGST = roundMoney(subtotalAfterDisc + gstAmount);
+
+    // GST is locked to Metal + VA + Stone Cost.
+    // Jewellery exchange is deducted only after GST.
+    const gstAmount = roundMoney(subtotalBase * 0.03);
+    const originalCartValue = roundMoney(subtotalBase + gstAmount);
+    const totalWithGST = roundMoney(Math.max(0, originalCartValue - disc));
 
     // If the operator enters the whole-rupee value shown on screen
     // (example: 20001 for an exact total of 20000.62), treat it as full payment.
@@ -481,7 +703,6 @@ export default function OrderManagementPage() {
         : advance;
 
     const balanceAmount = roundMoney(Math.max(0, totalWithGST - normalizedAdvance));
-    const originalCartValue = roundMoney(subtotalBase + subtotalBase * 0.03);
 
     return {
       netWeight, goldValue, vaAmount, discount: disc,
@@ -585,32 +806,114 @@ export default function OrderManagementPage() {
 
   const handleSaveEdit = async () => {
     if (!viewingOrder) return;
+
+    // Send ONLY fields that actually changed.
+    // This is critical: adjustment-only edits must not resend pricing fields and
+    // accidentally trigger a recalculation of Original Cart Value / VA / GST.
+    const editableKeys = [
+      "customerName",
+      "phoneNumber",
+      "itemName",
+      "itemDescription",
+      "liveRate",
+      "netWeight",
+      "stoneWeight",
+      "vaPercentage",
+      "stoneCost",
+      "discountAmount",
+      "exchangeJewelleryName",
+      "exchangeJewelleryGrams",
+      "weightAdjustmentGrams",
+      "adjustmentCost",
+      "deadlineDate",
+    ] as const;
+
+    const numericKeys = new Set([
+      "liveRate",
+      "netWeight",
+      "stoneWeight",
+      "vaPercentage",
+      "stoneCost",
+      "discountAmount",
+      "exchangeJewelleryGrams",
+      "weightAdjustmentGrams",
+      "adjustmentCost",
+    ]);
+
+    const changedFields: Record<string, any> = {};
+
+    editableKeys.forEach((key) => {
+      const nextValue = editForm[key];
+      const currentValue = viewingOrder[key];
+
+      if (numericKeys.has(key)) {
+        const nextNumber = Number(nextValue ?? 0);
+        const currentNumber = Number(currentValue ?? 0);
+
+        if (Math.abs(nextNumber - currentNumber) > 0.000001) {
+          changedFields[key] = nextValue === "" ? 0 : nextValue;
+        }
+        return;
+      }
+
+      const nextText = String(nextValue ?? "");
+      const currentText = String(currentValue ?? "");
+
+      if (nextText !== currentText) {
+        changedFields[key] = nextValue;
+      }
+    });
+
+    if (Object.keys(changedFields).length === 0) {
+      setIsEditOpen(false);
+      return;
+    }
+
     setIsSubmitting(true);
+
     try {
       const res = await fetch(`${API_BASE}/edit`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ orderId: viewingOrder.id, ...editForm }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          orderId: viewingOrder.id,
+          ...changedFields,
+        }),
       });
+
+      const data = await res.json().catch(() => ({}));
+
       if (res.ok) {
-        const data = await res.json();
         setViewingOrder(data.order);
         setToastMsg("Order Updated!");
         setShowToast(true);
         setIsEditOpen(false);
-        fetchOrders();
+        await fetchOrders();
       } else {
-        const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to update order.");
+        alert(data.error || "Failed to update order.");
       }
-    } catch (err) { console.error("EDIT_ERROR", err); }
-    finally { setIsSubmitting(false); }
+    } catch (err) {
+      console.error("EDIT_ERROR", err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleRecordPayment = async () => {
     if (!viewingOrder) return;
     const amt = Number(paymentAmount);
     if (!amt || amt <= 0) return alert("Enter a valid payment amount.");
+
+    const currentBalance = getFinalBalanceDue(viewingOrder);
+    if (amt > currentBalance + 0.01) {
+      return alert(`Payment cannot be greater than the current balance ₹${currentBalance.toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}.`);
+    }
 
     setIsSubmitting(true);
     try {
@@ -692,9 +995,9 @@ export default function OrderManagementPage() {
   const registrySummary = useMemo(() => {
     return filteredOrders.reduce(
       (summary, order) => {
-        summary.orderValue += Number(order.totalAmount) || 0;
+        summary.orderValue += calculateOriginalCartValue(order);
         summary.received += getPaidAmount(order);
-        summary.pending += order.status === "DELIVERED" ? 0 : Math.max(0, Number(order.balanceAmount) || 0);
+        summary.pending += getFinalBalanceDue(order);
         summary.count += 1;
         return summary;
       },
@@ -854,9 +1157,9 @@ export default function OrderManagementPage() {
         borderWidth: 0.7,
       });
       drawText(`Orders: ${ordersToExport.length}`, MARGIN + 14, cursorY - 18, 9, black);
-      drawText(`Order Value: ₹${Math.round(ordersToExport.reduce((s, o) => s + (Number(o.totalAmount) || 0), 0)).toLocaleString()}`, MARGIN + 14, cursorY - 36, 9, black);
+      drawText(`Order Value: ₹${Math.round(ordersToExport.reduce((s, o) => s + calculateOriginalCartValue(o), 0)).toLocaleString()}`, MARGIN + 14, cursorY - 36, 9, black);
       drawText(`Received: ₹${Math.round(ordersToExport.reduce((s, o) => s + getPaidAmount(o), 0)).toLocaleString()}`, MARGIN + 190, cursorY - 18, 9, emerald);
-      drawText(`Pending: ₹${Math.round(ordersToExport.reduce((s, o) => s + (o.status === "DELIVERED" ? 0 : Math.max(0, Number(o.balanceAmount) || 0)), 0)).toLocaleString()}`, MARGIN + 190, cursorY - 36, 9, rose);
+      drawText(`Pending: ₹${Math.round(ordersToExport.reduce((s, o) => s + getFinalBalanceDue(o), 0)).toLocaleString()}`, MARGIN + 190, cursorY - 36, 9, rose);
       drawText(`Cash: ₹${Math.round(exportPaymentModes.CASH).toLocaleString()}`, MARGIN + 14, cursorY - 60, 8.5, black);
       drawText(`UPI: ₹${Math.round(exportPaymentModes.UPI).toLocaleString()}`, MARGIN + 132, cursorY - 60, 8.5, black);
       drawText(`Card: ₹${Math.round(exportPaymentModes.CARD).toLocaleString()}`, MARGIN + 245, cursorY - 60, 8.5, black);
@@ -878,7 +1181,9 @@ export default function OrderManagementPage() {
         ensureSpace(120);
         const orderDate = getOrderDate(order);
         const totalPaid = getPaidAmount(order);
-        const balance = order.status === "DELIVERED" ? 0 : Math.max(0, Number(order.balanceAmount) || 0);
+        const originalAmount = calculateOriginalCartValue(order);
+        const basePayable = getBasePayableAfterExchange(order);
+        const balance = getFinalBalanceDue(order);
         const bookedWeight = Number(order.netWeight) || 0;
         const adjustment = Number(order.weightAdjustmentGrams) || 0;
         const finalNetWeight = bookedWeight + adjustment;
@@ -911,23 +1216,69 @@ export default function OrderManagementPage() {
 
         sectionTitle("Weight Details");
         fieldRow("Booked Net Weight", `${bookedWeight.toFixed(3)} g`);
-        fieldRow("Weight Adjustment", `${adjustment >= 0 ? "+" : ""}${adjustment.toFixed(3)} g`);
-        fieldRow("Final Net Weight", `${finalNetWeight.toFixed(3)} g`);
+        fieldRow("Weight Adjustment (Balance Only)", `${adjustment >= 0 ? "+" : ""}${adjustment.toFixed(3)} g`);
+        fieldRow("Final Physical Net Weight", `${finalNetWeight.toFixed(3)} g`);
         fieldRow("Stone Weight", `${stoneWeight.toFixed(3)} g`);
         fieldRow("Gross Weight", `${grossWeight.toFixed(3)} g`);
-        fieldRow("Adjustment Cost", `₹${Number(order.adjustmentCost || 0).toLocaleString()}`);
+        fieldRow(
+          Number(order.adjustmentCost || 0) >= 0
+            ? "Final Payment Adjustment Added"
+            : "Final Payment Adjustment Deducted",
+          `${Number(order.adjustmentCost || 0) >= 0 ? "+" : "-"}₹${Math.abs(Number(order.adjustmentCost || 0)).toLocaleString()}`
+        );
 
         sectionTitle("Exchange & Charges");
         fieldRow("Exchange Jewellery", order.exchangeJewelleryName || "-");
         fieldRow("Exchange Grams", `${Number(order.exchangeJewelleryGrams || 0).toFixed(3)} g`);
         fieldRow("Stone Cost", `₹${Number(order.stoneCost || 0).toLocaleString()}`);
-        fieldRow("Discount / Exchange Value", `₹${Number(order.discountAmount || 0).toLocaleString()}`);
-        fieldRow("Original Cart Value", `₹${Number(order.originalCartValue || 0).toLocaleString()}`);
-        fieldRow("GST", `₹${Number(order.gst ?? order.gstAmount ?? 0).toLocaleString()}`);
+        fieldRow("Jewellery Exchange Value", `₹${Number(order.discountAmount || 0).toLocaleString()}`);
+        fieldRow("Original Cart Value (Incl. GST, Before Exchange)", `₹${originalAmount.toLocaleString()}`);
+        fieldRow("GST (3% on Metal + VA + Stone)", `₹${Number(order.gst ?? order.gstAmount ?? 0).toLocaleString()}`);
 
         sectionTitle("Payment Summary");
-        fieldRow("Final Order Amount", `₹${Number(order.totalAmount || 0).toLocaleString()}`, { color: black });
-        fieldRow("Total Received", `₹${totalPaid.toLocaleString()}`, { color: emerald });
+        const actualCashPaid = getActualCashPaid(order);
+        const actualMoneyPaid = getActualMoneyPaid(order);
+        const totalPaymentCleared = getTotalPaymentCleared(order);
+
+        fieldRow("Original Cart Value", `₹${originalAmount.toLocaleString()}`, { color: black });
+        fieldRow("Total Cash Paid", `₹${actualCashPaid.toLocaleString()}`, { color: emerald });
+
+        if (actualMoneyPaid !== actualCashPaid) {
+          fieldRow("Total Money Paid (All Modes)", `₹${actualMoneyPaid.toLocaleString()}`, { color: emerald });
+        }
+
+        fieldRow(
+          "Jewellery Exchange Cleared",
+          `₹${getExchangeValue(order).toLocaleString()}`,
+          { color: emerald }
+        );
+        fieldRow(
+          "Total Payment (Money + Exchange)",
+          `₹${totalPaymentCleared.toLocaleString()}`,
+          { color: emerald }
+        );
+        const balanceBeforeFinalAdjustment = getPreAdjustmentBalanceForFinalPayment(order);
+        const finalPaymentAmount = getFinalPaymentAmount(order);
+
+        fieldRow(
+          "Balance Due Before Adjustment",
+          `₹${balanceBeforeFinalAdjustment.toLocaleString()}`,
+          { color: black }
+        );
+
+        if (Number(order.adjustmentCost || 0) !== 0) {
+          fieldRow(
+            "Final Payment",
+            `₹${balanceBeforeFinalAdjustment.toLocaleString()} ${Number(order.adjustmentCost || 0) > 0 ? "+" : "-"} ₹${Math.abs(Number(order.adjustmentCost || 0)).toLocaleString()} = ₹${finalPaymentAmount.toLocaleString()}`,
+            { color: gold }
+          );
+        } else {
+          fieldRow(
+            "Final Payment",
+            `₹${finalPaymentAmount.toLocaleString()}`,
+            { color: gold }
+          );
+        }
         const orderModeTotals = getPaymentModeTotals([order]);
         fieldRow("Cash Collected", `₹${orderModeTotals.CASH.toLocaleString()}`);
         fieldRow("UPI Collected", `₹${orderModeTotals.UPI.toLocaleString()}`);
@@ -936,24 +1287,33 @@ export default function OrderManagementPage() {
         if (orderModeTotals.untracked > 0) {
           fieldRow("Legacy / Unclassified", `₹${orderModeTotals.untracked.toLocaleString()}`);
         }
-        fieldRow("Balance Due", `₹${balance.toLocaleString()}`, { color: balance > 0 ? rose : emerald });
+        fieldRow(
+          "Final Balance Due",
+          balance <= 0 ? "₹0 — FULLY PAID" : `₹${balance.toLocaleString()}`,
+          { color: balance > 0 ? rose : emerald }
+        );
 
         sectionTitle("Payment History");
-        const payments = order.payments || [];
-        const legacyAdvance = getLegacyUntrackedAdvance(order);
-        if (legacyAdvance > 0) {
-          fieldRow("Initial / Legacy Advance", `₹${legacyAdvance.toLocaleString()}${orderDate ? ` — ${format(orderDate, "dd MMM yyyy")}` : ""}`);
-        }
+        const payments = getAdjustedPaymentRows(order);
         if (payments.length) {
           payments.forEach((payment: any, paymentIndex: number) => {
             const paidDate = payment.paidAt ? format(new Date(payment.paidAt), "dd MMM yyyy, h:mm a") : "Date unavailable";
-            const mode = paymentModeLabel(payment.mode);
+            const mode = paymentModeLabel(payment.mode || payment.paymentMode);
             const reference = payment.checkNumber || payment.referenceNumber;
             const meta = [mode, reference, payment.bankName].filter(Boolean).join(" • ");
             const note = payment.note ? ` • ${payment.note}` : "";
-            fieldRow(`Payment ${paymentIndex + 1}`, `₹${Number(payment.amount || 0).toLocaleString()} — ${paidDate}${meta ? ` • ${meta}` : ""}${note}`);
+            const adjusted =
+              paymentIndex === payments.length - 1 &&
+              Number(order.adjustmentCost || 0) !== 0
+                ? " • Final Payment Adjusted"
+                : "";
+
+            fieldRow(
+              `Payment ${paymentIndex + 1}`,
+              `₹${Number(payment.amount || 0).toLocaleString()} — ${paidDate}${meta ? ` • ${meta}` : ""}${adjusted}${note}`
+            );
           });
-        } else if (legacyAdvance <= 0) {
+        } else {
           fieldRow("Payments", "No payment recorded yet.");
         }
 
@@ -1239,8 +1599,13 @@ export default function OrderManagementPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <p className="text-base font-serif font-bold text-slate-900">₹{Number(o.totalAmount).toLocaleString()}</p>
-                          <p className="text-xs text-slate-400 mt-1">Original: ₹{Number(o.originalCartValue || 0).toLocaleString()}</p>
+                          <p className="text-base font-serif font-bold text-slate-900">₹{calculateOriginalCartValue(o).toLocaleString()}</p>
+                          <p className="text-xs text-slate-400 mt-1">Original Cart Value</p>
+                          {getExchangeValue(o) > 0 && (
+                            <p className="text-xs text-rose-500 mt-1">
+                              Exchange Cleared: ₹{getExchangeValue(o).toLocaleString()}
+                            </p>
+                          )}
                           {(o.exchangeJewelleryName || o.exchangeJewelleryGrams) && (
                             <p className="text-xs text-slate-400 mt-1">Exchange: {o.exchangeJewelleryName || "Item"} · {Number(o.exchangeJewelleryGrams || 0)}g</p>
                           )}
@@ -1251,7 +1616,7 @@ export default function OrderManagementPage() {
                           )}
                           <div className={cn("flex items-center gap-1.5 text-[11px] font-bold mt-1", o.status === "DELIVERED" ? "text-emerald-500" : "text-rose-500")}>
                             {o.status === "DELIVERED" ? <CheckCircle2 className="w-3 h-3" /> : <Wallet className="w-3 h-3" />}
-                            {o.status === "DELIVERED" ? "Payment Completed" : `Balance: ₹${Number(o.balanceAmount).toLocaleString()}`}
+                            {o.status === "DELIVERED" ? "Payment Completed" : `Balance: ₹${getFinalBalanceDue(o).toLocaleString()}`}
                           </div>
                         </td>
                         <td className="px-6 py-4">
@@ -1282,19 +1647,19 @@ export default function OrderManagementPage() {
 
       {/* ================= VIEW & SETTLE DIALOG ================= */}
       <Dialog open={!!viewingOrder} onOpenChange={() => setViewingOrder(null)}>
-        <DialogContent className="max-w-5xl rounded-[3rem] p-0 overflow-hidden border-gold/20 shadow-2xl bg-white outline-none">
-          <DialogHeader className="p-12 bg-slate-900 text-white flex flex-row justify-between items-center relative overflow-hidden">
+        <DialogContent className="max-w-5xl w-[calc(100vw-2rem)] max-h-[92vh] rounded-[3rem] p-0 overflow-hidden border-gold/20 shadow-2xl bg-white outline-none flex flex-col">
+          <DialogHeader className="shrink-0 p-6 md:p-8 lg:p-10 bg-slate-900 text-white flex flex-col lg:flex-row lg:justify-between lg:items-center gap-6 relative overflow-hidden">
             <div className="absolute top-0 right-0 p-20 bg-gold/5 rounded-full -mr-10 -mt-10 blur-3xl pointer-events-none" />
             <div className="relative z-10 text-left">
               <div className="flex items-center gap-3 text-gold mb-3">
                 <Hash className="w-6 h-6" />
                 <span className="text-lg font-mono font-bold tracking-[0.3em] uppercase">{viewingOrder?.orderId}</span>
               </div>
-              <DialogTitle className="text-4xl font-serif font-bold italic tracking-tight">Booking Ledger</DialogTitle>
+              <DialogTitle className="text-2xl md:text-3xl lg:text-4xl font-serif font-bold italic tracking-tight">Booking Ledger</DialogTitle>
               <p className="text-slate-400 text-xs mt-2 uppercase tracking-[0.1em] font-bold">Client Transaction Record</p>
             </div>
 
-            <div className="flex gap-4 relative z-10">
+            <div className="flex flex-wrap gap-3 relative z-10">
               <div className="flex flex-col gap-2">
                 <p className="text-[10px] uppercase text-slate-300 font-bold tracking-widest text-center">Edit</p>
                 <Button
@@ -1336,7 +1701,7 @@ export default function OrderManagementPage() {
             </div>
           </DialogHeader>
 
-          <div className="p-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 text-left bg-white">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6 md:p-8 lg:p-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 text-left bg-white custom-scrollbar">
             {/* METAL COMPOSITION */}
             <div className="space-y-6">
               <div className="flex items-center gap-3 border-b border-gold/10 pb-4">
@@ -1361,7 +1726,9 @@ export default function OrderManagementPage() {
                   <p className="text-2xl font-serif font-bold text-slate-900">
                     {Number(viewingOrder?.weightAdjustmentGrams || 0) >= 0 ? "+" : ""}{viewingOrder?.weightAdjustmentGrams || 0}g
                   </p>
-                  <p className="text-xs text-slate-500 mt-1">Cost impact: ₹{Number(viewingOrder?.adjustmentCost || 0).toLocaleString()}</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Balance-only impact: {Number(viewingOrder?.adjustmentCost || 0) >= 0 ? "+" : "-"}₹{Math.abs(Number(viewingOrder?.adjustmentCost || 0)).toLocaleString()}
+                  </p>
                 </div>
                 <div className="p-4 bg-gold/10 rounded-2xl border border-gold/20 border-dashed">
                   <p className="text-[10px] font-bold text-gold uppercase tracking-widest mb-1">Final Net Weight</p>
@@ -1407,11 +1774,42 @@ export default function OrderManagementPage() {
                 </div>
                 {Number(viewingOrder?.discountAmount) > 0 && (
                   <div className="p-3 bg-rose-50 rounded-xl border border-rose-100">
-                    <div className="flex justify-between text-xs text-rose-600 font-bold"><span>Discount</span><span>-₹{Number(viewingOrder?.discountAmount).toLocaleString()}</span></div>
+                    <div className="flex justify-between text-xs text-rose-600 font-bold"><span>Jewellery Exchange Value</span><span>-₹{Number(viewingOrder?.discountAmount).toLocaleString()}</span></div>
                   </div>
                 )}
                 <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                  <div className="flex justify-between text-xs text-emerald-700 font-bold"><span>Payable</span><span>₹{Number(viewingOrder?.totalAmount).toLocaleString()}</span></div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-emerald-700 font-bold">
+                      <span>Total Cash Paid</span>
+                      <span>₹{getActualCashPaid(viewingOrder).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-emerald-700 font-bold">
+                      <span>Jewellery Exchange Cleared</span>
+                      <span>₹{getExchangeValue(viewingOrder).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-500 font-bold">
+                      <span>Total Payment</span>
+                      <span>₹{getTotalPaymentCleared(viewingOrder).toLocaleString()}</span>
+                    </div>
+                    {Number(viewingOrder?.adjustmentCost || 0) !== 0 && (
+                      <div className="space-y-1 pt-1">
+                        <div className="flex justify-between text-[10px] text-slate-500 font-bold">
+                          <span>Balance Due Before Adjustment</span>
+                          <span>₹{getPreAdjustmentBalanceForFinalPayment(viewingOrder).toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between text-[10px] font-bold text-gold">
+                          <span>Final Payment</span>
+                          <span>
+                            ₹{getPreAdjustmentBalanceForFinalPayment(viewingOrder).toLocaleString()}
+                            {" "}{Number(viewingOrder?.adjustmentCost || 0) > 0 ? "+" : "-"}{" "}
+                            ₹{Math.abs(Number(viewingOrder?.adjustmentCost || 0)).toLocaleString()}
+                            {" = "}
+                            ₹{getFinalPaymentAmount(viewingOrder).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1426,18 +1824,57 @@ export default function OrderManagementPage() {
                 <div className="space-y-5 relative z-10">
                   <div>
                     <p className="text-[10px] text-slate-400 uppercase font-bold mb-2">Total Bill</p>
-                    <p className="text-3xl font-serif font-bold text-white">₹{Number(viewingOrder?.totalAmount).toLocaleString()}</p>
+                    <p className="text-3xl font-serif font-bold text-white">₹{calculateOriginalCartValue(viewingOrder).toLocaleString()}</p>
+                    <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest">Original Cart Value</p>
+                    {getExchangeValue(viewingOrder) > 0 && (
+                      <p className="text-xs text-emerald-300 mt-2">
+                        Jewellery exchange cleared: ₹{getExchangeValue(viewingOrder).toLocaleString()}
+                      </p>
+                    )}
                   </div>
+
                   <div className="pt-4 border-t border-white/10">
-                    <p className="text-[10px] text-slate-300 uppercase font-bold mb-2">Total Paid</p>
-                    <p className="text-2xl font-serif font-bold text-emerald-400">₹{getPaidAmount(viewingOrder).toLocaleString()}</p>
+                    <p className="text-[10px] text-slate-300 uppercase font-bold mb-2">Total Cash Paid</p>
+                    <p className="text-2xl font-serif font-bold text-emerald-400">
+                      ₹{getActualCashPaid(viewingOrder).toLocaleString()}
+                    </p>
                   </div>
+
+                  <div className="pt-4 border-t border-white/10">
+                    <p className="text-[10px] text-emerald-300 uppercase font-bold mb-2">Jewellery Exchange Cleared</p>
+                    <p className="text-xl font-serif font-bold text-emerald-300">₹{getExchangeValue(viewingOrder).toLocaleString()}</p>
+                  </div>
+
+                  <div className="pt-4 border-t border-white/10">
+                    <p className="text-[10px] text-gold uppercase font-bold mb-2">Total Payment</p>
+                    <p className="text-2xl font-serif font-bold text-gold">
+                      ₹{getTotalPaymentCleared(viewingOrder).toLocaleString()}
+                    </p>
+                    <p className="text-[9px] text-slate-400 mt-1 uppercase tracking-wider">
+                      Actual Money Paid + Jewellery Exchange
+                    </p>
+                  </div>
+
                   <GoldDivider className="opacity-20" />
                   <div>
                     <p className="text-[10px] font-bold text-gold uppercase tracking-[0.2em] mb-2">Balance Due</p>
-                    <p className="text-4xl font-serif font-bold text-white tracking-tighter">₹{viewingOrder?.status === "DELIVERED" ? "0" : Number(viewingOrder?.balanceAmount).toLocaleString()}</p>
-                    {viewingOrder?.status === "DELIVERED" && (
-                      <p className="text-xs text-emerald-300 font-bold mt-2 uppercase tracking-widest">✓ Fully Settled</p>
+                    <p className="text-4xl font-serif font-bold text-white tracking-tighter">₹{getFinalBalanceDue(viewingOrder).toLocaleString()}</p>
+                    {Number(viewingOrder?.adjustmentCost || 0) !== 0 && (
+                      <div className="mt-3 text-xs font-bold text-gold">
+                        <p>
+                          Balance before adjustment: ₹{getPreAdjustmentBalanceForFinalPayment(viewingOrder).toLocaleString()}
+                        </p>
+                        <p className="mt-1">
+                          Final payment: ₹{getPreAdjustmentBalanceForFinalPayment(viewingOrder).toLocaleString()}
+                          {" "}{Number(viewingOrder?.adjustmentCost || 0) > 0 ? "+" : "-"}{" "}
+                          ₹{Math.abs(Number(viewingOrder?.adjustmentCost || 0)).toLocaleString()}
+                          {" = "}
+                          ₹{getFinalPaymentAmount(viewingOrder).toLocaleString()}
+                        </p>
+                      </div>
+                    )}
+                    {getFinalBalanceDue(viewingOrder) <= 0 && (
+                      <p className="text-xs text-emerald-300 font-bold mt-2 uppercase tracking-widest">✓ Fully Paid</p>
                     )}
                   </div>
                 </div>
@@ -1473,8 +1910,25 @@ export default function OrderManagementPage() {
                   )}
                 </div>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {viewingOrder?.payments?.length > 0 ? (
-                    viewingOrder.payments.map((p: any) => (
+                  {Math.max(0, getPaidAmount(viewingOrder) - getPaymentsTotal(viewingOrder)) > 0 && (
+                    <div className="flex justify-between items-center text-xs p-2 bg-emerald-50 border border-emerald-100 rounded-lg">
+                      <div>
+                        <p className="font-bold text-emerald-800">
+                          Initial {paymentModeLabel(viewingOrder?.advancePaymentMode)}
+                        </p>
+                        <p className="text-[10px] text-emerald-600">
+                          {viewingOrder?.advanceReferenceNumber ||
+                           viewingOrder?.advanceCheckNumber ||
+                           "Initial booking payment"}
+                        </p>
+                      </div>
+                      <span className="font-bold text-emerald-700">
+                        ₹{Math.round(Math.max(0, getPaidAmount(viewingOrder) - getPaymentsTotal(viewingOrder))).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                  {getOrderPayments(viewingOrder).length > 0 ? (
+                    getOrderPayments(viewingOrder).map((p: any) => (
                       <div key={p.id} className="flex justify-between items-center text-xs p-2 bg-slate-50 rounded-lg">
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
@@ -1520,7 +1974,7 @@ export default function OrderManagementPage() {
           <div className="space-y-4 mt-4">
             <div className="p-4 bg-slate-50 rounded-xl flex justify-between text-sm">
               <span className="text-slate-500">Remaining Balance</span>
-              <span className="font-bold text-slate-900">₹{Number(viewingOrder?.balanceAmount || 0).toLocaleString()}</span>
+              <span className="font-bold text-slate-900">₹{getFinalBalanceDue(viewingOrder).toLocaleString()}</span>
             </div>
             <Input
               placeholder="Amount Received (₹)"
@@ -1625,7 +2079,7 @@ export default function OrderManagementPage() {
             />
           </div>
           <p className="text-[10px] text-slate-400 mt-2">
-            Note: Advance/payments already collected are not editable here — use "Add Payment" for new amounts received.
+            Note: +/- weight and adjustment cost affect Balance Due only. They do not recalculate Metal Cost, VA, GST, or Base Order Amount. Advance/payments already collected are not editable here.
           </p>
           <Button onClick={handleSaveEdit} disabled={isSubmitting} className="w-full h-14 mt-4 bg-slate-900 text-gold rounded-2xl font-bold">
             {isSubmitting ? <Loader2 className="animate-spin" /> : "Save Changes"}
@@ -1751,7 +2205,7 @@ export default function OrderManagementPage() {
                     <div className="flex justify-between text-sm"><span className="text-slate-400">Metal Value</span><span>₹{totals.goldValue.toLocaleString()}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-slate-400">VA + Gem</span><span className="text-gold">+ ₹{(totals.vaAmount + totals.stoneCost).toLocaleString()}</span></div>
                     {totals.discount > 0 && <div className="flex justify-between text-sm font-bold text-rose-400 bg-rose-400/5 p-2 rounded-lg border border-rose-400/20"><span>Exchange value</span><span>- ₹{totals.discount.toLocaleString()}</span></div>}
-                    <div className="flex justify-between text-sm"><span className="text-slate-400 italic">GST (3%)</span><span className="text-slate-300">+ ₹{Math.round(totals.gstAmount).toLocaleString()}</span></div>
+                    <div className="flex justify-between text-sm"><span className="text-slate-400 italic">GST (3% on Metal + VA + Stone)</span><span className="text-slate-300">+ ₹{Math.round(totals.gstAmount).toLocaleString()}</span></div>
                   </div>
                   <GoldDivider className="opacity-20 my-8" />
                   <div className="py-2 text-center"><p className="text-[11px] text-gold font-bold uppercase tracking-[0.3em] mb-3">Projected Total</p><h2 className="text-6xl font-serif font-bold text-white tracking-tighter">

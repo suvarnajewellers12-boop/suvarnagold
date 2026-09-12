@@ -52,7 +52,10 @@ const ORNAMENT_MAPPING: Record<string, string[]> = {
   arms: ["Armlet, Arm Band, Upper Arm Cuff", "Arm Chain"],
   wrists: ["Bangle, Bracelet, Cuff", "Tennis, Charm, Chain Bracelet", "Slave Bracelet (hand chain)"],
   hands_fingers: ["Signet, Engagement, Wedding Band", "Cocktail, Eternity, Stackable Rings", "Knuckle Ring, Hand Harness/Chain"],
-  others: ["other"]
+  others: ["other"],
+  leg:['Anklet, Toe Ring, Leg Chain', 'Garter, Leg Cuff, Knee Chain'],
+  waist:['Belt, Waist Chain, Hip Chain', 'Sash, Obi, Kamarbandh'],
+
 };
 
 let productsCache: any[] | null = null;
@@ -980,9 +983,8 @@ const Products = () => {
                     <SelectItem value="neck">Neck</SelectItem>
                     <SelectItem value="wrist">Wrist</SelectItem>
                     <SelectItem value="fingers">Fingers</SelectItem>
-                    <SelectItem value="fingers">Waist</SelectItem>
-                    <SelectItem value="fingers">Leg</SelectItem>
-
+                    <SelectItem value="waist">Waist</SelectItem>
+                    <SelectItem value="leg">Leg</SelectItem>   
                     <SelectItem value="others">Others</SelectItem>
 
                   </SelectContent>
