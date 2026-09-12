@@ -36,25 +36,34 @@ type PaymentMode = "CASH" | "UPI" | "CARD" | "CHECK";
 
 const getPaidAmount = (order: any) => Number(order?.advanceCash) || 0;
 
+const getOrderPayments = (order: any) => {
+  if (Array.isArray(order?.payments)) return order.payments;
+  if (Array.isArray(order?.paymentHistory)) return order.paymentHistory;
+  if (Array.isArray(order?.transactions)) return order.transactions;
+  return [];
+};
+
 const getPaymentsTotal = (order: any) =>
-  (order?.payments || []).reduce(
+  getOrderPayments(order).reduce(
     (sum: number, payment: any) => sum + (Number(payment?.amount) || 0),
     0
   );
 
-// Supports old orders where the initial advance existed only on Order.advanceCash.
-const getLegacyUntrackedAdvance = (order: any) =>
-  Math.max(0, getPaidAmount(order) - getPaymentsTotal(order));
+const getLegacyUntrackedAdvance = (order: any) => {
+  const remainder = Math.max(0, getPaidAmount(order) - getPaymentsTotal(order));
+  const mode = String(order?.advancePaymentMode || "").toUpperCase();
+  return ["CASH", "UPI", "CARD", "CHECK"].includes(mode) ? 0 : remainder;
+};
 
 const getPaymentModeTotals = (orders: any[]) => {
   const totals = { CASH: 0, UPI: 0, CARD: 0, CHECK: 0, tracked: 0, untracked: 0 };
 
   orders.forEach((order) => {
-    const payments = Array.isArray(order?.payments) ? order.payments : [];
+    const payments = getOrderPayments(order);
 
     payments.forEach((payment: any) => {
       const amount = Math.max(0, Number(payment?.amount) || 0);
-      const mode = String(payment?.mode || "").toUpperCase() as PaymentMode;
+      const mode = String(payment?.mode || payment?.paymentMode || "").toUpperCase() as PaymentMode;
 
       if (mode === "CASH" || mode === "UPI" || mode === "CARD" || mode === "CHECK") {
         totals[mode] += amount;
@@ -62,9 +71,16 @@ const getPaymentModeTotals = (orders: any[]) => {
       }
     });
 
-    // Older orders may have money inside advanceCash without a Payment row.
-    // Keep it separate because its historical mode cannot be determined safely.
-    totals.untracked += getLegacyUntrackedAdvance(order);
+    const remainingAdvance = Math.max(0, getPaidAmount(order) - getPaymentsTotal(order));
+    if (remainingAdvance > 0) {
+      const advanceMode = String(order?.advancePaymentMode || "").toUpperCase() as PaymentMode;
+      if (advanceMode === "CASH" || advanceMode === "UPI" || advanceMode === "CARD" || advanceMode === "CHECK") {
+        totals[advanceMode] += remainingAdvance;
+        totals.tracked += remainingAdvance;
+      } else {
+        totals.untracked += remainingAdvance;
+      }
+    }
   });
 
   return totals;
@@ -241,14 +257,17 @@ export default function OrderManagementPage() {
 
       const goldValue = netWt * rate;
       const vaAmount = goldValue * (vaPer / 100);
-      const subtotalBeforeDisc = goldValue + vaAmount + stoneC + adjustmentCost;
-      const subtotalAfterDisc = Math.max(0, subtotalBeforeDisc - discAmt);
-      const halfGst = subtotalAfterDisc * 0.015;
-      const grandTotal = subtotalAfterDisc + halfGst * 2;
+
+      // GST is calculated only on Metal Cost + VA + Stone Cost.
+      // Exchange value is applied AFTER GST and never changes the GST amount.
+      const gstTaxableBase = Math.max(0, goldValue + vaAmount + stoneC);
+      const gstAmount = gstTaxableBase * 0.03;
+      const itemValueBeforeExchange = Math.max(0, gstTaxableBase + adjustmentCost);
+      const grandTotal = Math.max(0, itemValueBeforeExchange + gstAmount - discAmt);
 
       // advanceCash is the cached TOTAL RECEIVED. Do not add payments again.
       const advancePaid = Number(order.advanceCash) || 0;
-      const payments: any[] = order.payments || [];
+      const payments: any[] = getOrderPayments(order);
       const recordedPaymentsTotal = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
       const legacyAdvance = Math.max(0, advancePaid - recordedPaymentsTotal);
 
@@ -300,7 +319,7 @@ export default function OrderManagementPage() {
         drawR(value, MARGIN_R, y, 6.5, valueColor);
       };
 
-      const storedOriginalCartValue = originalCartValue || (subtotalBeforeDisc + subtotalBeforeDisc * 0.03);
+      const storedOriginalCartValue = originalCartValue || (itemValueBeforeExchange + gstAmount);
       let offset = 14;
       cartRow("Original Cart Value", `₹${Math.round(storedOriginalCartValue).toLocaleString()}`, cursorY + offset, gold);
       offset += 7;
@@ -323,9 +342,9 @@ export default function OrderManagementPage() {
         offset += 7;
       }
 
-      cartRow("Taxable Total", `₹${Math.round(subtotalAfterDisc).toLocaleString()}`, cursorY + offset);
+      cartRow("GST Taxable Base (Before Exchange)", `₹${Math.round(gstTaxableBase).toLocaleString()}`, cursorY + offset);
       offset += 7;
-      cartRow("GST (3%)", `₹${Math.round(halfGst * 2).toLocaleString()}`, cursorY + offset);
+      cartRow("GST (3%)", `₹${Math.round(gstAmount).toLocaleString()}`, cursorY + offset);
       offset += 7;
       cartRow("Final Payable", `₹${Math.round(grandTotal).toLocaleString()}`, cursorY + offset, emerald);
       hLine(cursorY + offset + 6);
@@ -468,9 +487,12 @@ export default function OrderManagementPage() {
     const goldValue = roundMoney(netWeight * rate);
     const vaAmount = roundMoney(goldValue * (vaPer / 100));
     const subtotalBase = roundMoney(goldValue + vaAmount + sCost);
-    const subtotalAfterDisc = roundMoney(Math.max(0, subtotalBase - disc));
-    const gstAmount = roundMoney(subtotalAfterDisc * 0.03);
-    const totalWithGST = roundMoney(subtotalAfterDisc + gstAmount);
+
+    // GST is locked to Metal + VA + Stone Cost.
+    // Jewellery exchange is deducted only after GST.
+    const gstAmount = roundMoney(subtotalBase * 0.03);
+    const originalCartValue = roundMoney(subtotalBase + gstAmount);
+    const totalWithGST = roundMoney(Math.max(0, originalCartValue - disc));
 
     // If the operator enters the whole-rupee value shown on screen
     // (example: 20001 for an exact total of 20000.62), treat it as full payment.
@@ -481,7 +503,6 @@ export default function OrderManagementPage() {
         : advance;
 
     const balanceAmount = roundMoney(Math.max(0, totalWithGST - normalizedAdvance));
-    const originalCartValue = roundMoney(subtotalBase + subtotalBase * 0.03);
 
     return {
       netWeight, goldValue, vaAmount, discount: disc,
@@ -585,12 +606,41 @@ export default function OrderManagementPage() {
 
   const handleSaveEdit = async () => {
     if (!viewingOrder) return;
+
+    const roundMoney = (value: number) =>
+      Math.round((value + Number.EPSILON) * 100) / 100;
+
+    const editedNetWeight =
+      Math.max(0, Number(editForm.netWeight) || 0) +
+      (Number(editForm.weightAdjustmentGrams) || 0);
+    const editedRate = Math.max(0, Number(editForm.liveRate) || 0);
+    const editedVaPercent = Math.max(0, Number(editForm.vaPercentage) || 0);
+    const editedStoneCost = Math.max(0, Number(editForm.stoneCost) || 0);
+    const editedExchangeValue = Math.max(0, Number(editForm.discountAmount) || 0);
+    const editedAdjustmentCost = Number(editForm.adjustmentCost) || 0;
+
+    const editedMetalCost = roundMoney(editedNetWeight * editedRate);
+    const editedVaAmount = roundMoney(editedMetalCost * (editedVaPercent / 100));
+    const editedGstBase = roundMoney(editedMetalCost + editedVaAmount + editedStoneCost);
+    const editedGstAmount = roundMoney(editedGstBase * 0.03);
+    const editedOriginalCartValue = roundMoney(editedGstBase + editedAdjustmentCost + editedGstAmount);
+    const editedTotalAmount = roundMoney(Math.max(0, editedOriginalCartValue - editedExchangeValue));
+    const alreadyPaid = Math.max(0, Number(viewingOrder.advanceCash) || 0);
+    const editedBalanceAmount = roundMoney(Math.max(0, editedTotalAmount - alreadyPaid));
+
     setIsSubmitting(true);
     try {
       const res = await fetch(`${API_BASE}/edit`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ orderId: viewingOrder.id, ...editForm }),
+        body: JSON.stringify({
+          orderId: viewingOrder.id,
+          ...editForm,
+          gstAmount: editedGstAmount,
+          originalCartValue: editedOriginalCartValue,
+          totalAmount: editedTotalAmount,
+          balanceAmount: editedBalanceAmount,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -921,9 +971,9 @@ export default function OrderManagementPage() {
         fieldRow("Exchange Jewellery", order.exchangeJewelleryName || "-");
         fieldRow("Exchange Grams", `${Number(order.exchangeJewelleryGrams || 0).toFixed(3)} g`);
         fieldRow("Stone Cost", `₹${Number(order.stoneCost || 0).toLocaleString()}`);
-        fieldRow("Discount / Exchange Value", `₹${Number(order.discountAmount || 0).toLocaleString()}`);
-        fieldRow("Original Cart Value", `₹${Number(order.originalCartValue || 0).toLocaleString()}`);
-        fieldRow("GST", `₹${Number(order.gst ?? order.gstAmount ?? 0).toLocaleString()}`);
+        fieldRow("Jewellery Exchange Value", `₹${Number(order.discountAmount || 0).toLocaleString()}`);
+        fieldRow("Original Cart Value (Incl. GST, Before Exchange)", `₹${Number(order.originalCartValue || 0).toLocaleString()}`);
+        fieldRow("GST (3% on Metal + VA + Stone)", `₹${Number(order.gst ?? order.gstAmount ?? 0).toLocaleString()}`);
 
         sectionTitle("Payment Summary");
         fieldRow("Final Order Amount", `₹${Number(order.totalAmount || 0).toLocaleString()}`, { color: black });
@@ -1407,7 +1457,7 @@ export default function OrderManagementPage() {
                 </div>
                 {Number(viewingOrder?.discountAmount) > 0 && (
                   <div className="p-3 bg-rose-50 rounded-xl border border-rose-100">
-                    <div className="flex justify-between text-xs text-rose-600 font-bold"><span>Discount</span><span>-₹{Number(viewingOrder?.discountAmount).toLocaleString()}</span></div>
+                    <div className="flex justify-between text-xs text-rose-600 font-bold"><span>Jewellery Exchange Value</span><span>-₹{Number(viewingOrder?.discountAmount).toLocaleString()}</span></div>
                   </div>
                 )}
                 <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
@@ -1473,8 +1523,25 @@ export default function OrderManagementPage() {
                   )}
                 </div>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {viewingOrder?.payments?.length > 0 ? (
-                    viewingOrder.payments.map((p: any) => (
+                  {Math.max(0, getPaidAmount(viewingOrder) - getPaymentsTotal(viewingOrder)) > 0 && (
+                    <div className="flex justify-between items-center text-xs p-2 bg-emerald-50 border border-emerald-100 rounded-lg">
+                      <div>
+                        <p className="font-bold text-emerald-800">
+                          Initial {paymentModeLabel(viewingOrder?.advancePaymentMode)}
+                        </p>
+                        <p className="text-[10px] text-emerald-600">
+                          {viewingOrder?.advanceReferenceNumber ||
+                           viewingOrder?.advanceCheckNumber ||
+                           "Initial booking payment"}
+                        </p>
+                      </div>
+                      <span className="font-bold text-emerald-700">
+                        ₹{Math.round(Math.max(0, getPaidAmount(viewingOrder) - getPaymentsTotal(viewingOrder))).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                  {getOrderPayments(viewingOrder).length > 0 ? (
+                    getOrderPayments(viewingOrder).map((p: any) => (
                       <div key={p.id} className="flex justify-between items-center text-xs p-2 bg-slate-50 rounded-lg">
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
@@ -1751,7 +1818,7 @@ export default function OrderManagementPage() {
                     <div className="flex justify-between text-sm"><span className="text-slate-400">Metal Value</span><span>₹{totals.goldValue.toLocaleString()}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-slate-400">VA + Gem</span><span className="text-gold">+ ₹{(totals.vaAmount + totals.stoneCost).toLocaleString()}</span></div>
                     {totals.discount > 0 && <div className="flex justify-between text-sm font-bold text-rose-400 bg-rose-400/5 p-2 rounded-lg border border-rose-400/20"><span>Exchange value</span><span>- ₹{totals.discount.toLocaleString()}</span></div>}
-                    <div className="flex justify-between text-sm"><span className="text-slate-400 italic">GST (3%)</span><span className="text-slate-300">+ ₹{Math.round(totals.gstAmount).toLocaleString()}</span></div>
+                    <div className="flex justify-between text-sm"><span className="text-slate-400 italic">GST (3% on Metal + VA + Stone)</span><span className="text-slate-300">+ ₹{Math.round(totals.gstAmount).toLocaleString()}</span></div>
                   </div>
                   <GoldDivider className="opacity-20 my-8" />
                   <div className="py-2 text-center"><p className="text-[11px] text-gold font-bold uppercase tracking-[0.3em] mb-3">Projected Total</p><h2 className="text-6xl font-serif font-bold text-white tracking-tighter">

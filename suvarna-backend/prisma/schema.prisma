@@ -150,18 +150,36 @@ model Staff {
   nomineeAddress     String
   createdAt          DateTime    @default(now())
   createdBy          String
-
-  // Stores the hashed password, never plain text.
   passwordHash       String?
-
-  // Nullable to preserve existing employees during migration.
   branch             String?
-
-  // Assign CASHIER, SALESMAN, or both.
   roles              StaffRole[] @default([])
+  mpinHash           String?
+  appSessions        StaffAppSession[]
 
   @@index([branch])
 }
+
+model StaffAppSession {
+  tokenHash    String   @id
+  staffId      String
+  staff        Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+  mpinVerified Boolean  @default(false)
+
+  @@index([staffId])
+  @@index([expiresAt])
+}
+
+model StaffAppAuthAttempt {
+  key         String   @id
+  attempts    Int
+  windowStart DateTime
+
+  @@index([windowStart])
+}
+
+
 model Product {
   id              String         @id @default(uuid())
   name            String
