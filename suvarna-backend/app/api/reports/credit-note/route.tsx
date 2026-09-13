@@ -49,6 +49,29 @@ export async function POST(req: Request) {
       });
     }
 
+    // 2b. VALIDATE PER-ITEM PRICING MODE
+    // Items priced "PIECE" (fixed cost) must supply a pieceCost; everything else
+    // is priced by weight and must supply grams.
+    for (const p of products) {
+      const mode = p.pricingMode ? String(p.pricingMode).toUpperCase() : "WEIGHT";
+      if (mode !== "WEIGHT" && mode !== "PIECE") {
+        return new NextResponse(JSON.stringify({ error: `Invalid pricing mode for item "${p.name || "unnamed"}"` }), {
+          status: 400, headers: corsHeaders()
+        });
+      }
+      if (mode === "PIECE") {
+        if (p.pieceCost === undefined || p.pieceCost === null || p.pieceCost === "" || isNaN(Number(p.pieceCost)) || Number(p.pieceCost) < 0) {
+          return new NextResponse(JSON.stringify({ error: `A valid piece cost is required for item "${p.name || "unnamed"}"` }), {
+            status: 400, headers: corsHeaders()
+          });
+        }
+      } else if (p.grams === undefined || p.grams === null || p.grams === "" || isNaN(Number(p.grams)) || Number(p.grams) < 0) {
+        return new NextResponse(JSON.stringify({ error: `Valid grams are required for item "${p.name || "unnamed"}"` }), {
+          status: 400, headers: corsHeaders()
+        });
+      }
+    }
+
     // 3. EXECUTE TRANSACTION
     const result = await prisma.$transaction(async (tx) => {
 
@@ -64,14 +87,19 @@ export async function POST(req: Request) {
           pastinvoice: pastInvoice,
 
           creditNotes: {
-            create: products.map((p: any) => ({
-              productName: p.name,
-              grams: Number(p.grams || 0),
-              carats: String(p.carats || ""),
-              stoneWeight: Number(p.stoneWeight || 0),
-              overallCost: Number(overallCost)
-               // Mapping the same overall cost to each entry for record keeping
-            }))
+            create: products.map((p: any) => {
+              const mode = p.pricingMode ? String(p.pricingMode).toUpperCase() : "WEIGHT";
+              return {
+                productName: p.name,
+                grams: Number(p.grams || 0),
+                carats: String(p.carats || ""),
+                stoneWeight: Number(p.stoneWeight || 0),
+                overallCost: Number(overallCost),
+                // Mapping the same overall cost to each entry for record keeping
+                pricingMode: mode,
+                pieceCost: mode === "PIECE" ? Number(p.pieceCost) : null,
+              };
+            })
           }
         },
         include: {

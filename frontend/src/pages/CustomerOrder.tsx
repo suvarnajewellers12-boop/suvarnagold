@@ -3331,7 +3331,7 @@ export default function OrderManagementPage() {
                       if (!(metalType === "SILVER" && nextPurity === "92.5")) {
                         setForm((prev) => ({ ...prev, pricingMode: "GRAMS", pieceCost: "" }));
                       }
-                    }} className="h-14 border border-slate-200 rounded-xl px-4 text-sm bg-white font-bold">{metalType === "GOLD" ? (<><option value="24">24K</option><option value="22">22K</option><option value="18">18K</option></>) : (<><option value="99">99%</option><option value="92.5">92.5%</option><option value="90">90%</option></>)}</select>
+                    }} className="h-14 border border-slate-200 rounded-xl px-4 text-sm bg-white font-bold">{metalType === "GOLD" ? (<><option value="24">24K</option><option value="22">22K</option><option value="18">18K</option></>) : (<><option value="999">999%</option><option value="92.5">92.5%</option><option value="80">80%</option></>)}</select>
                   <Input type="number" min="0" value={form.liveRate} onChange={(e) => handleInputChange("liveRate", e.target.value)} placeholder="Live Rate" className="h-14 font-bold" />
                 </div>
               </section>

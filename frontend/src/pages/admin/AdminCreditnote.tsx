@@ -2,8 +2,9 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { AdminSidebar } from "@/components/AdminSidebar";
+import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
+import { AdminSidebar } from "@/components/AdminSidebar";
 import { SuccessToast } from "@/components/SuccessToast";
 import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
@@ -12,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
 import {
   Plus, Search, RefreshCcw, Trash2,
-  Landmark, Calendar, Loader2, ScrollText, Package, Printer, FileClock, Download
+  Landmark, Calendar, Loader2, ScrollText, Package, Printer, FileClock, Download, Scale, Coins
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,11 @@ import { cn } from "@/lib/utils";
 // PDF Libraries
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
+
+// Pricing mode for a returned item: priced by weight (grams x rate) or a fixed piece cost
+type PricingMode = "weight" | "piece";
+
+const isSilver925 = (purity: string) => purity.toLowerCase().includes("92.5");
 
 const CreditNotes = () => {
   const { isAuthChecking, isAuthenticated } = useAuth();
@@ -35,16 +41,29 @@ const CreditNotes = () => {
   const [overallCost, setOverallCost] = useState("");
   const [pastInvoice, setPastInvoice] = useState("");
   const [products, setProducts] = useState([
-    { name: "", grams: "", carats: "22k", stoneWeight: "", cost: "" }
+    { name: "", grams: "", carats: "22k", stoneWeight: "", pricingMode: "weight" as PricingMode, pieceCost: "" }
   ]);
 
-  // Auto-set cost to 0 for silver/other purity
+  // Reset pricing mode when switching away from Silver 92.5% (only that purity
+  // supports piece-cost pricing)
   const handlePurityChange = (index: number, purity: string) => {
     const up = [...products];
     up[index].carats = purity;
-    const purityLower = purity.toLowerCase();
-    if (purityLower.includes   ("silver") || purityLower.includes("other")) {
-      up[index].cost = "0";
+    if (!isSilver925(purity)) {
+      up[index].pricingMode = "weight";
+      up[index].pieceCost = "";
+    }
+    setProducts(up);
+  };
+
+  const handlePricingModeChange = (index: number, mode: PricingMode) => {
+    const up = [...products];
+    up[index].pricingMode = mode;
+    if (mode === "piece") {
+      // Piece pricing replaces the weight-based grams entirely
+      up[index].grams = "0";
+    } else {
+      up[index].pieceCost = "";
     }
     setProducts(up);
   };
@@ -134,7 +153,7 @@ const CreditNotes = () => {
       const INFO_Y = HDR_Y + 30;
       draw("Credit Note ID:", MARGIN_L, INFO_Y, 7.5, grey);
       draw(note.invoice || "N/A", MARGIN_L + 100, INFO_Y, 8.5, black);
-      
+
       drawR("Original Invoice:", MARGIN_R - 80, INFO_Y, 7.5, grey);
       drawR(note.pastInvoice || note.pastinvoice || "N/A", MARGIN_R, INFO_Y, 8.5, black);
 
@@ -146,7 +165,7 @@ const CreditNotes = () => {
       // ── COUPON CODE DISPLAY ──────────────────────────────────────
       const COUPON_Y = INFO_Y + 50;
       draw("COUPON CODE:", MARGIN_L, COUPON_Y, 8, grey);
-      
+
       const couponBoxW = MARGIN_R - MARGIN_L - 10;
       const couponBoxH = 28;
       page.drawRectangle({
@@ -182,26 +201,29 @@ const CreditNotes = () => {
 
       let rowY = TBL_Y + 20;
       const itemsArray = note.products || note.creditNotes || [];
-      
+
       if (Array.isArray(itemsArray) && itemsArray.length > 0) {
         itemsArray.forEach((item: any) => {
           if (rowY > SAFE_BOTTOM - 120) return;
-          
+
           const itemName = item.name || item.productName || "Item";
           const purity = item.carats || item.purity || "22K";
+          const isPieceMode = String(item.pricingMode || "").toUpperCase() === "PIECE";
           const grams = item.grams || 0;
           const stoneWeight = item.stoneWeight || 0;
-          const cost = Number(note.overallPrice || 0);
+          // Piece-priced items carry their own fixed cost; weight-priced items fall
+          // back to the note's overall credited amount (legacy behaviour)
+          const cost = isPieceMode ? Number(item.pieceCost || 0) : Number(note.overallPrice || 0);
           // console.log(note);
-          
+
           // Draw item name (truncate if too long)
           const nameToShow = itemName.length > 25 ? itemName.substring(0, 22) + "..." : itemName;
           draw(nameToShow, MARGIN_L, rowY, 7.5, black);
           draw(String(purity), MARGIN_L + 130, rowY, 7.5, black);
-          draw(`${grams}g`, MARGIN_L + 190, rowY, 7.5, black);
-          draw(`${stoneWeight}g`, MARGIN_L + 250, rowY, 7.5, black);
+          draw(isPieceMode ? "1 pc" : `${grams}g`, MARGIN_L + 190, rowY, 7.5, black);
+          draw(isPieceMode ? "—" : `${stoneWeight}g`, MARGIN_L + 250, rowY, 7.5, black);
           drawR(`₹${cost.toLocaleString()}`, MARGIN_R, rowY, 7.5, black);
-          
+
           rowY += 14;
         });
       } else {
@@ -250,10 +272,11 @@ const CreditNotes = () => {
       const SUMMARY_Y = VAL_Y + 12;
       draw("Summary:", MARGIN_L, SUMMARY_Y, 7, grey);
       draw(`Items: ${itemsArray.length}`, MARGIN_L, SUMMARY_Y + 10, 6.5, black);
-      
+
       let totalItemGrams = 0;
       let totalStoneWeight = 0;
       itemsArray.forEach((item: any) => {
+        if (String(item.pricingMode || "").toUpperCase() === "PIECE") return;
         totalItemGrams += Number(item.grams || 0);
         totalStoneWeight += Number(item.stoneWeight || 0);
       });
@@ -295,11 +318,17 @@ const CreditNotes = () => {
 
 
   const handleSubmit = async () => {
-    // 1. Check for empty fields
-    const isProductsValid = products.every(p => p.name.trim() !== "" && p.grams !== "" && p.carats.trim() !== "" && p.cost !== "");
+    // 1. Check for empty fields (weight-priced items need grams+cost, piece-priced items need pieceCost)
+    const isProductsValid = products.every(p => {
+      if (!p.name.trim() || !p.carats.trim()) return false;
+      if (p.pricingMode === "piece") {
+        return p.pieceCost !== "";
+      }
+      return p.grams !== "";
+    });
 
     if (!overallCost || !pastInvoice || !isProductsValid) {
-      setToastMessage("Missing Information: Please fill all fields including cost for each item.");
+      setToastMessage("Missing Information: Please fill all fields for each item.");
       setShowToast(true);
       return;
     }
@@ -311,7 +340,10 @@ const CreditNotes = () => {
       return;
     }
 
-    const hasNegativeWeights = products.some(p => Number(p.grams) < 0 || Number(p.stoneWeight) < 0 || Number(p.cost) < 0);
+    const hasNegativeWeights = products.some(p =>
+      Number(p.grams) < 0 || Number(p.stoneWeight) < 0 ||
+      (p.pricingMode === "piece" && Number(p.pieceCost) < 0)
+    );
     if (hasNegativeWeights) {
       setToastMessage("Error: Weights and costs cannot be negative.");
       setShowToast(true);
@@ -332,9 +364,10 @@ const CreditNotes = () => {
           pastInvoice: pastInvoice,
           products: products.map(p => ({
             ...p,
-            grams: Number(p.grams),
+            grams: Number(p.grams || 0),
             stoneWeight: Number(p.stoneWeight || 0),
-            cost: Number(p.cost)
+            pricingMode: p.pricingMode.toUpperCase(),
+            pieceCost: p.pricingMode === "piece" ? Number(p.pieceCost || 0) : null,
           }))
         }),
       });
@@ -360,22 +393,22 @@ const CreditNotes = () => {
   const resetForm = () => {
     setOverallCost("");
     setPastInvoice("");
-    setProducts([{ name: "", grams: "", carats: "22k", stoneWeight: "", cost: "" }]);
+    setProducts([{ name: "", grams: "", carats: "22k", stoneWeight: "", pricingMode: "weight", pieceCost: "" }]);
   };
 
   const filteredNotes = useMemo(() => {
-  return creditNotes.filter(n => {
-    const search = searchQuery.toLowerCase();
-    return (
-      n.couponCode?.toLowerCase().includes(search) ||
-      n.invoice?.toLowerCase().includes(search) ||
-      (n.pastinvoice && String(n.pastinvoice).toLowerCase().includes(search))
-    );
-  });
-}, [searchQuery, creditNotes]);
+    return creditNotes.filter(n => {
+      const search = searchQuery.toLowerCase();
+      return (
+        n.couponCode?.toLowerCase().includes(search) ||
+        n.invoice?.toLowerCase().includes(search) ||
+        (n.pastinvoice && String(n.pastinvoice).toLowerCase().includes(search))
+      );
+    });
+  }, [searchQuery, creditNotes]);
 
   // Show loading screen while checking authentication
-  
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background overflow-hidden font-sans">
@@ -463,12 +496,21 @@ const CreditNotes = () => {
 
                       <TableCell>
                         <div className="space-y-1 py-1">
-                          {note.products.map((p: any, i: number) => (
-                            <div key={i} className="text-[10px] flex gap-2 text-muted-foreground">
-                              <span className="font-bold text-gray-700">{p.name}</span>
-                              <span>({p.grams}g | {p.carats}| {p.stoneWeight}g)</span>
-                            </div>
-                          ))}
+                          {note.products.map((p: any, i: number) => {
+                            const isPieceMode = String(p.pricingMode || "").toUpperCase() === "PIECE";
+                            return (
+                              <div key={i} className="text-[10px] flex items-center gap-2 text-muted-foreground">
+                                <span className="font-bold text-gray-700">{p.name}</span>
+                                {isPieceMode ? (
+                                  <span className="inline-flex items-center gap-1 text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5 text-[9px] font-bold">
+                                    <Coins className="w-2.5 h-2.5" /> ₹{Number(p.pieceCost || 0).toLocaleString()} / pc
+                                  </span>
+                                ) : (
+                                  <span>({p.grams}g | {p.carats}| {p.stoneWeight}g)</span>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </TableCell>
 
@@ -539,44 +581,149 @@ const CreditNotes = () => {
                 <label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
                   <Package className="w-4 h-4" /> Item Manifest
                 </label>
-                <Button variant="outline" size="sm" onClick={() => setProducts([...products, { name: "", grams: "", carats: "22k", stoneWeight: "", cost: "" }])} className="rounded-full text-[10px] font-bold h-8">
+                <Button variant="outline" size="sm" onClick={() => setProducts([...products, { name: "", grams: "", carats: "22k", stoneWeight: "", pricingMode: "weight", pieceCost: "" }])} className="rounded-full text-[10px] font-bold h-8">
                   <Plus className="w-3 h-3 mr-1" /> Add Another Item
                 </Button>
               </div>
 
               <div className="space-y-3">
-                {products.map((p, index) => (
-                  <div key={index} className="grid grid-cols-12 gap-3 p-4 bg-white rounded-xl border border-primary/10 shadow-sm relative group">
-                    <div className="col-span-12 md:col-span-4">
-                      <Input placeholder="Item Name" value={p.name} onChange={e => {
-                        const up = [...products]; up[index].name = e.target.value; setProducts(up);
-                      }} />
-                    </div>
-                    <div className="col-span-3 md:col-span-2">
-                      <Input type="number" min="0" placeholder="Grams" value={p.grams} onChange={e => {
-                        const up = [...products]; up[index].grams = e.target.value; setProducts(up);
-                      }} />
-                    </div>
-                    <div className="col-span-3 md:col-span-1.5">
-                      <Input placeholder="Purity" value={p.carats} onChange={e => handlePurityChange(index, e.target.value)} />
-                    </div>
-                    <div className="col-span-3 md:col-span-1.5">
-                      <Input type="number" min="0" placeholder="Stone Wt" value={p.stoneWeight} onChange={e => {
-                        const up = [...products]; up[index].stoneWeight = e.target.value; setProducts(up);
-                      }} />
-                    </div>
-                    <div className="col-span-2 md:col-span-2">
-                      <Input type="number" min="0" placeholder="₹ Cost" value={p.cost} onChange={e => {
-                        const up = [...products]; up[index].cost = e.target.value; setProducts(up);
-                      }} />
-                    </div>
-                    <div className="col-span-1 flex items-center justify-center">
-                      {products.length > 1 && (
-                        <Trash2 className="w-4 h-4 text-red-400 cursor-pointer hover:text-red-600" onClick={() => setProducts(products.filter((_, i) => i !== index))} />
+                {products.map((p, index) => {
+                  const showPieceToggle = isSilver925(p.carats);
+                  const isPieceMode = showPieceToggle && p.pricingMode === "piece";
+
+                  return (
+                  <div
+                    key={index}
+                    className="p-4 bg-white rounded-xl border border-primary/10 shadow-sm relative group space-y-3"
+                  >
+                    <div className="grid grid-cols-12 gap-3">
+                      <div className="col-span-12 md:col-span-4">
+                        <Input
+                          placeholder="Item Name"
+                          value={p.name}
+                          onChange={(e) => {
+                            const up = [...products];
+                            up[index].name = e.target.value;
+                            setProducts(up);
+                          }}
+                        />
+                      </div>
+
+                      {!isPieceMode && (
+                        <div className="col-span-3 md:col-span-2">
+                          <Input
+                            type="number"
+                            min="0"
+                            placeholder="Grams"
+                            value={p.grams}
+                            onChange={(e) => {
+                              const up = [...products];
+                              up[index].grams = e.target.value;
+                              setProducts(up);
+                            }}
+                          />
+                        </div>
                       )}
+
+                      <div className={cn("col-span-3", isPieceMode ? "md:col-span-3" : "md:col-span-2")}>
+                        <select
+                          value={p.carats}
+                          onChange={(e) =>
+                            handlePurityChange(index, e.target.value)
+                          }
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          <option value="">Select Purity</option>
+                          <option value="22K Gold">22K Gold</option>
+                          <option value="18K Gold">18K Gold</option>
+                          <option value="Silver">Silver</option>
+                          <option value="Silver 92.5%">Silver 92.5%</option>
+                        </select>
+                      </div>
+
+                      {!isPieceMode && (
+                        <div className="col-span-4 md:col-span-3">
+                          <Input
+                            type="number"
+                            min="0"
+                            placeholder="Stone Wt"
+                            value={p.stoneWeight}
+                            onChange={(e) => {
+                              const up = [...products];
+                              up[index].stoneWeight = e.target.value;
+                              setProducts(up);
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {isPieceMode && (
+                        <div className="col-span-8 md:col-span-4">
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-purple-700">₹</span>
+                            <Input
+                              type="number"
+                              min="0"
+                              placeholder="Piece Cost"
+                              value={p.pieceCost}
+                              onChange={(e) => {
+                                const up = [...products];
+                                up[index].pieceCost = e.target.value;
+                                setProducts(up);
+                              }}
+                              className="pl-7 border-purple-200 focus-visible:ring-purple-400"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="col-span-1 flex items-center justify-center">
+                        {products.length > 1 && (
+                          <Trash2
+                            className="w-4 h-4 text-red-400 cursor-pointer hover:text-red-600"
+                            onClick={() =>
+                              setProducts(
+                                products.filter((_, i) => i !== index)
+                              )
+                            }
+                          />
+                        )}
+                      </div>
                     </div>
+
+                    {/* Pricing mode toggle — only relevant for Silver 92.5% items */}
+                    {showPieceToggle && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-dashed border-primary/10">
+                        <span className="text-[9px] font-black uppercase text-muted-foreground">Price by:</span>
+                        <button
+                          type="button"
+                          onClick={() => handlePricingModeChange(index, "weight")}
+                          className={cn(
+                            "flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full border transition-colors",
+                            p.pricingMode === "weight"
+                              ? "bg-primary text-white border-primary"
+                              : "bg-white text-muted-foreground border-input"
+                          )}
+                        >
+                          <Scale className="w-3 h-3" /> Weight
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePricingModeChange(index, "piece")}
+                          className={cn(
+                            "flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full border transition-colors",
+                            p.pricingMode === "piece"
+                              ? "bg-purple-600 text-white border-purple-600"
+                              : "bg-white text-muted-foreground border-input"
+                          )}
+                        >
+                          <Coins className="w-3 h-3" /> Piece Cost
+                        </button>
+                      </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

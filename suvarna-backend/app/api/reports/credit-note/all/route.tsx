@@ -52,6 +52,9 @@ export async function GET(req:any) {
         grams: note.grams,
         carats: note.carats,
         stoneWeight: note.stoneWeight,
+        // Pricing mode ("WEIGHT" | "PIECE") and the fixed per-piece cost, when applicable
+        pricingMode: note.pricingMode,
+        pieceCost: note.pieceCost,
       })),
     }));
 

@@ -297,12 +297,13 @@ model CreditNote {
   carats      String?
   stoneWeight Float?
   overallCost Float
+  pricingMode String       @default("WEIGHT") // "WEIGHT" | "PIECE"
+  pieceCost   Float?
   couponId    String
   createdAt   DateTime     @default(now())
   isUsed      Boolean      @default(false)
   coupon      ReturnCoupon @relation(fields: [couponId], references: [id])
 }
-
 model CustomerScheme {
   id               String           @id @default(uuid())
   customerId       String
