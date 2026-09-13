@@ -27,7 +27,7 @@ export async function GET(req: Request) {
     const token = authHeader.split(" ")[1];
     const decoded = verifyToken(token) as unknown as { role?: string };
 
-    if (decoded.role !== "SUPER_ADMIN" && decoded.role !== "ADMIN") {
+    if (decoded.role !== "SUPER_ADMIN") {
       return new NextResponse(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: corsHeaders(),
@@ -44,6 +44,8 @@ export async function GET(req: Request) {
         itemDescription: true,
         metalType: true,
         purity: true,
+        pricingMode: true,
+        pieceCost: true,
         liveRate: true,
         stoneWeight: true,
         netWeight: true,
@@ -60,6 +62,8 @@ export async function GET(req: Request) {
         balanceAmount: true,
         weightAdjustmentGrams: true,
         adjustmentCost: true,
+        pricingRevisionAmount: true,
+        pricingRevisionNote: true,
         deadlineDate: true,
         createdAt: true,
         createdBy: true,

@@ -110,9 +110,25 @@ const calculateOriginalCartValue = (order: any) => {
   const vaPercent = Math.max(0, Number(order?.vaPercentage) || 0);
   const stoneCost = Math.max(0, Number(order?.stoneCost) || 0);
 
-  const metalCost = roundMoneyValue(bookedWeight * rate);
-  const vaAmount = roundMoneyValue(metalCost * (vaPercent / 100));
-  const gstBase = roundMoneyValue(metalCost + vaAmount + stoneCost);
+  const isPieceCost =
+    String(order?.metalType || "").toUpperCase() === "SILVER" &&
+    String(order?.purity || "") === "92.5" &&
+    String(order?.pricingMode || "GRAMS").toUpperCase() === "PIECE";
+
+  const metalCost = roundMoneyValue(
+    isPieceCost
+      ? Math.max(0, Number(order?.pieceCost) || 0)
+      : bookedWeight * rate
+  );
+
+  // Piece-cost 92.5 silver never carries VA.
+  const vaAmount = isPieceCost
+    ? 0
+    : roundMoneyValue(metalCost * (vaPercent / 100));
+
+  // Original Cart Value excludes stone cost.
+  // Stone cost is a final settlement addition.
+  const gstBase = roundMoneyValue(metalCost + vaAmount);
   const gst = roundMoneyValue(gstBase * 0.03);
 
   return roundMoneyValue(gstBase + gst);
@@ -124,6 +140,15 @@ const getExchangeValue = (order: any) =>
 const getBasePayableAfterExchange = (order: any) =>
   roundMoneyValue(
     Math.max(0, calculateOriginalCartValue(order) - getExchangeValue(order))
+  );
+
+const getFinalPayableBeforePayments = (order: any) =>
+  roundMoneyValue(
+    Math.max(
+      0,
+      getBasePayableAfterExchange(order) +
+        Math.max(0, Number(order?.stoneCost) || 0)
+    )
   );
 
 // The adjustment changes the FINAL payment only.
@@ -160,8 +185,7 @@ const getPreAdjustmentBalanceForFinalPayment = (order: any) =>
   roundMoneyValue(
     Math.max(
       0,
-      calculateOriginalCartValue(order) -
-        getExchangeValue(order) -
+      getFinalPayableBeforePayments(order) -
         getMoneyPaidBeforeFinalPayment(order)
     )
   );
@@ -294,8 +318,10 @@ export default function OrderManagementPage() {
     exchangeJewelleryName: "",
     exchangeJewelleryGrams: "",
     purity: "22",
+    pricingMode: "GRAMS" as "GRAMS" | "PIECE",
+    pieceCost: "",
     liveRate: "",
-    requiredGrams: "", // grams required to make the item -> becomes netWeight
+    requiredGrams: "", // used only when pricingMode === "GRAMS"
     stoneWeight: "",
     vaPercentage: "",
     stoneCost: "",
@@ -326,6 +352,10 @@ export default function OrderManagementPage() {
         phoneNumber: viewingOrder.phoneNumber || "",
         itemName: viewingOrder.itemName || "",
         itemDescription: viewingOrder.itemDescription || "",
+        metalType: viewingOrder.metalType || "GOLD",
+        purity: viewingOrder.purity || "22",
+        pricingMode: viewingOrder.pricingMode || "GRAMS",
+        pieceCost: viewingOrder.pieceCost ?? 0,
         liveRate: viewingOrder.liveRate ?? "",
         netWeight: viewingOrder.netWeight ?? "",
         stoneWeight: viewingOrder.stoneWeight ?? "",
@@ -343,319 +373,1373 @@ export default function OrderManagementPage() {
   // ---------------------------------------------------------------------------
   // PDF GENERATION
   // ---------------------------------------------------------------------------
-  const handleOrderReceipt = async (order: any, mode: "download" | "print", type: "BOOKING" | "DELIVERY" = "BOOKING") => {
-    try {
-      const fontBytes = await fetch("/fonts/NotoSans-VariableFont_wdth,wght.ttf").then((res) => res.arrayBuffer());
+  const handleOrderReceipt = async (
+  order: any,
+  mode: "download" | "print",
+  type: "BOOKING" | "DELIVERY" = "BOOKING"
+) => {
+  try {
+    const fontBytes = await fetch(
+      "/fonts/NotoSans-VariableFont_wdth,wght.ttf"
+    ).then((res) => res.arrayBuffer());
 
-      const A5_W = 419.53;
-      const A5_H = 595.28;
-      const SAFE_TOP = 80;
-      const MARGIN_L = 30;
-      const MARGIN_R = A5_W - 30;
+    const A5_W = 419.53;
+    const A5_H = 595.28;
 
-      const gold = rgb(0.72, 0.52, 0.04);
-      const grey = rgb(0.45, 0.45, 0.45);
-      const black = rgb(0, 0, 0);
-      const lightGrey = rgb(0.85, 0.85, 0.85);
-      const emerald = rgb(0.06, 0.47, 0.23);
-      const rose = rgb(0.7, 0.1, 0.1);
+    const SAFE_TOP = 80;
+    const MARGIN_L = 30;
+    const MARGIN_R = A5_W - 30;
 
-      let pdfDoc: any;
-      if (mode === "download") {
-        const templateBytes = await fetch("/receipt.pdf").then((res) => res.arrayBuffer());
-        pdfDoc = await PDFDocument.load(templateBytes);
-        pdfDoc.getPages()[0].setSize(A5_W, A5_H);
-      } else {
-        pdfDoc = await PDFDocument.create();
-        pdfDoc.addPage([A5_W, A5_H]);
-      }
+    const gold = rgb(0.72, 0.52, 0.04);
+    const grey = rgb(0.45, 0.45, 0.45);
+    const black = rgb(0, 0, 0);
+    const lightGrey = rgb(0.85, 0.85, 0.85);
+    const emerald = rgb(0.06, 0.47, 0.23);
+    const rose = rgb(0.7, 0.1, 0.1);
 
-      pdfDoc.registerFontkit(fontkit);
-      const customFont = await pdfDoc.embedFont(fontBytes);
-      const page = pdfDoc.getPages()[0];
+    // ============================================================
+    // PDF SETUP
+    // ============================================================
 
-      const makePen = (page: any) => {
-        const draw = (text: string, x: number, yFromTop: number, size = 9, color = black) =>
-          page.drawText(String(text ?? ""), { x, y: A5_H - yFromTop, size, font: customFont, color });
+    let pdfDoc: any;
 
-        const drawR = (text: string, rightX: number, yFromTop: number, size = 9, color = black) => {
-          const w = customFont.widthOfTextAtSize(String(text ?? ""), size);
-          page.drawText(String(text ?? ""), { x: rightX - w, y: A5_H - yFromTop, size, font: customFont, color });
-        };
-
-        const hLine = (yFromTop: number, lineColor = lightGrey, thickness = 0.4) =>
-          page.drawLine({
-            start: { x: MARGIN_L, y: A5_H - yFromTop },
-            end: { x: MARGIN_R, y: A5_H - yFromTop },
-            thickness,
-            color: lineColor,
-          });
-
-        return { draw, drawR, hLine };
-      };
-
-      const { draw, drawR, hLine } = makePen(page);
-
-      // ── CALCULATIONS ──
-      const bookedWt = Number(order.netWeight) || 0;
-      const weightAdj = Number(order.weightAdjustmentGrams) || 0;
-      const adjustmentCost = Number(order.adjustmentCost) || 0;
-      const netWt = bookedWt + weightAdj;
-
-      const grossWt = Number(order.grossWeight) || netWt + (Number(order.stoneWeight) || 0);
-      const stoneWt = Number(order.stoneWeight) || 0;
-      const rate = Number(order.liveRate) || 0;
-      const vaPer = Number(order.vaPercentage) || 0;
-      const stoneC = Number(order.stoneCost) || 0;
-      const discAmt = Number(order.discountAmount) || 0;
-      const originalCartValue = calculateOriginalCartValue(order);
-
-      // Component breakdown is informational only.
-      // Original Cart Value remains the stored/source-of-truth amount.
-      const goldValue = bookedWt * rate;
-      const vaAmount = goldValue * (vaPer / 100);
-      const gstTaxableBase = Math.max(0, goldValue + vaAmount + stoneC);
-      const gstAmount = Number(order.gst ?? order.gstAmount) || (gstTaxableBase * 0.03);
-
-      // Exchange changes payable only; it never changes Original Cart Value or GST.
-      const basePayable = getBasePayableAfterExchange(order);
-
-      // Receipt uses adjusted payment rows.
-      // The +/- adjustment is applied to the LAST payment amount.
-      const originalPayments: any[] = getOrderPayments(order);
-      const payments: any[] = getAdjustedPaymentRows(order);
-      const recordedPaymentsTotal = payments.reduce(
-        (sum, p) => sum + Math.max(0, Number(p.amount || 0)),
-        0
+    if (mode === "download") {
+      const templateBytes = await fetch("/receipt.pdf").then((res) =>
+        res.arrayBuffer()
       );
 
-      const totalPaid = recordedPaymentsTotal;
-      const balance = getFinalBalanceDue(order);
+      pdfDoc = await PDFDocument.load(templateBytes);
+      pdfDoc.getPages()[0].setSize(A5_W, A5_H);
+    } else {
+      pdfDoc = await PDFDocument.create();
+      pdfDoc.addPage([A5_W, A5_H]);
+    }
 
-      // ── HEADER ──
-      const HDR_Y = SAFE_TOP + 10;
-      const typeLabel = type === "DELIVERY" ? "DELIVERY CONFIRMATION" : "BOOKING RECEIPT";
-      draw(typeLabel, MARGIN_L, HDR_Y, 9.5, black);
-      drawR(`Order: ${order.orderId}`, MARGIN_R, HDR_Y, 8, grey);
-      drawR(`Date: ${format(new Date(), "dd-MM-yyyy")}`, MARGIN_R, HDR_Y + 12, 7.5, grey);
-      hLine(HDR_Y + 26);
+    pdfDoc.registerFontkit(fontkit);
 
-      // ── CUSTOMER ──
-      const CUST_Y = HDR_Y + 38;
-      draw("CUSTOMER", MARGIN_L, CUST_Y, 7.5, grey);
-      draw(order.customerName, MARGIN_L, CUST_Y + 11, 8.5, black);
-      draw(`Ph: +91 ${order.phoneNumber}`, MARGIN_L, CUST_Y + 22, 7.5, grey);
-      hLine(CUST_Y + 32);
+    const customFont = await pdfDoc.embedFont(fontBytes);
+    const page = pdfDoc.getPages()[0];
 
-      // ── ITEM TABLE ──
-      const TBL_Y = CUST_Y + 50;
-      const col = { name: MARGIN_L, gross: 130, stone: 185, net: 245, va: 305, total: MARGIN_R };
-      draw("ITEM", col.name, TBL_Y, 7, grey);
-      draw("GROSS", col.gross, TBL_Y, 7, grey);
-      draw("STONE", col.stone, TBL_Y, 7, grey);
-      draw("NET", col.net, TBL_Y, 7, grey);
-      draw("VA", col.va, TBL_Y, 7, grey);
-      drawR("AMOUNT", col.total, TBL_Y, 7, grey);
-      hLine(TBL_Y + 9);
+    // ============================================================
+    // DRAW HELPERS
+    // ============================================================
 
-      const ROW_Y = TBL_Y + 19;
-      draw(order.itemName || "Custom Item", col.name, ROW_Y, 7.5, black);
-      draw(`${grossWt}g`, col.gross, ROW_Y, 7.5, black);
-      draw(`${stoneWt}g`, col.stone, ROW_Y, 7.5, black);
-      draw(`${netWt}g`, col.net, ROW_Y, 7.5, black);
-      draw(`₹${Math.round(vaAmount).toLocaleString()}`, col.va, ROW_Y, 7.5, black);
-      drawR(`₹${Math.round(originalCartValue).toLocaleString()}`, col.total, ROW_Y, 7.5, black);
-      hLine(ROW_Y + 13);
-
-      // ── CART SUMMARY ──
-      let cursorY = ROW_Y + 22;
-      draw("CART SUMMARY", MARGIN_L, cursorY, 7.5, grey);
-      hLine(cursorY + 8);
-
-      const cartRow = (label: string, value: string, y: number, valueColor = black) => {
-        draw(label, MARGIN_L, y, 6.5, grey);
-        drawR(value, MARGIN_R, y, 6.5, valueColor);
+    const makePen = (page: any) => {
+      const draw = (
+        text: string,
+        x: number,
+        yFromTop: number,
+        size = 9,
+        color = black
+      ) => {
+        page.drawText(String(text ?? ""), {
+          x,
+          y: A5_H - yFromTop,
+          size,
+          font: customFont,
+          color,
+        });
       };
 
-      const storedOriginalCartValue = originalCartValue;
-      let offset = 14;
-      cartRow("Original Cart Value", `₹${Math.round(storedOriginalCartValue).toLocaleString()}`, cursorY + offset, gold);
-      offset += 7;
+      const drawR = (
+        text: string,
+        rightX: number,
+        yFromTop: number,
+        size = 9,
+        color = black
+      ) => {
+        const safeText = String(text ?? "");
+
+        const width = customFont.widthOfTextAtSize(
+          safeText,
+          size
+        );
+
+        page.drawText(safeText, {
+          x: rightX - width,
+          y: A5_H - yFromTop,
+          size,
+          font: customFont,
+          color,
+        });
+      };
+
+      const hLine = (
+        yFromTop: number,
+        lineColor = lightGrey,
+        thickness = 0.4
+      ) => {
+        page.drawLine({
+          start: {
+            x: MARGIN_L,
+            y: A5_H - yFromTop,
+          },
+          end: {
+            x: MARGIN_R,
+            y: A5_H - yFromTop,
+          },
+          thickness,
+          color: lineColor,
+        });
+      };
+
+      return {
+        draw,
+        drawR,
+        hLine,
+      };
+    };
+
+    const { draw, drawR, hLine } =
+      makePen(page);
+
+    // ============================================================
+    // BASIC VALUES
+    // ============================================================
+
+    const bookedWt =
+      Number(order.netWeight) || 0;
+
+    const weightAdj =
+      Number(order.weightAdjustmentGrams) || 0;
+
+    // adjustmentCost MUST already contain the correct sign.
+    // Example:
+    // -0.05g => -710
+    // +0.05g => +710
+    const adjustmentCost =
+      Number(order.adjustmentCost) || 0;
+
+    const finalNetWt =
+      bookedWt + weightAdj;
+
+    const stoneWt =
+      Number(order.stoneWeight) || 0;
+
+    const grossWt =
+      Number(order.grossWeight) ||
+      finalNetWt + stoneWt;
+
+    const rate =
+      Number(order.liveRate) || 0;
+
+    const vaPer =
+      Number(order.vaPercentage) || 0;
+
+    const stoneCost =
+      Number(order.stoneCost) || 0;
+
+    const exchangeValue =
+      Math.max(
+        0,
+        Number(order.discountAmount) || 0
+      );
+
+    // ============================================================
+    // PRICING MODE
+    //
+    // Works for:
+    // - Gold all carats
+    // - Silver all purities
+    // - GRAMS pricing
+    // - PIECE pricing
+    //
+    // Do NOT hard-code 22K, 18K, 92.5 etc.
+    // ============================================================
+
+    const pricingMode =
+      String(
+        order.pricingMode || "GRAMS"
+      ).toUpperCase();
+
+    const isPieceCostOrder =
+      pricingMode === "PIECE";
+
+    // ============================================================
+    // 1. METAL / PIECE VALUE
+    // ============================================================
+
+    const metalValue =
+      isPieceCostOrder
+        ? Math.max(
+            0,
+            Number(order.pieceCost) || 0
+          )
+        : bookedWt * rate;
+
+    // ============================================================
+    // 2. VA
+    // ============================================================
+
+    const vaAmount =
+      isPieceCostOrder
+        ? 0
+        : metalValue * (vaPer / 100);
+
+    // ============================================================
+    // 3. STONE COST
+    //
+    // Added exactly ONCE.
+    // ============================================================
+
+    const gstTaxableBase =
+      roundMoneyValue(
+        Math.max(
+          0,
+          metalValue +
+            vaAmount +
+            stoneCost
+        )
+      );
+
+    // ============================================================
+    // 4. GST AFTER STONE COST
+    // ============================================================
+
+    const gstAmount =
+      roundMoneyValue(
+        gstTaxableBase * 0.03
+      );
+
+    // ============================================================
+    // 5. ORIGINAL BILL BEFORE +/- ADJUSTMENT
+    //
+    // Metal/Piece
+    // + VA
+    // + Stone
+    // + GST
+    // ============================================================
+
+    const amountBeforeAdjustment =
+      roundMoneyValue(
+        gstTaxableBase +
+          gstAmount
+      );
+
+    // ============================================================
+    // 6. APPLY WEIGHT / AMOUNT ADJUSTMENT ONCE
+    //
+    // Example:
+    //
+    // 169,641
+    // -   710
+    // --------
+    // 168,931
+    // ============================================================
+
+    const adjustedAmountBeforeExchange =
+      roundMoneyValue(
+        Math.max(
+          0,
+          amountBeforeAdjustment +
+            adjustmentCost
+        )
+      );
+
+    // ============================================================
+    // 7. DEDUCT JEWELLERY EXCHANGE
+    //
+    // Example:
+    //
+    // 168,931
+    // -51,400
+    // --------
+    // 117,531
+    // ============================================================
+
+    const payableAfterExchange =
+      roundMoneyValue(
+        Math.max(
+          0,
+          adjustedAmountBeforeExchange -
+            exchangeValue
+        )
+      );
+
+    // ============================================================
+    // PAYMENT CALCULATION
+    //
+    // IMPORTANT:
+    //
+    // DO NOT USE:
+    // getAdjustedPaymentRows(order)
+    //
+    // Because adjustmentCost was ALREADY applied above.
+    //
+    // The top calculation is now the ONLY source of truth.
+    // ============================================================
+
+    const rawPayments: any[] =
+      (getOrderPayments(order) || []).map(
+        (payment: any) => ({
+          ...payment,
+          amount: Math.max(
+            0,
+            Number(payment.amount || 0)
+          ),
+        })
+      );
+
+    let payments: any[] =
+      rawPayments.map((payment: any) => ({
+        ...payment,
+      }));
+
+    // ============================================================
+    // DELIVERY / FINAL SETTLEMENT
+    //
+    // Keep all OLD payments unchanged.
+    //
+    // Recalculate ONLY the LAST payment using:
+    //
+    // payableAfterExchange - previous payments
+    //
+    // This guarantees that the bottom matches the top.
+    // ============================================================
+
+    if (
+      type === "DELIVERY" &&
+      payments.length > 0
+    ) {
+      const previousPayments =
+        payments.slice(0, -1);
+
+      const previousPaymentsTotal =
+        roundMoneyValue(
+          previousPayments.reduce(
+            (
+              total: number,
+              payment: any
+            ) =>
+              total +
+              Math.max(
+                0,
+                Number(
+                  payment.amount || 0
+                )
+              ),
+            0
+          )
+        );
+
+      const exactFinalPayment =
+        roundMoneyValue(
+          Math.max(
+            0,
+            payableAfterExchange -
+              previousPaymentsTotal
+          )
+        );
+
+      const lastIndex =
+        payments.length - 1;
+
+      payments[lastIndex] = {
+        ...payments[lastIndex],
+
+        // IMPORTANT:
+        // overwrite stale/wrong settlement value
+        // only for receipt calculation.
+        amount: exactFinalPayment,
+
+        isFinalSettlementPayment: true,
+      };
+    }
+
+    // ============================================================
+    // TOTAL CASH / UPI / CARD / CHEQUE PAID
+    // ============================================================
+
+    const totalMoneyPaid =
+      roundMoneyValue(
+        payments.reduce(
+          (
+            total: number,
+            payment: any
+          ) =>
+            total +
+            Math.max(
+              0,
+              Number(
+                payment.amount || 0
+              )
+            ),
+          0
+        )
+      );
+
+    // ============================================================
+    // TOTAL CLEARED INCLUDING EXCHANGE
+    // ============================================================
+
+    const totalPaidCleared =
+      roundMoneyValue(
+        totalMoneyPaid +
+          exchangeValue
+      );
+
+    // ============================================================
+    // FINAL BALANCE
+    //
+    // IMPORTANT:
+    //
+    // Use PAYABLE AFTER EXCHANGE.
+    //
+    // Do NOT subtract exchange again here.
+    //
+    // payableAfterExchange
+    // - money paid
+    // = balance
+    // ============================================================
+
+    const balance =
+      roundMoneyValue(
+        Math.max(
+          0,
+          payableAfterExchange -
+            totalMoneyPaid
+        )
+      );
+
+    // ============================================================
+    // HEADER
+    // ============================================================
+
+    const HDR_Y =
+      SAFE_TOP + 10;
+
+    const typeLabel =
+      type === "DELIVERY"
+        ? "DELIVERY CONFIRMATION"
+        : "BOOKING RECEIPT";
+
+    draw(
+      typeLabel,
+      MARGIN_L,
+      HDR_Y,
+      9.5,
+      black
+    );
+
+    drawR(
+      `Order: ${order.orderId}`,
+      MARGIN_R,
+      HDR_Y,
+      8,
+      grey
+    );
+
+    drawR(
+      `Date: ${format(
+        new Date(),
+        "dd-MM-yyyy"
+      )}`,
+      MARGIN_R,
+      HDR_Y + 12,
+      7.5,
+      grey
+    );
+
+    hLine(HDR_Y + 26);
+
+    // ============================================================
+    // CUSTOMER
+    // ============================================================
+
+    const CUST_Y =
+      HDR_Y + 38;
+
+    draw(
+      "CUSTOMER",
+      MARGIN_L,
+      CUST_Y,
+      7.5,
+      grey
+    );
+
+    draw(
+      order.customerName || "",
+      MARGIN_L,
+      CUST_Y + 11,
+      8.5,
+      black
+    );
+
+    draw(
+      `Ph: +91 ${
+        order.phoneNumber || ""
+      }`,
+      MARGIN_L,
+      CUST_Y + 22,
+      7.5,
+      grey
+    );
+
+    hLine(CUST_Y + 32);
+
+    // ============================================================
+    // ITEM TABLE
+    // ============================================================
+
+    const TBL_Y =
+      CUST_Y + 50;
+
+    const col = {
+      name: MARGIN_L,
+      gross: 130,
+      stone: 185,
+      net: 245,
+      va: 305,
+      total: MARGIN_R,
+    };
+
+    draw(
+      "ITEM",
+      col.name,
+      TBL_Y,
+      7,
+      grey
+    );
+
+    draw(
+      "GROSS",
+      col.gross,
+      TBL_Y,
+      7,
+      grey
+    );
+
+    draw(
+      "STONE",
+      col.stone,
+      TBL_Y,
+      7,
+      grey
+    );
+
+    draw(
+      isPieceCostOrder
+        ? "PIECE COST"
+        : "NET",
+      col.net,
+      TBL_Y,
+      7,
+      grey
+    );
+
+    draw(
+      "VA",
+      col.va,
+      TBL_Y,
+      7,
+      grey
+    );
+
+    drawR(
+      "AMOUNT",
+      col.total,
+      TBL_Y,
+      7,
+      grey
+    );
+
+    hLine(TBL_Y + 9);
+
+    const ROW_Y =
+      TBL_Y + 19;
+
+    draw(
+      order.itemName ||
+        "Custom Item",
+      col.name,
+      ROW_Y,
+      7.5,
+      black
+    );
+
+    draw(
+      `${grossWt}g`,
+      col.gross,
+      ROW_Y,
+      7.5,
+      black
+    );
+
+    draw(
+      `${stoneWt}g`,
+      col.stone,
+      ROW_Y,
+      7.5,
+      black
+    );
+
+    draw(
+      isPieceCostOrder
+        ? `₹${Math.round(
+            Number(
+              order.pieceCost || 0
+            )
+          ).toLocaleString()}`
+        : `${bookedWt}g`,
+      col.net,
+      ROW_Y,
+      7.5,
+      black
+    );
+
+    draw(
+      `₹${Math.round(
+        vaAmount
+      ).toLocaleString()}`,
+      col.va,
+      ROW_Y,
+      7.5,
+      black
+    );
+
+    // Original bill BEFORE adjustment/exchange.
+    drawR(
+      `₹${Math.round(
+        amountBeforeAdjustment
+      ).toLocaleString()}`,
+      col.total,
+      ROW_Y,
+      7.5,
+      black
+    );
+
+    hLine(ROW_Y + 13);
+
+    // ============================================================
+    // CART SUMMARY
+    // ============================================================
+
+    let cursorY =
+      ROW_Y + 22;
+
+    draw(
+      "CART SUMMARY",
+      MARGIN_L,
+      cursorY,
+      7.5,
+      grey
+    );
+
+    hLine(cursorY + 8);
+
+    const cartRow = (
+      label: string,
+      value: string,
+      y: number,
+      valueColor = black
+    ) => {
+      draw(
+        label,
+        MARGIN_L,
+        y,
+        6.5,
+        grey
+      );
+
+      drawR(
+        value,
+        MARGIN_R,
+        y,
+        6.5,
+        valueColor
+      );
+    };
+
+    let offset = 14;
+
+    // ============================================================
+    // METAL / PIECE VALUE
+    // ============================================================
+
+    cartRow(
+      isPieceCostOrder
+        ? "Piece Cost"
+        : "Metal Value",
+      `₹${Math.round(
+        metalValue
+      ).toLocaleString()}`,
+      cursorY + offset
+    );
+
+    offset += 7;
+
+    // ============================================================
+    // PRICING BASIS
+    // ============================================================
+
+    const metalName =
+      String(
+        order.metalType || ""
+      ).toUpperCase();
+
+    const purityName =
+      String(
+        order.purity || ""
+      );
+
+    cartRow(
+      "Pricing Basis",
+      isPieceCostOrder
+        ? `${purityName} ${metalName} — Piece Cost`
+        : `${purityName} ${metalName} — Grams × Live Rate`,
+      cursorY + offset
+    );
+
+    offset += 7;
+
+    // ============================================================
+    // VA
+    // ============================================================
+
+    cartRow(
+      "VA",
+      isPieceCostOrder
+        ? "₹0 (Not Applied)"
+        : `₹${Math.round(
+            vaAmount
+          ).toLocaleString()}`,
+      cursorY + offset
+    );
+
+    offset += 7;
+
+    // ============================================================
+    // STONE
+    // ============================================================
+
+    cartRow(
+      "Stone Cost",
+      `+₹${Math.round(
+        stoneCost
+      ).toLocaleString()}`,
+      cursorY + offset,
+      gold
+    );
+
+    offset += 7;
+
+    // ============================================================
+    // GST TAXABLE BASE
+    // ============================================================
+
+    cartRow(
+      "GST Taxable Base",
+      `₹${Math.round(
+        gstTaxableBase
+      ).toLocaleString()}`,
+      cursorY + offset
+    );
+
+    offset += 7;
+
+    // ============================================================
+    // GST
+    // ============================================================
+
+    cartRow(
+      "GST (3%)",
+      `+₹${Math.round(
+        gstAmount
+      ).toLocaleString()}`,
+      cursorY + offset
+    );
+
+    offset += 7;
+
+    // ============================================================
+    // ORIGINAL AMOUNT
+    // ============================================================
+
+    cartRow(
+      "Amount Before Adjustment",
+      `₹${Math.round(
+        amountBeforeAdjustment
+      ).toLocaleString()}`,
+      cursorY + offset,
+      emerald
+    );
+
+    offset += 7;
+
+    // ============================================================
+    // WEIGHT / MONEY ADJUSTMENT
+    // ============================================================
+
+    if (
+      weightAdj !== 0 ||
+      adjustmentCost !== 0
+    ) {
+      const adjustmentSign =
+        adjustmentCost > 0
+          ? "+"
+          : adjustmentCost < 0
+            ? "-"
+            : "";
+
+      const adjustmentColor =
+        adjustmentCost > 0
+          ? rose
+          : adjustmentCost < 0
+            ? emerald
+            : black;
 
       cartRow(
-        `Exchange Value [${order.exchangeJewelleryName || "N/A"}]`,
-        `₹${Math.round(discAmt || 0).toLocaleString()}`,
+        `Weight Adjustment (${
+          weightAdj > 0
+            ? "+"
+            : ""
+        }${weightAdj}g)`,
+        `${adjustmentSign}₹${Math.round(
+          Math.abs(
+            adjustmentCost
+          )
+        ).toLocaleString()}`,
+        cursorY + offset,
+        adjustmentColor
+      );
+
+      offset += 7;
+    }
+
+    // ============================================================
+    // ADJUSTED AMOUNT
+    // ============================================================
+
+    cartRow(
+      "Adjusted Amount Before Exchange",
+      `₹${Math.round(
+        adjustedAmountBeforeExchange
+      ).toLocaleString()}`,
+      cursorY + offset,
+      emerald
+    );
+
+    offset += 7;
+
+    // ============================================================
+    // JEWELLERY EXCHANGE
+    // ============================================================
+
+    if (exchangeValue > 0) {
+      cartRow(
+        `Exchange Value [${
+          order.exchangeJewelleryName ||
+          "N/A"
+        }]`,
+        `-₹${Math.round(
+          exchangeValue
+        ).toLocaleString()}`,
         cursorY + offset,
         gold
       );
+
       offset += 7;
+    }
 
-      cartRow("GST Taxable Base (Before Exchange)", `₹${Math.round(gstTaxableBase).toLocaleString()}`, cursorY + offset);
-      offset += 7;
-      cartRow("GST (3%)", `₹${Math.round(gstAmount).toLocaleString()}`, cursorY + offset);
-      offset += 7;
-      cartRow("Base Payable (Before Adjustment)", `₹${Math.round(basePayable).toLocaleString()}`, cursorY + offset, emerald);
-      hLine(cursorY + offset + 6);
-      cursorY = cursorY + offset + 6;
+    // ============================================================
+    // FINAL PAYABLE AFTER EXCHANGE
+    // ============================================================
 
-      // ── WEIGHT DETAILS ──
-      const finRow = (label: string, value: string, y: number, color = black) => {
-        draw(label, MARGIN_L, y, 6.5, grey);
-        drawR(value, MARGIN_R, y, 6.5, color);
-      };
+    cartRow(
+      "Payable After Exchange",
+      `₹${Math.round(
+        payableAfterExchange
+      ).toLocaleString()}`,
+      cursorY + offset,
+      emerald
+    );
 
-      cursorY += 10;
-      draw("WEIGHT DETAILS", MARGIN_L, cursorY, 7.5, grey);
-      hLine(cursorY + 8);
-      finRow(`Required (Booked / Pricing Weight)`, `${bookedWt}g`, cursorY + 14);
-      finRow(`Weight Adjustment (Balance Only)`, `${weightAdj > 0 ? "+" : ""}${weightAdj}g`, cursorY + 21);
-      finRow(`Final Physical Net Weight`, `${netWt}g`, cursorY + 28);
-      hLine(cursorY + 34);
-      cursorY += 34;
+    offset += 7;
 
-      // ── PAYMENT HISTORY (dated, per-payment + advance) ──
-      cursorY += 10;
-      draw("PAYMENT HISTORY", MARGIN_L, cursorY, 7.5, grey);
-      hLine(cursorY + 8);
-      cursorY += 8;
+    hLine(
+      cursorY +
+        offset +
+        6
+    );
 
-      let payLineY = cursorY + 6;
+    cursorY =
+      cursorY +
+      offset +
+      6;
 
-      if (payments.length > 0) {
-        payments.forEach((p: any, paymentIndex: number) => {
-          const dateStr = p.paidAt ? format(new Date(p.paidAt), "dd MMM yy") : "Payment";
-          const mode = paymentModeLabel(p.mode || p.paymentMode);
-          const ref = p.checkNumber || p.referenceNumber;
+    // ============================================================
+    // ROW HELPER
+    // ============================================================
 
-          const isLastPayment = paymentIndex === payments.length - 1;
+    const finRow = (
+      label: string,
+      value: string,
+      y: number,
+      color = black
+    ) => {
+      draw(
+        label,
+        MARGIN_L,
+        y,
+        6.5,
+        grey
+      );
 
-          const label = isLastPayment
-            ? `${mode} • ${dateStr} • Final Payment`
-            : `${mode} • ${dateStr}${ref ? ` • ${ref}` : ""}`;
+      drawR(
+        value,
+        MARGIN_R,
+        y,
+        6.5,
+        color
+      );
+    };
+
+    // ============================================================
+    // WEIGHT DETAILS
+    // ============================================================
+
+    cursorY += 10;
+
+    draw(
+      "WEIGHT DETAILS",
+      MARGIN_L,
+      cursorY,
+      7.5,
+      grey
+    );
+
+    hLine(cursorY + 8);
+
+    finRow(
+      "Required (Booked / Pricing Weight)",
+      `${bookedWt}g`,
+      cursorY + 14
+    );
+
+    finRow(
+      "Weight Adjustment",
+      `${
+        weightAdj > 0
+          ? "+"
+          : ""
+      }${weightAdj}g`,
+      cursorY + 21,
+      weightAdj > 0
+        ? rose
+        : weightAdj < 0
+          ? emerald
+          : black
+    );
+
+    finRow(
+      "Adjustment Amount",
+      `${
+        adjustmentCost > 0
+          ? "+"
+          : adjustmentCost < 0
+            ? "-"
+            : ""
+      }₹${Math.round(
+        Math.abs(
+          adjustmentCost
+        )
+      ).toLocaleString()}`,
+      cursorY + 28,
+      adjustmentCost > 0
+        ? rose
+        : adjustmentCost < 0
+          ? emerald
+          : black
+    );
+
+    finRow(
+      "Final Physical Net Weight",
+      `${finalNetWt}g`,
+      cursorY + 35
+    );
+
+    hLine(cursorY + 41);
+
+    cursorY += 41;
+
+    // ============================================================
+    // PAYMENT HISTORY
+    // ============================================================
+
+    cursorY += 10;
+
+    draw(
+      "PAYMENT HISTORY",
+      MARGIN_L,
+      cursorY,
+      7.5,
+      grey
+    );
+
+    hLine(cursorY + 8);
+
+    cursorY += 8;
+
+    let payLineY =
+      cursorY + 6;
+
+    // ============================================================
+    // SHOW FINAL ADJUSTED BILL BEFORE EXCHANGE
+    // ============================================================
+
+    finRow(
+      "Adjusted Amount Before Exchange",
+      `₹${Math.round(
+        adjustedAmountBeforeExchange
+      ).toLocaleString()}`,
+      payLineY,
+      black
+    );
+
+    payLineY += 7;
+
+    // Also show the actual payable after exchange.
+    finRow(
+      "Payable After Exchange",
+      `₹${Math.round(
+        payableAfterExchange
+      ).toLocaleString()}`,
+      payLineY,
+      emerald
+    );
+
+    payLineY += 9;
+
+    // ============================================================
+    // PAYMENT ROWS
+    // ============================================================
+
+    if (payments.length > 0) {
+      payments.forEach(
+        (
+          payment: any,
+          index: number
+        ) => {
+          const dateStr =
+            payment.paidAt
+              ? format(
+                  new Date(
+                    payment.paidAt
+                  ),
+                  "dd MMM yy"
+                )
+              : "Payment";
+
+          const modeLabel =
+            paymentModeLabel(
+              payment.mode ||
+                payment.paymentMode
+            );
+
+          const ref =
+            payment.checkNumber ||
+            payment.referenceNumber;
+
+          const isFinalSettlement =
+            type === "DELIVERY" &&
+            index ===
+              payments.length - 1;
+
+          const label =
+            `${modeLabel} • ${dateStr}` +
+            `${
+              ref
+                ? ` • ${ref}`
+                : ""
+            }` +
+            `${
+              isFinalSettlement
+                ? " • Settlement"
+                : ""
+            }`;
 
           finRow(
             label,
-            `₹${Math.round(Number(p.amount)).toLocaleString()}`,
+            `₹${Math.round(
+              Number(
+                payment.amount || 0
+              )
+            ).toLocaleString()}`,
             payLineY,
-            isLastPayment ? gold : black
+            isFinalSettlement
+              ? gold
+              : black
           );
 
           payLineY += 7;
-        });
-      }
-
-      const actualCashPaid = getActualCashPaid(order);
-      const actualMoneyPaid = getActualMoneyPaid(order);
-      const balanceBeforeAdjustment = getPreAdjustmentBalanceForFinalPayment(order);
-      const finalPaymentAmount = getFinalPaymentAmount(order);
-
-      finRow(
-        `Balance Due Before Adjustment`,
-        `₹${Math.round(balanceBeforeAdjustment).toLocaleString()}`,
-        payLineY,
-        black
+        }
       );
-      payLineY += 7;
-
-      if (adjustmentCost !== 0) {
-        finRow(
-          `Final Payment`,
-          `₹${Math.round(balanceBeforeAdjustment).toLocaleString()} ${adjustmentCost > 0 ? "+" : "-"} ₹${Math.round(Math.abs(adjustmentCost)).toLocaleString()} = ₹${Math.round(finalPaymentAmount).toLocaleString()}`,
-          payLineY,
-          gold
-        );
-        payLineY += 7;
-      } else {
-        finRow(
-          `Final Payment`,
-          `₹${Math.round(finalPaymentAmount).toLocaleString()}`,
-          payLineY,
-          gold
-        );
-        payLineY += 7;
-      }
-
+    } else {
       finRow(
-        `Total Cash Paid`,
-        `₹${Math.round(actualCashPaid).toLocaleString()}`,
+        "No payment received yet",
+        "₹0",
         payLineY,
-        emerald
+        grey
       );
+
       payLineY += 7;
-
-      if (discAmt > 0) {
-        finRow(
-          `Jewellery Exchange Cleared`,
-          `₹${Math.round(discAmt).toLocaleString()}`,
-          payLineY,
-          emerald
-        );
-        payLineY += 7;
-      }
-
-      const totalPaymentCleared = getTotalPaymentCleared(order);
-      finRow(
-        `Total Payment`,
-        `₹${Math.round(totalPaymentCleared).toLocaleString()}`,
-        payLineY,
-        emerald
-      );
-      payLineY += 7;
-
-      if (balance <= 0) {
-        finRow(`Final Balance Due`, `₹ 0 — FULLY PAID`, payLineY, emerald);
-      } else {
-        finRow(`Final Balance Due`, `₹${Math.round(balance).toLocaleString()}`, payLineY, rose);
-      }
-      hLine(payLineY + 6);
-      cursorY = payLineY + 6;
-
-      // ── SETTLEMENT BOX ──
-      const settBoxW = 160;
-      const settBoxH = 45;
-      const settBoxX = MARGIN_R - settBoxW;
-      const SETT_TOP_Y = cursorY + 10;
-      const settBoxBottomY = A5_H - SETT_TOP_Y - settBoxH;
-
-      page.drawRectangle({
-        x: settBoxX,
-        y: settBoxBottomY,
-        width: settBoxW,
-        height: settBoxH,
-        color: rgb(0.98, 0.95, 0.88),
-        borderColor: gold,
-        borderWidth: 1.2,
-      });
-
-      page.drawText("SETTLEMENT", { x: settBoxX + 10, y: settBoxBottomY + 23, size: 7, font: customFont, color: grey });
-
-      if (balance <= 0) {
-        const balanceText = "FULLY PAID ";
-        const balanceW = customFont.widthOfTextAtSize(balanceText, 10);
-        page.drawText(balanceText, { x: settBoxX + (settBoxW - balanceW) / 2, y: settBoxBottomY + 6, size: 10, font: customFont, color: emerald });
-      } else {
-        const balanceText = `₹${Math.round(balance).toLocaleString()} Pending`;
-        const balanceW = customFont.widthOfTextAtSize(balanceText, 9);
-        page.drawText(balanceText, { x: settBoxX + (settBoxW - balanceW) / 2, y: settBoxBottomY + 6, size: 9, font: customFont, color: gold });
-      }
-
-      const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
-      const pdfUrl = URL.createObjectURL(blob);
-
-      if (mode === "download") {
-        const link = document.createElement("a");
-        link.href = pdfUrl;
-        link.download = `${type}_${order.orderId}_${format(new Date(), "ddMMyy")}.pdf`;
-        link.click();
-      } else {
-        const printWindow = window.open(pdfUrl);
-        if (printWindow) printWindow.addEventListener("load", () => printWindow.print());
-      }
-    } catch (error) {
-      console.error("Order PDF Error:", error);
     }
-  };
+
+    // ============================================================
+    // TOTAL MONEY PAID
+    // ============================================================
+
+    hLine(payLineY + 1);
+
+    payLineY += 8;
+
+    finRow(
+      "Total Amount Paid",
+      `₹${Math.round(
+        totalMoneyPaid
+      ).toLocaleString()}`,
+      payLineY,
+      emerald
+    );
+
+    payLineY += 8;
+
+    // ============================================================
+    // EXCHANGE
+    // ============================================================
+
+    if (exchangeValue > 0) {
+      finRow(
+        `Jewellery Exchange [${
+          order.exchangeJewelleryName ||
+          "N/A"
+        }]`,
+        `₹${Math.round(
+          exchangeValue
+        ).toLocaleString()}`,
+        payLineY,
+        emerald
+      );
+
+      payLineY += 8;
+    }
+
+    // ============================================================
+    // TOTAL PAID / CLEARED
+    //
+    // This should equal adjustedAmountBeforeExchange
+    // when fully settled.
+    // ============================================================
+
+    finRow(
+      "Total Paid / Cleared",
+      `₹${Math.round(
+        totalPaidCleared
+      ).toLocaleString()}`,
+      payLineY,
+      emerald
+    );
+
+    payLineY += 8;
+
+    hLine(payLineY);
+
+    payLineY += 8;
+
+    // ============================================================
+    // BALANCE
+    // ============================================================
+
+    if (balance <= 0) {
+      finRow(
+        "Balance Due",
+        "₹0 — FULLY PAID",
+        payLineY,
+        emerald
+      );
+    } else {
+      finRow(
+        "Balance Due",
+        `₹${Math.round(
+          balance
+        ).toLocaleString()}`,
+        payLineY,
+        rose
+      );
+    }
+
+    hLine(payLineY + 7);
+
+    cursorY =
+      payLineY + 7;
+
+    // ============================================================
+    // SETTLEMENT BOX
+    // ============================================================
+
+    const settBoxW = 160;
+    const settBoxH = 45;
+
+    const settBoxX =
+      MARGIN_R -
+      settBoxW;
+
+    const SETT_TOP_Y =
+      cursorY + 10;
+
+    const settBoxBottomY =
+      A5_H -
+      SETT_TOP_Y -
+      settBoxH;
+
+    page.drawRectangle({
+      x: settBoxX,
+      y: settBoxBottomY,
+      width: settBoxW,
+      height: settBoxH,
+      color: rgb(
+        0.98,
+        0.95,
+        0.88
+      ),
+      borderColor:
+        balance <= 0
+          ? emerald
+          : gold,
+      borderWidth: 1.2,
+    });
+
+    page.drawText(
+      "SETTLEMENT",
+      {
+        x: settBoxX + 10,
+        y:
+          settBoxBottomY +
+          23,
+        size: 7,
+        font: customFont,
+        color: grey,
+      }
+    );
+
+    if (balance <= 0) {
+      const text =
+        "FULLY PAID";
+
+      const textWidth =
+        customFont.widthOfTextAtSize(
+          text,
+          10
+        );
+
+      page.drawText(
+        text,
+        {
+          x:
+            settBoxX +
+            (settBoxW -
+              textWidth) /
+              2,
+          y:
+            settBoxBottomY +
+            6,
+          size: 10,
+          font: customFont,
+          color: emerald,
+        }
+      );
+    } else {
+      const text =
+        `₹${Math.round(
+          balance
+        ).toLocaleString()} Pending`;
+
+      const textWidth =
+        customFont.widthOfTextAtSize(
+          text,
+          9
+        );
+
+      page.drawText(
+        text,
+        {
+          x:
+            settBoxX +
+            (settBoxW -
+              textWidth) /
+              2,
+          y:
+            settBoxBottomY +
+            6,
+          size: 9,
+          font: customFont,
+          color: gold,
+        }
+      );
+    }
+
+    // ============================================================
+    // SAVE PDF
+    // ============================================================
+
+    const pdfBytes =
+      await pdfDoc.save();
+
+    const blob =
+      new Blob(
+        [
+          new Uint8Array(
+            pdfBytes
+          ),
+        ],
+        {
+          type: "application/pdf",
+        }
+      );
+
+    const pdfUrl =
+      URL.createObjectURL(
+        blob
+      );
+
+    // ============================================================
+    // DOWNLOAD / PRINT
+    // ============================================================
+
+    if (mode === "download") {
+      const link =
+        document.createElement(
+          "a"
+        );
+
+      link.href = pdfUrl;
+
+      link.download =
+        `${type}_${order.orderId}_${format(
+          new Date(),
+          "ddMMyy"
+        )}.pdf`;
+
+      link.click();
+    } else {
+      const printWindow =
+        window.open(pdfUrl);
+
+      if (printWindow) {
+        printWindow.addEventListener(
+          "load",
+          () =>
+            printWindow.print()
+        );
+      }
+    }
+  } catch (error) {
+    console.error(
+      "Order PDF Error:",
+      error
+    );
+  }
+};
   // ---------------------------------------------------------------------------
   // API OPERATIONS
   // ---------------------------------------------------------------------------
@@ -684,10 +1768,22 @@ export default function OrderManagementPage() {
   };
 
   const totals = useMemo(() => {
-    const netWeight = Math.max(0, Number(form.requiredGrams) || 0);
+    const isSilver925 =
+      metalType === "SILVER" &&
+      String(form.purity) === "92.5";
+
+    const isPieceCost =
+      isSilver925 &&
+      form.pricingMode === "PIECE";
+
+    const netWeight = isPieceCost
+      ? 0
+      : Math.max(0, Number(form.requiredGrams) || 0);
+
     const stoneW = Math.max(0, Number(form.stoneWeight) || 0);
-    const rate = Math.max(0, Number(form.liveRate) || 0);
-    const vaPer = Math.max(0, Number(form.vaPercentage) || 0);
+    const rate = isPieceCost ? 0 : Math.max(0, Number(form.liveRate) || 0);
+    const vaPer = isPieceCost ? 0 : Math.max(0, Number(form.vaPercentage) || 0);
+    const pieceCost = isPieceCost ? Math.max(0, Number(form.pieceCost) || 0) : 0;
     const sCost = Math.max(0, Number(form.stoneCost) || 0);
     const disc = Math.max(0, Number(form.discountAmount) || 0);
     const advance = Math.max(0, Number(form.advanceCash) || 0);
@@ -695,39 +1791,80 @@ export default function OrderManagementPage() {
     const roundMoney = (value: number) =>
       Math.round((value + Number.EPSILON) * 100) / 100;
 
-    const goldValue = roundMoney(netWeight * rate);
-    const vaAmount = roundMoney(goldValue * (vaPer / 100));
-    const subtotalBase = roundMoney(goldValue + vaAmount + sCost);
+    // GRAMS MODE:
+    // Metal Value = grams × live rate, VA applies.
+    //
+    // PIECE MODE (Silver 92.5 only):
+    // Metal Value = piece cost directly, VA = 0.
+    const metalValue = roundMoney(
+      isPieceCost
+        ? pieceCost
+        : netWeight * rate
+    );
 
-    // GST is locked to Metal + VA + Stone Cost.
-    // Jewellery exchange is deducted only after GST.
-    const gstAmount = roundMoney(subtotalBase * 0.03);
-    const originalCartValue = roundMoney(subtotalBase + gstAmount);
-    const totalWithGST = roundMoney(Math.max(0, originalCartValue - disc));
+    const vaAmount = isPieceCost
+      ? 0
+      : roundMoney(metalValue * (vaPer / 100));
 
-    // If the operator enters the whole-rupee value shown on screen
-    // (example: 20001 for an exact total of 20000.62), treat it as full payment.
+    // Original Cart Value is based only on Metal Value + VA + GST.
+    // Stone Cost is added only at the final payable stage.
+    const gstTaxableBase = roundMoney(
+      metalValue + vaAmount
+    );
+
+    const gstAmount = roundMoney(gstTaxableBase * 0.03);
+    const originalCartValue = roundMoney(gstTaxableBase + gstAmount);
+
+    // Final payable:
+    // Original Cart - Exchange + Stone Cost.
+    const totalWithGST = roundMoney(
+      Math.max(
+        0,
+        originalCartValue -
+          disc +
+          sCost
+      )
+    );
+
     const normalizedAdvance =
       advance > totalWithGST &&
       Math.abs(advance - Math.round(totalWithGST)) < 0.01
         ? totalWithGST
         : advance;
 
-    const balanceAmount = roundMoney(Math.max(0, totalWithGST - normalizedAdvance));
+    const balanceAmount = roundMoney(
+      Math.max(0, totalWithGST - normalizedAdvance)
+    );
 
     return {
-      netWeight, goldValue, vaAmount, discount: disc,
-      gstAmount, totalWithGST, balanceAmount, stoneCost: sCost,
+      isSilver925,
+      isPieceCost,
+      pricingMode: isPieceCost ? "PIECE" : "GRAMS",
+      pieceCost,
+      netWeight,
+      metalValue,
+      goldValue: metalValue, // backward-compatible alias used by existing UI
+      vaAmount,
+      discount: disc,
+      gstTaxableBase,
+      gstAmount,
+      totalWithGST,
+      balanceAmount,
+      stoneCost: sCost,
       originalCartValue,
       grossWeight: netWeight + stoneW,
     };
-  }, [form]);
+  }, [form, metalType]);
 
   const handleSubmit = async () => {
     if (!form.customerName || form.phoneNumber.length < 10) {
       return alert("Complete Customer Name and provide 10-digit phone number.");
     }
-    if (!form.requiredGrams || Number(form.requiredGrams) <= 0) {
+    if (totals.isPieceCost) {
+      if (!form.pieceCost || Number(form.pieceCost) <= 0) {
+        return alert("Enter the Piece Cost for 92.5 silver.");
+      }
+    } else if (!form.requiredGrams || Number(form.requiredGrams) <= 0) {
       return alert("Enter the grams required to make this item.");
     }
 
@@ -755,7 +1892,11 @@ export default function OrderManagementPage() {
         body: JSON.stringify({
           ...form,
           metalType,
+          pricingMode: totals.pricingMode,
+          pieceCost: totals.pieceCost,
           netWeight: totals.netWeight,
+          liveRate: totals.isPieceCost ? 0 : Number(form.liveRate || 0),
+          vaPercentage: totals.isPieceCost ? 0 : Number(form.vaPercentage || 0),
           discountAmount: totals.discount,
           grossWeight: totals.grossWeight,
           gstAmount: totals.gstAmount,
@@ -773,7 +1914,7 @@ export default function OrderManagementPage() {
         setForm({
           customerName: "", phoneNumber: "", itemName: "", itemDescription: "",
           exchangeJewelleryName: "", exchangeJewelleryGrams: "",
-          purity: "22", liveRate: "", requiredGrams: "",
+          purity: "22", pricingMode: "GRAMS", pieceCost: "", liveRate: "", requiredGrams: "",
           stoneWeight: "", vaPercentage: "", stoneCost: "", discountAmount: "",
           advanceCash: "", advancePaymentMode: "CASH", advanceReferenceNumber: "",
           advanceBankName: "", advanceCheckNumber: "", deadlineDate: "",
@@ -826,6 +1967,10 @@ export default function OrderManagementPage() {
       "phoneNumber",
       "itemName",
       "itemDescription",
+      "metalType",
+      "purity",
+      "pricingMode",
+      "pieceCost",
       "liveRate",
       "netWeight",
       "stoneWeight",
@@ -840,6 +1985,7 @@ export default function OrderManagementPage() {
     ] as const;
 
     const numericKeys = new Set([
+      "pieceCost",
       "liveRate",
       "netWeight",
       "stoneWeight",
@@ -1227,13 +2373,18 @@ export default function OrderManagementPage() {
         fieldRow("Booking Date", orderDate ? format(orderDate, "dd MMM yyyy, h:mm a") : "-");
         fieldRow("Deadline Date", order.deadlineDate ? format(new Date(order.deadlineDate), "dd MMM yyyy") : "-");
         fieldRow("Current Status", order.status || "-");
-
         sectionTitle("Article Details");
         fieldRow("Item Name", order.itemName || "-");
         fieldRow("Description", order.itemDescription || "-");
         fieldRow("Metal", `${order.metalType || "-"} / ${order.purity || "-"}${order.metalType === "GOLD" ? "K" : "%"}`);
-        fieldRow("Live Rate", `₹${Number(order.liveRate || 0).toLocaleString()}`);
-        fieldRow("VA Percentage", `${Number(order.vaPercentage || 0)}%`);
+        fieldRow("Pricing Basis", String(order.pricingMode || "GRAMS") === "PIECE" ? "Piece Cost" : "Grams");
+        if (String(order.pricingMode || "GRAMS") === "PIECE") {
+          fieldRow("Piece Cost / Metal Value", `₹${Number(order.pieceCost || 0).toLocaleString()}`);
+          fieldRow("VA Percentage", "0% — Not Applied");
+        } else {
+          fieldRow("Live Rate", `₹${Number(order.liveRate || 0).toLocaleString()}`);
+          fieldRow("VA Percentage", `${Number(order.vaPercentage || 0)}%`);
+        }
 
         sectionTitle("Weight Details");
         fieldRow("Booked Net Weight", `${bookedWeight.toFixed(3)} g`);
@@ -1251,10 +2402,16 @@ export default function OrderManagementPage() {
         sectionTitle("Exchange & Charges");
         fieldRow("Exchange Jewellery", order.exchangeJewelleryName || "-");
         fieldRow("Exchange Grams", `${Number(order.exchangeJewelleryGrams || 0).toFixed(3)} g`);
-        fieldRow("Stone Cost", `₹${Number(order.stoneCost || 0).toLocaleString()}`);
+        fieldRow("Stone Cost (Final Addition)", `+₹${Number(order.stoneCost || 0).toLocaleString()}`);
+        if (Number(order.pricingRevisionAmount || 0) !== 0 || order.pricingRevisionNote) {
+          fieldRow(
+            "Pricing Revision",
+            `${Number(order.pricingRevisionAmount || 0) >= 0 ? "+" : "-"}₹${Math.abs(Number(order.pricingRevisionAmount || 0)).toLocaleString()}${order.pricingRevisionNote ? ` • ${order.pricingRevisionNote}` : ""}`
+          );
+        }
         fieldRow("Jewellery Exchange Value", `₹${Number(order.discountAmount || 0).toLocaleString()}`);
         fieldRow("Original Cart Value (Incl. GST, Before Exchange)", `₹${originalAmount.toLocaleString()}`);
-        fieldRow("GST (3% on Metal + VA + Stone)", `₹${Number(order.gst ?? order.gstAmount ?? 0).toLocaleString()}`);
+        fieldRow("GST (3% on Metal + VA)", `₹${Number(order.gst ?? order.gstAmount ?? 0).toLocaleString()}`);
 
         sectionTitle("Payment Summary");
         const actualCashPaid = getActualCashPaid(order);
@@ -2074,10 +3231,40 @@ export default function OrderManagementPage() {
             <Input placeholder="Customer Name" value={editForm.customerName || ""} onChange={(e) => handleEditChange("customerName", e.target.value)} />
             <Input placeholder="Phone Number" value={editForm.phoneNumber || ""} onChange={(e) => handleEditChange("phoneNumber", e.target.value)} />
             <Input placeholder="Item Name" value={editForm.itemName || ""} onChange={(e) => handleEditChange("itemName", e.target.value)} />
-            <Input placeholder="Live Rate" type="number" value={editForm.liveRate || ""} onChange={(e) => handleEditChange("liveRate", e.target.value)} />
-            <Input placeholder="Grams Required (Net Weight)" type="number" step="0.001" value={editForm.netWeight || ""} onChange={(e) => handleEditChange("netWeight", e.target.value)} />
+
+            {String(editForm.metalType || viewingOrder?.metalType || "").toUpperCase() === "SILVER" &&
+             String(editForm.purity || viewingOrder?.purity || "") === "92.5" && (
+              <select
+                value={editForm.pricingMode || "GRAMS"}
+                onChange={(e) => handleEditChange("pricingMode", e.target.value)}
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="GRAMS">Pricing by Grams</option>
+                <option value="PIECE">Direct Piece Cost</option>
+              </select>
+            )}
+
+            {String(editForm.pricingMode || "GRAMS") === "PIECE" ? (
+              <Input
+                placeholder="Piece Cost / Metal Value (₹)"
+                type="number"
+                value={editForm.pieceCost || ""}
+                onChange={(e) => handleEditChange("pieceCost", e.target.value)}
+              />
+            ) : (
+              <>
+                <Input placeholder="Live Rate" type="number" value={editForm.liveRate || ""} onChange={(e) => handleEditChange("liveRate", e.target.value)} />
+                <Input placeholder="Grams Required (Net Weight)" type="number" step="0.001" value={editForm.netWeight || ""} onChange={(e) => handleEditChange("netWeight", e.target.value)} />
+              </>
+            )}
             <Input placeholder="Stone Weight (g)" type="number" value={editForm.stoneWeight || ""} onChange={(e) => handleEditChange("stoneWeight", e.target.value)} />
-            <Input placeholder="VA %" type="number" value={editForm.vaPercentage || ""} onChange={(e) => handleEditChange("vaPercentage", e.target.value)} />
+            <Input
+              placeholder="VA %"
+              type="number"
+              value={String(editForm.pricingMode || "GRAMS") === "PIECE" ? 0 : (editForm.vaPercentage || "")}
+              onChange={(e) => handleEditChange("vaPercentage", e.target.value)}
+              disabled={String(editForm.pricingMode || "GRAMS") === "PIECE"}
+            />
             <Input placeholder="Stone Cost (₹)" type="number" value={editForm.stoneCost || ""} onChange={(e) => handleEditChange("stoneCost", e.target.value)} />
             <Input placeholder="Discount / Exchange Value (₹)" type="number" value={editForm.discountAmount || ""} onChange={(e) => handleEditChange("discountAmount", e.target.value)} />
             <Input placeholder="Exchange Jewellery Name" value={editForm.exchangeJewelleryName || ""} onChange={(e) => handleEditChange("exchangeJewelleryName", e.target.value)} />
@@ -2136,7 +3323,15 @@ export default function OrderManagementPage() {
                   {["GOLD", "SILVER"].map((m) => (<button key={m} onClick={() => { setMetalType(m as any); handleInputChange("purity", m === "GOLD" ? "22" : "92.5"); }} className={cn("flex-1 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all", metalType === m ? "bg-white text-slate-900 shadow-xl" : "text-slate-400")}>{m}</button>))}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <select value={form.purity} onChange={(e) => handleInputChange("purity", e.target.value)} className="h-14 border border-slate-200 rounded-xl px-4 text-sm bg-white font-bold">{metalType === "GOLD" ? (<><option value="24">24K</option><option value="22">22K</option><option value="18">18K</option></>) : (<><option value="99">99%</option><option value="92.5">92.5%</option><option value="90">90%</option></>)}</select>
+                  <select
+                    value={form.purity}
+                    onChange={(e) => {
+                      const nextPurity = e.target.value;
+                      handleInputChange("purity", nextPurity);
+                      if (!(metalType === "SILVER" && nextPurity === "92.5")) {
+                        setForm((prev) => ({ ...prev, pricingMode: "GRAMS", pieceCost: "" }));
+                      }
+                    }} className="h-14 border border-slate-200 rounded-xl px-4 text-sm bg-white font-bold">{metalType === "GOLD" ? (<><option value="24">24K</option><option value="22">22K</option><option value="18">18K</option></>) : (<><option value="99">99%</option><option value="92.5">92.5%</option><option value="90">90%</option></>)}</select>
                   <Input type="number" min="0" value={form.liveRate} onChange={(e) => handleInputChange("liveRate", e.target.value)} placeholder="Live Rate" className="h-14 font-bold" />
                 </div>
               </section>
@@ -2146,30 +3341,117 @@ export default function OrderManagementPage() {
               <section className="bg-slate-50/50 p-8 rounded-[2.5rem] border border-gold/10 space-y-8">
                 <div className="flex items-center gap-3 border-b border-gold/5 pb-3"><Scale className="w-5 h-5 text-slate-400" /><h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Weight Requirement</h3></div>
                 <div className="space-y-6">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Grams Required to Make</label>
-                    <Input
-                      placeholder="Enter grams needed for this item"
-                      type="number"
-                      min="0"
-                      step="0.001"
-                      value={form.requiredGrams}
-                      onChange={(e) => handleInputChange("requiredGrams", e.target.value)}
-                      className="h-12 bg-white"
-                    />
-                    <p className="text-[10px] text-slate-400 ml-2">This becomes the order's Net Weight — editable later if the crafted weight differs.</p>
-                  </div>
-                  <Input placeholder="Stone Weight" type="number" min="0" value={form.stoneWeight} onChange={(e) => handleInputChange("stoneWeight", e.target.value)} className="h-12 bg-white" />
+                  {metalType === "SILVER" && String(form.purity) === "92.5" && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">
+                        Pricing Basis
+                      </label>
+                      <div className="grid grid-cols-2 gap-2 p-1.5 bg-white rounded-2xl border border-slate-200">
+                        {(["GRAMS", "PIECE"] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() =>
+                              setForm((prev) => ({
+                                ...prev,
+                                pricingMode: mode,
+                                pieceCost: mode === "PIECE" ? prev.pieceCost : "",
+                                requiredGrams: mode === "PIECE" ? "" : prev.requiredGrams,
+                                vaPercentage: mode === "PIECE" ? "0" : prev.vaPercentage,
+                              }))
+                            }
+                            className={cn(
+                              "h-10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                              form.pricingMode === mode
+                                ? "bg-slate-900 text-white shadow"
+                                : "text-slate-500 hover:bg-slate-50"
+                            )}
+                          >
+                            {mode === "GRAMS" ? "By Grams" : "Piece Cost"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {totals.isPieceCost ? (
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">
+                        Piece Cost
+                      </label>
+                      <Input
+                        placeholder="Enter direct piece cost"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.pieceCost}
+                        onChange={(e) => handleInputChange("pieceCost", e.target.value)}
+                        className="h-12 bg-white font-bold"
+                      />
+                      <p className="text-[10px] text-slate-400 ml-2">
+                        92.5 silver piece pricing: Metal Value = Piece Cost, VA is not applied.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">
+                        Grams Required to Make
+                      </label>
+                      <Input
+                        placeholder="Enter grams needed for this item"
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        value={form.requiredGrams}
+                        onChange={(e) => handleInputChange("requiredGrams", e.target.value)}
+                        className="h-12 bg-white"
+                      />
+                      <p className="text-[10px] text-slate-400 ml-2">
+                        This becomes the order's Net Weight.
+                      </p>
+                    </div>
+                  )}
+
+                  <Input
+                    placeholder="Stone Weight"
+                    type="number"
+                    min="0"
+                    value={form.stoneWeight}
+                    onChange={(e) => handleInputChange("stoneWeight", e.target.value)}
+                    className="h-12 bg-white"
+                  />
+
                   <div className="p-8 bg-white border border-gold/20 rounded-3xl flex justify-between items-center shadow-xl border-dashed">
-                    <span className="text-[11px] font-bold text-gold uppercase tracking-widest">Required Weight</span>
-                    <span className="text-3xl font-serif font-bold text-slate-900">{totals.netWeight.toFixed(3)}g</span>
+                    <span className="text-[11px] font-bold text-gold uppercase tracking-widest">
+                      {totals.isPieceCost ? "Metal Value / Piece Cost" : "Required Weight"}
+                    </span>
+                    <span className="text-3xl font-serif font-bold text-slate-900">
+                      {totals.isPieceCost
+                        ? `₹${totals.pieceCost.toLocaleString("en-IN")}`
+                        : `${totals.netWeight.toFixed(3)}g`}
+                    </span>
                   </div>
                 </div>
               </section>
               <section className="space-y-8">
                 <div className="flex items-center gap-3 border-b border-slate-100 pb-3"><Tag className="w-5 h-5 text-gold" /><h3 className="text-xs font-bold uppercase tracking-widest text-slate-800">Commercials</h3></div>
                 <div className="grid grid-cols-2 gap-5">
-                  <Input type="number" min="0" value={form.vaPercentage} onChange={(e) => handleInputChange("vaPercentage", e.target.value)} placeholder="VA %" className="h-12" />
+                  <div>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={totals.isPieceCost ? "0" : form.vaPercentage}
+                      onChange={(e) => handleInputChange("vaPercentage", e.target.value)}
+                      placeholder="VA %"
+                      disabled={totals.isPieceCost}
+                      className="h-12"
+                    />
+                    {totals.isPieceCost && (
+                      <p className="text-[9px] text-slate-400 mt-1 ml-2">
+                        VA is not applied for Piece Cost pricing.
+                      </p>
+                    )}
+                  </div>
                   <Input type="number" min="0" value={form.stoneCost} onChange={(e) => handleInputChange("stoneCost", e.target.value)} placeholder="Stone ₹" className="h-12" />
                 </div>
                 <div className="relative"><div className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-rose-50 rounded-lg"><Tag className="w-4 h-4 text-rose-500" /></div><Input placeholder="Jewellery Exchange value (₹)" type="number" min="0" className="h-14 pl-14 border-rose-100 font-bold text-rose-600" value={form.discountAmount} onChange={(e) => handleInputChange("discountAmount", e.target.value)} /></div>

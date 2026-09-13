@@ -17,24 +17,31 @@ export async function OPTIONS() {
 
 const PAYMENT_MODES: PaymentMode[] = ["CASH", "UPI", "CARD", "CHECK"];
 
+const roundMoney = (value: number) =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: corsHeaders(),
-      });
+
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401, headers: corsHeaders() }
+      );
     }
 
-    const token = authHeader.split(" ")[1];
+    const token = authHeader.slice(7);
     const decoded = verifyToken(token) as { id: string; role: string };
 
-    if (!decoded || decoded.role !== "SUPER_ADMIN" && decoded.role !== "ADMIN") {
-      return new NextResponse(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: corsHeaders(),
-      });
+    if (
+      !decoded ||
+      (decoded.role !== "SUPER_ADMIN" && decoded.role !== "ADMIN")
+    ) {
+      return NextResponse.json(
+        { error: "Forbidden" },
+        { status: 403, headers: corsHeaders() }
+      );
     }
 
     const body = await req.json();
@@ -46,99 +53,199 @@ export async function POST(req: Request) {
       itemDescription,
       metalType,
       purity,
+
+      // GRAMS pricing
       liveRate,
       netWeight,
-      stoneWeight,
       vaPercentage,
+
+      // PIECE pricing — Silver 92.5 only
+      pricingMode = "GRAMS",
+      pieceCost = 0,
+
+      stoneWeight,
       stoneCost,
-      gstAmount,
-      originalCartValue,
+
       exchangeJewelleryName,
       exchangeJewelleryGrams,
-      totalAmount,
-      advanceCash,
       discountAmount,
       deadlineDate,
 
-      // Initial payment details from frontend.
+      advanceCash,
       advancePaymentMode,
       advanceReferenceNumber,
       advanceBankName,
       advanceCheckNumber,
     } = body;
 
-    const netWeightValue = Number(netWeight) || 0;
-    if (netWeightValue <= 0) {
-      return new NextResponse(
-        JSON.stringify({ error: "Grams required to make the item must be greater than 0" }),
+    const normalizedMetal = String(metalType || "").toUpperCase();
+    const normalizedPurity = String(purity || "");
+    const normalizedPricingMode =
+      String(pricingMode || "GRAMS").toUpperCase() === "PIECE"
+        ? "PIECE"
+        : "GRAMS";
+
+    const isSilver925 =
+      normalizedMetal === "SILVER" &&
+      normalizedPurity === "92.5";
+
+    const isPieceCost =
+      isSilver925 &&
+      normalizedPricingMode === "PIECE";
+
+    const netWeightValue = isPieceCost
+      ? 0
+      : Math.max(0, Number(netWeight) || 0);
+
+    const pieceCostValue = isPieceCost
+      ? Math.max(0, Number(pieceCost) || 0)
+      : 0;
+
+    if (isPieceCost) {
+      if (pieceCostValue <= 0) {
+        return NextResponse.json(
+          { error: "Piece Cost must be greater than 0 for 92.5 silver piece pricing" },
+          { status: 400, headers: corsHeaders() }
+        );
+      }
+    } else if (netWeightValue <= 0) {
+      return NextResponse.json(
+        { error: "Grams required to make the item must be greater than 0" },
         { status: 400, headers: corsHeaders() }
       );
     }
 
     const deadline = deadlineDate ? new Date(deadlineDate) : null;
-    if (!deadline || Number.isNaN(deadline.getTime())) {
-      return new NextResponse(JSON.stringify({ error: "Valid deadline date is required" }), {
-        status: 400,
-        headers: corsHeaders(),
-      });
-    }
 
-    const rawInitialPayment = Math.max(0, Number(advanceCash) || 0);
-    const mode = (advancePaymentMode || "CASH") as PaymentMode;
-
-    if (rawInitialPayment > 0 && !PAYMENT_MODES.includes(mode)) {
-      return new NextResponse(JSON.stringify({ error: "Invalid initial payment mode" }), {
-        status: 400,
-        headers: corsHeaders(),
-      });
-    }
-
-    if (rawInitialPayment > 0 && mode === "CHECK" && !String(advanceCheckNumber || "").trim()) {
-      return new NextResponse(JSON.stringify({ error: "Check number is required for check payment" }), {
-        status: 400,
-        headers: corsHeaders(),
-      });
-    }
-
-    const lastOrder = await prisma.order.findFirst({ orderBy: { createdAt: "desc" } });
-    const previousNumber = lastOrder
-      ? Number.parseInt(lastOrder.orderId.replace("OR-", ""), 10)
-      : 1000;
-    const orderId = `OR-${Number.isFinite(previousNumber) ? previousNumber + 1 : 1001}`;
-
-    const liveRateValue = Number(liveRate) || 0;
-    const stoneWeightValue = Number(stoneWeight) || 0;
-    const vaPercentageValue = Number(vaPercentage) || 0;
-    const stoneCostValue = Number(stoneCost) || 0;
-    const discountAmountValue = Number(discountAmount) || 0;
-
-    const goldValue = netWeightValue * liveRateValue;
-    const vaAmount = goldValue * (vaPercentageValue / 100);
-    const subtotalBase = goldValue + vaAmount + stoneCostValue;
-    const derivedOriginalCartValue = subtotalBase + subtotalBase * 0.03;
-
-    const roundMoney = (value: number) =>
-      Math.round((value + Number.EPSILON) * 100) / 100;
-
-    const totalAmountValue = roundMoney(Math.max(0, Number(totalAmount) || 0));
-
-    // The UI previously displayed the projected total rounded to a whole rupee.
-    // If an operator enters that displayed whole-rupee amount as the first payment,
-    // clamp it to the exact payable amount instead of rejecting a full settlement.
-    const initialPayment =
-      rawInitialPayment > totalAmountValue &&
-      Math.abs(rawInitialPayment - Math.round(totalAmountValue)) < 0.01
-        ? totalAmountValue
-        : roundMoney(rawInitialPayment);
-
-    if (initialPayment > totalAmountValue + 0.01) {
-      return new NextResponse(
-        JSON.stringify({
-          error: `Initial payment cannot be greater than the total order amount (${totalAmountValue.toFixed(2)})`,
-        }),
+    if (deadlineDate && (!deadline || Number.isNaN(deadline.getTime()))) {
+      return NextResponse.json(
+        { error: "Invalid deadline date" },
         { status: 400, headers: corsHeaders() }
       );
     }
+
+    const rawInitialPayment = Math.max(0, Number(advanceCash) || 0);
+    const mode = String(advancePaymentMode || "CASH").toUpperCase() as PaymentMode;
+
+    if (rawInitialPayment > 0 && !PAYMENT_MODES.includes(mode)) {
+      return NextResponse.json(
+        { error: "Invalid initial payment mode" },
+        { status: 400, headers: corsHeaders() }
+      );
+    }
+
+    if (
+      rawInitialPayment > 0 &&
+      mode === "CHECK" &&
+      !String(advanceCheckNumber || "").trim()
+    ) {
+      return NextResponse.json(
+        { error: "Check number is required for check payment" },
+        { status: 400, headers: corsHeaders() }
+      );
+    }
+
+    const lastOrder = await prisma.order.findFirst({
+      orderBy: { createdAt: "desc" },
+    });
+
+    const previousNumber = lastOrder
+      ? Number.parseInt(lastOrder.orderId.replace("OR-", ""), 10)
+      : 1000;
+
+    const orderId = `OR-${
+      Number.isFinite(previousNumber) ? previousNumber + 1 : 1001
+    }`;
+
+    const liveRateValue = isPieceCost
+      ? 0
+      : Math.max(0, Number(liveRate) || 0);
+
+    const vaPercentageValue = isPieceCost
+      ? 0
+      : Math.max(0, Number(vaPercentage) || 0);
+
+    const stoneWeightValue = Math.max(0, Number(stoneWeight) || 0);
+    const stoneCostValue = Math.max(0, Number(stoneCost) || 0);
+    const discountAmountValue = Math.max(0, Number(discountAmount) || 0);
+
+    // ------------------------------------------------------------
+    // PRICING
+    // ------------------------------------------------------------
+    // GRAMS:
+    // metalValue = netWeight × liveRate
+    // VA applies.
+    //
+    // PIECE COST (Silver 92.5 only):
+    // metalValue = pieceCost
+    // VA = 0.
+    const metalValue = roundMoney(
+      isPieceCost
+        ? pieceCostValue
+        : netWeightValue * liveRateValue
+    );
+
+    const vaAmount = isPieceCost
+      ? 0
+      : roundMoney(
+          metalValue * (vaPercentageValue / 100)
+        );
+
+    // GST always applies after Metal Value + VA + Stone Cost.
+    // For piece-cost orders VA is zero.
+    const gstTaxableBase = roundMoney(
+      metalValue +
+      vaAmount +
+      stoneCostValue
+    );
+
+    const gstAmount = roundMoney(
+      gstTaxableBase * 0.03
+    );
+
+    const originalCartValue = roundMoney(
+      gstTaxableBase +
+      gstAmount
+    );
+
+    // Exchange is deducted after GST.
+    const totalAmount = roundMoney(
+      Math.max(
+        0,
+        originalCartValue -
+        discountAmountValue
+      )
+    );
+
+    const initialPayment =
+      rawInitialPayment > totalAmount &&
+      Math.abs(rawInitialPayment - Math.round(totalAmount)) < 0.01
+        ? totalAmount
+        : roundMoney(rawInitialPayment);
+
+    if (initialPayment > totalAmount + 0.01) {
+      return NextResponse.json(
+        {
+          error: `Initial payment cannot be greater than the payable amount (${totalAmount.toFixed(2)})`,
+        },
+        { status: 400, headers: corsHeaders() }
+      );
+    }
+
+    const balanceAmount = roundMoney(
+      Math.max(
+        0,
+        totalAmount -
+        initialPayment
+      )
+    );
+
+    const grossWeight = isPieceCost
+      ? stoneWeightValue
+      : roundMoney(
+          netWeightValue +
+          stoneWeightValue
+        );
 
     const order = await prisma.order.create({
       data: {
@@ -147,32 +254,44 @@ export async function POST(req: Request) {
         phoneNumber,
         itemName,
         itemDescription: itemDescription || null,
-        metalType,
-        purity,
+
+        metalType: normalizedMetal,
+        purity: normalizedPurity,
+
+        pricingMode: isPieceCost ? "PIECE" : "GRAMS",
+        pieceCost: pieceCostValue,
+
         liveRate: liveRateValue,
         netWeight: netWeightValue,
-        grossWeight: Number(body.grossWeight) || netWeightValue + stoneWeightValue,
         stoneWeight: stoneWeightValue,
+        grossWeight,
         vaPercentage: vaPercentageValue,
         stoneCost: stoneCostValue,
-        gst: Number(gstAmount) || 0,
-        originalCartValue: Number(originalCartValue) || derivedOriginalCartValue,
-        exchangeJewelleryName: exchangeJewelleryName || null,
-        exchangeJewelleryGrams: Number(exchangeJewelleryGrams) || 0,
-        totalAmount: totalAmountValue,
 
-        // Cached payment totals.
+        gst: gstAmount,
+        originalCartValue,
+
+        exchangeJewelleryName: exchangeJewelleryName || null,
+        exchangeJewelleryGrams: Math.max(
+          0,
+          Number(exchangeJewelleryGrams) || 0
+        ),
+        discountAmount: discountAmountValue,
+
+        totalAmount,
         advanceCash: initialPayment,
-        balanceAmount: roundMoney(Math.max(0, totalAmountValue - initialPayment)),
+        balanceAmount,
 
         weightAdjustmentGrams: 0,
         adjustmentCost: 0,
+
+        pricingRevisionAmount: 0,
+        pricingRevisionNote: null,
+
         deadlineDate: deadline,
         status: "NOT ASSIGNED",
-        discountAmount: discountAmountValue,
         createdBy: decoded.id,
 
-        // Every NEW initial payment is also stored in Payment history.
         payments:
           initialPayment > 0
             ? {
@@ -184,9 +303,13 @@ export async function POST(req: Request) {
                       ? String(advanceReferenceNumber || "").trim() || null
                       : null,
                   checkNumber:
-                    mode === "CHECK" ? String(advanceCheckNumber || "").trim() || null : null,
+                    mode === "CHECK"
+                      ? String(advanceCheckNumber || "").trim() || null
+                      : null,
                   bankName:
-                    mode === "CHECK" ? String(advanceBankName || "").trim() || null : null,
+                    mode === "CHECK"
+                      ? String(advanceBankName || "").trim() || null
+                      : null,
                   note: "Initial payment",
                   paidAt: new Date(),
                   createdBy: decoded.id,
@@ -195,20 +318,58 @@ export async function POST(req: Request) {
             : undefined,
       },
       include: {
-        payments: { orderBy: { paidAt: "asc" } },
+        payments: {
+          orderBy: { paidAt: "asc" },
+        },
       },
     });
 
-    return new NextResponse(
-      JSON.stringify({ success: true, message: "Order created", orderId: order.orderId, order }),
-      { status: 201, headers: corsHeaders() }
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Order created",
+        orderId: order.orderId,
+        order,
+        calculation: {
+          pricingMode: order.pricingMode,
+          metalValue,
+          pieceCost: pieceCostValue,
+          netWeight: netWeightValue,
+          liveRate: liveRateValue,
+          vaPercentage: vaPercentageValue,
+          vaAmount,
+          stoneCost: stoneCostValue,
+          gstTaxableBase,
+          gstAmount,
+          originalCartValue,
+          exchangeValue: discountAmountValue,
+          totalAmount,
+          initialPayment,
+          balanceAmount,
+        },
+      },
+      {
+        status: 201,
+        headers: corsHeaders(),
+      }
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("Data collection error:", error);
-    return new NextResponse(
-      JSON.stringify({ error: "Internal server error", details: message }),
-      { status: 500, headers: corsHeaders() }
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unknown error";
+
+    console.error("CREATE_ORDER_ERROR:", error);
+
+    return NextResponse.json(
+      {
+        error: "Internal server error",
+        details: message,
+      },
+      {
+        status: 500,
+        headers: corsHeaders(),
+      }
     );
   }
 }

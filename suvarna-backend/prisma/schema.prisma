@@ -72,24 +72,48 @@ model Order {
   phoneNumber            String
   itemName               String
   itemDescription        String?
+
   metalType              String
   purity                 String
+
+  // Pricing basis:
+  // "GRAMS" = netWeight × liveRate and VA can apply.
+  // "PIECE" = direct pieceCost. Used for Silver 92.5; VA is forced to 0.
+  pricingMode            String    @default("GRAMS")
+  pieceCost              Float     @default(0)
+
   liveRate               Float
   netWeight              Float
   stoneWeight            Float
   grossWeight            Float
   vaPercentage           Float
   stoneCost              Float
+
   gst                    Float
   originalCartValue      Float
+
   exchangeJewelleryName  String?
   exchangeJewelleryGrams Float     @default(0)
-  totalAmount            Float
-  advanceCash            Float     @default(0)   // cached sum of all payments — kept in sync, never edited directly
-  balanceAmount          Float     @default(0)   // cached: totalAmount - advanceCash
   discountAmount         Float     @default(0)
+
+  totalAmount            Float
+
+  // Cached sum of actual money payments only.
+  advanceCash            Float     @default(0)
+
+  // Cached remaining amount after exchange/payment/edit recalculation.
+  balanceAmount          Float     @default(0)
+
+  // Final-settlement-only adjustment.
   weightAdjustmentGrams  Float     @default(0)
   adjustmentCost         Float     @default(0)
+
+  // Records the most recent pricing edit (stone cost, weight, piece cost, rate, etc.)
+  // so the receipt can explain why an already-paid order got an extra balance
+  // or why its price reduced.
+  pricingRevisionAmount  Float     @default(0)
+  pricingRevisionNote    String?
+
   deadlineDate           DateTime?
   status                 String
   createdBy              String
@@ -98,10 +122,10 @@ model Order {
 
   payments               Payment[]
 
-  
   jobWorkId              String?
   jobWork                GoldJobWork? @relation(fields: [jobWorkId], references: [id])
 }
+
 
 enum PaymentMode {
   CASH
