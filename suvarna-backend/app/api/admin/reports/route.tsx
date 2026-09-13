@@ -16,34 +16,31 @@ export async function OPTIONS() {
 
 export async function GET(req: Request) {
   console.log("[ADMIN REPORTS] Request received");
-  
+
   try {
-    // 1. Auth & Verification
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
-      console.log("[ADMIN REPORTS] No auth header");
-      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { 
-        status: 401, headers: corsHeaders() 
+      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: corsHeaders(),
       });
     }
 
     const token = authHeader.split(" ")[1];
     const decoded: any = verifyToken(token);
-    console.log("[ADMIN REPORTS] Verified user - Role:", decoded.role, "ID:", decoded.id);
 
     if (decoded.role !== "ADMIN" && decoded.role !== "SUPER_ADMIN") {
-      return new NextResponse(JSON.stringify({ error: "Forbidden" }), { 
-        status: 403, headers: corsHeaders() 
+      return new NextResponse(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: corsHeaders(),
       });
     }
 
     let purchases: any[] = [];
 
-    // 2. Fetch purchases based on role
     if (decoded.role === "ADMIN") {
-      console.log("[ADMIN REPORTS] ADMIN user - fetching all purchases from Admin.purchases");
-      
-      // Fetch admin with ALL their purchases (no date filter)
+      // IMPORTANT: keep Admin scope exactly as before.
+      // We only expose the missing staff + exchange fields in the response below.
       const admin = await prisma.admin.findUnique({
         where: { id: decoded.id },
         include: {
@@ -61,12 +58,9 @@ export async function GET(req: Request) {
       });
 
       purchases = admin?.purchases || [];
-      console.log("[ADMIN REPORTS] Found purchases for admin:", purchases.length);
-      
     } else {
-      console.log("[ADMIN REPORTS] SUPER_ADMIN user - fetching all purchases");
-      
-      // For SUPER_ADMIN, fetch all purchases
+      // Preserve your existing SUPER_ADMIN compatibility in this endpoint.
+      // No super-admin report aggregation/filtering logic has been copied here.
       purchases = await prisma.purchase.findMany({
         include: {
           admin: { select: { username: true } },
@@ -79,67 +73,100 @@ export async function GET(req: Request) {
         },
         orderBy: { purchasedAt: "desc" },
       });
-      
-      console.log("[ADMIN REPORTS] Found total purchases:", purchases.length);
     }
 
-    // 3. Flatten Items into Rows
     const rows = purchases.flatMap((purchase) => {
-      const createdBy = purchase.admin?.username || purchase.superAdmin?.username || "SYSTEM";
+      const createdBy =
+        purchase.admin?.username || purchase.superAdmin?.username || "SYSTEM";
 
-      return purchase.items.map((item: any) => ({
-        id: purchase.id,
-        invoice: purchase.invoice,
-        customerName: purchase.customerName,
-        phoneNumber: purchase.phoneNumber,
-        Address: purchase.Address || "N/A",
-        emailid: purchase.emailid || "N/A",
-        
-        // Payment split
-        payments: {
-          cash: purchase.cashAmount || 0,
-          upi: purchase.upiAmount || 0,
-          card: purchase.cardAmount || 0,
-          cheque: purchase.chequeAmount || 0,
-        },
+      return purchase.items
+        .filter((item: any) => item.product)
+        .map((item: any) => ({
+          id: purchase.id,
+          invoice: purchase.invoice,
+          paymentId: purchase.paymentId || "N/A",
+          paymentStatus: purchase.paymentStatus,
+          customerName: purchase.customerName,
+          phoneNumber: purchase.phoneNumber,
+          Address: purchase.Address || "N/A",
+          emailid: purchase.emailid || "N/A",
 
-        // Financials
-        subtotal: purchase.totalAmount,
-        cgst: purchase.cgstAmount,
-        sgst: purchase.sgstAmount,
-        discount: purchase.discountAmount,
-        couponDiscount: purchase.couponDiscount,
-        exchangeDiscount: purchase.jewelleryexchangediscount,
-        grandTotal: purchase.finalAmount,
+          // Assigned staff — required by Admin report UI + receipt
+          salesmanId: purchase.salesmanId || null,
+          salesmanName: purchase.salesmanName || null,
+          cashierId: purchase.cashierId || null,
+          cashierName: purchase.cashierName || null,
 
-        // Item specific fields
-        productName: item.product.name,
-        grams: item.product.grams,
-        category: item.product.metalType,
-        purity: item.product.carats,
-        grossWt: item.product.grams,
-        netWt: item.product.netWeight,
-        va: item.product.va,
-        itemCode: item.product.itemCode || "N/A",
-        sku: item.product.sku || "N/A",
-        itemCost: item.cost,
-        
-        // Metadata
-        purchasedAt: purchase.purchasedAt,
-        createdBy: createdBy,
-      }));
+          // Gold exchange jewellery — keep DB's existing legacy field names
+          jewelleryexchangediscount: Number(
+            purchase.jewelleryexchangediscount || 0
+          ),
+          excahngejewellrygrams: Number(purchase.excahngejewellrygrams || 0),
+          excahngejewellryname: purchase.excahngejewellryname || null,
+
+          // Silver exchange jewellery
+          silverExchangeGrams: Number(purchase.silverExchangeGrams || 0),
+          silverExchangeName: purchase.silverExchangeName || null,
+          silverExchangeDiscount: Number(
+            purchase.silverExchangeDiscount || 0
+          ),
+
+          // Payment split — retain both nested and flat fields for compatibility
+          payments: {
+            cash: Number(purchase.cashAmount || 0),
+            upi: Number(purchase.upiAmount || 0),
+            card: Number(purchase.cardAmount || 0),
+            cheque: Number(purchase.chequeAmount || 0),
+          },
+          cashAmount: Number(purchase.cashAmount || 0),
+          upiAmount: Number(purchase.upiAmount || 0),
+          cardAmount: Number(purchase.cardAmount || 0),
+          chequeAmount: Number(purchase.chequeAmount || 0),
+
+          // Financials — preserve current Admin API aliases
+          subtotal: Number(purchase.totalAmount || 0),
+          totalAmount: Number(purchase.totalAmount || 0),
+          cgst: Number(purchase.cgstAmount || 0),
+          cgstAmount: Number(purchase.cgstAmount || 0),
+          sgst: Number(purchase.sgstAmount || 0),
+          sgstAmount: Number(purchase.sgstAmount || 0),
+          discount: Number(purchase.discountAmount || 0),
+          discountAmount: Number(purchase.discountAmount || 0),
+          couponDiscount: Number(purchase.couponDiscount || 0),
+          exchangeDiscount: Number(purchase.jewelleryexchangediscount || 0),
+          grandTotal: Number(purchase.finalAmount || 0),
+          finalAmount: Number(purchase.finalAmount || 0),
+
+          // Item fields
+          productName: item.product.name,
+          grams: item.grams ?? item.product.grams,
+          category: item.product.metalType,
+          purity: item.product.carats,
+          grossWt: item.product.grams,
+          netWt: item.product.netWeight,
+          va: item.product.va,
+          itemCode: item.product.itemCode || "N/A",
+          huid: item.product.itemCode || "N/A",
+          sku: item.product.sku || "N/A",
+          itemCost: Number(item.cost || 0),
+          stoneWeight: Number(item.product.stoneWeight || 0),
+          stoneCost: Number(item.product.stoneCost || 0),
+
+          purchasedAt: purchase.purchasedAt,
+          createdBy,
+        }));
     });
 
     console.log("[ADMIN REPORTS] Final rows count:", rows.length);
 
-    return new NextResponse(
-      JSON.stringify({ purchases: rows }),
-      { status: 200, headers: corsHeaders() }
-    );
-
+    return new NextResponse(JSON.stringify({ purchases: rows }), {
+      status: 200,
+      headers: corsHeaders(),
+    });
   } catch (error) {
     console.error("[ADMIN REPORTS] ERROR:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
+
     return new NextResponse(
       JSON.stringify({ error: "Server error", details: errorMessage }),
       { status: 500, headers: corsHeaders() }

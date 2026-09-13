@@ -104,7 +104,7 @@ const Reports = () => {
                     grossWt: p.grossWt,
                     netWt: p.netWt,
                     va: p.va,
-                    huid: p.huid,
+                    huid: p.huid || p.itemCode || "N/A",
                     itemCost: p.itemCost,
                     grams: p.grams,
                     sku: p.sku,
@@ -610,6 +610,8 @@ const exportToPDF = () => {
                     isFirstItem ? p.invoice : "",
                     isFirstItem ? p.customer : "",
                     isFirstItem ? p.phone : "",
+                    isFirstItem ? (p.salesman || "Unassigned") : "",
+                    isFirstItem ? (p.cashier || "Unassigned") : "",
 
                     // Item information
                     item.productName,
@@ -714,6 +716,8 @@ const exportToPDF = () => {
                 "Invoice",
                 "Customer",
                 "Phone",
+                "Salesman",
+                "Cashier",
 
                 "Product Name",
                 "Category",
@@ -760,6 +764,8 @@ const exportToPDF = () => {
             "TOTAL",
             "",
             "",
+            "", // Salesman
+            "", // Cashier
             "",
             "",
             "",
@@ -1245,7 +1251,7 @@ const exportToPDF = () => {
                                 : "";
 
                         payRow(
-                            `Gold Exchange${goldName}${goldGrams}`,
+                            `Gold Exchange${goldName}`,
                             purchase.goldExchangeValue
                         );
                     }
@@ -1262,7 +1268,7 @@ const exportToPDF = () => {
                                 : "";
 
                         payRow(
-                            `Silver Exchange${silverName}${silverGrams}`,
+                            `Silver Exchange${silverName}`,
                             purchase.silverExchangeValue
                         );
                     }
@@ -1627,7 +1633,8 @@ const exportToPDF = () => {
                                         <TableRow>
                                             <TableHead className="font-bold">Invoice</TableHead>
                                             <TableHead className="font-bold">Customer</TableHead>
-                                            <TableHead className="font-bold">Settlement Method</TableHead>
+                                            <TableHead className="font-bold">Assigned Staff</TableHead>
+                                            <TableHead className="font-bold min-w-[260px]">Settlement / Exchange</TableHead>
                                             <TableHead className="text-right font-bold w-[160px]">Grand Total</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -1643,6 +1650,10 @@ const exportToPDF = () => {
                                                     </TableCell>
                                                     <TableCell>
                                                         <div className="h-4 w-32 bg-muted rounded mb-2" />
+                                                        <div className="h-3 w-20 bg-muted/40 rounded" />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="h-4 w-24 bg-muted rounded mb-2" />
                                                         <div className="h-3 w-20 bg-muted/40 rounded" />
                                                     </TableCell>
                                                     <TableCell>
@@ -1677,6 +1688,13 @@ const exportToPDF = () => {
                                                     </TableCell>
 
                                                     <TableCell>
+                                                        <div className="space-y-1 text-xs">
+                                                            <div><span className="text-muted-foreground">Salesman:</span> <span className="font-semibold text-gray-800">{row.salesman || "Unassigned"}</span></div>
+                                                            <div><span className="text-muted-foreground">Cashier:</span> <span className="font-semibold text-gray-800">{row.cashier || "Unassigned"}</span></div>
+                                                        </div>
+                                                    </TableCell>
+
+                                                    <TableCell>
                                                         {/* RESTORED: Full Settlement Method Badges */}
                                                         <div className="flex flex-wrap gap-1">
                                                             {row.payments.cash > 0 && (
@@ -1702,6 +1720,23 @@ const exportToPDF = () => {
                                                                 </span>
                                                             )}
                                                         </div>
+
+                                                        {(Number(row.goldExchangeValue || 0) > 0 || Number(row.silverExchangeValue || 0) > 0) && (
+                                                            <div className="mt-2 space-y-1 text-[10px] text-muted-foreground">
+                                                                {Number(row.goldExchangeValue || 0) > 0 && (
+                                                                    <div>
+                                                                        <span className="font-bold text-amber-700">Gold:</span>{" "}
+                                                                        {row.goldExchangeName || "N/A"} · {Number(row.goldExchangeGrams || 0).toFixed(3)}g · ₹{Number(row.goldExchangeValue || 0).toLocaleString()}
+                                                                    </div>
+                                                                )}
+                                                                {Number(row.silverExchangeValue || 0) > 0 && (
+                                                                    <div>
+                                                                        <span className="font-bold text-slate-700">Silver:</span>{" "}
+                                                                        {row.silverExchangeName || "N/A"} · {Number(row.silverExchangeGrams || 0).toFixed(3)}g · ₹{Number(row.silverExchangeValue || 0).toLocaleString()}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                     </TableCell>
 
                                                     <TableCell className="text-right font-bold text-lg text-amber-700 italic w-[160px]">
@@ -1712,7 +1747,7 @@ const exportToPDF = () => {
                                         ) : (
                                             /* --- EMPTY STATE --- */
                                             <TableRow>
-                                                <TableCell colSpan={4} className="h-32 text-center text-muted-foreground italic">
+                                                <TableCell colSpan={5} className="h-32 text-center text-muted-foreground italic">
                                                     No transactions found matching your selection.
                                                 </TableCell>
                                             </TableRow>
