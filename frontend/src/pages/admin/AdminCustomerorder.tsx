@@ -563,6 +563,10 @@ export default function OrderManagementPage() {
 // UTILITY: FETCH LIVE RATES
 // ============================================================
 
+// ============================================================
+// UTILITY: FETCH LIVE RATES
+// ============================================================
+
 const fetchLiveRates = async () => {
   try {
     const response = await fetch(
@@ -605,38 +609,74 @@ const wrapText = (
   font: any,
   fontSize: number
 ): string[] => {
-  const words = text.split(" ");
+  const safeText = String(text ?? "").trim();
+  if (!safeText) return [];
+
   const lines: string[] = [];
   let currentLine = "";
 
-  for (const word of words) {
-    const testLine =
-      currentLine === ""
-        ? word
-        : `${currentLine} ${word}`;
+  const textWidth = (value: string) =>
+    font.widthOfTextAtSize(value, fontSize);
 
-    const width = font.widthOfTextAtSize(
-      testLine,
-      fontSize
-    );
+  // Splits even a single very long word/token so it can NEVER
+  // cross into the next PDF column. This also handles item names
+  // saved without spaces, e.g. "NECKLACEEARRINGMANGALSUTRA...".
+  const splitLongToken = (token: string): string[] => {
+    const chunks: string[] = [];
+    let chunk = "";
 
-    if (width > maxWidth) {
-      if (currentLine !== "") {
-        lines.push(currentLine);
-        currentLine = word;
+    for (const char of token) {
+      const candidate = `${chunk}${char}`;
+
+      if (chunk && textWidth(candidate) > maxWidth) {
+        chunks.push(chunk);
+        chunk = char;
       } else {
-        // Word itself is too long, add it anyway
-        lines.push(word);
+        chunk = candidate;
+      }
+    }
+
+    if (chunk) chunks.push(chunk);
+    return chunks;
+  };
+
+  const words = safeText.split(/\s+/);
+
+  for (const originalWord of words) {
+    // A normal word may itself be wider than the ITEM column.
+    const wordParts =
+      textWidth(originalWord) > maxWidth
+        ? splitLongToken(originalWord)
+        : [originalWord];
+
+    for (const part of wordParts) {
+      const candidate = currentLine
+        ? `${currentLine} ${part}`
+        : part;
+
+      if (textWidth(candidate) <= maxWidth) {
+        currentLine = candidate;
+        continue;
+      }
+
+      if (currentLine) {
+        lines.push(currentLine);
         currentLine = "";
       }
-    } else {
-      currentLine = testLine;
+
+      // part can only still be too wide in an edge case such as
+      // an unusually wide glyph, so hard-split it once more.
+      if (textWidth(part) > maxWidth) {
+        const hardParts = splitLongToken(part);
+        lines.push(...hardParts.slice(0, -1));
+        currentLine = hardParts.at(-1) || "";
+      } else {
+        currentLine = part;
+      }
     }
   }
 
-  if (currentLine !== "") {
-    lines.push(currentLine);
-  }
+  if (currentLine) lines.push(currentLine);
 
   return lines;
 };
@@ -1064,8 +1104,8 @@ const handleOrderReceipt = async (
     );
 
     // Silver rate (positioned below gold rates)
-    const silverDisplay = `18k: ₹${Math.round(
-      liveRates.gold18
+    const silverDisplay = `Silver: ₹${Math.round(
+      liveRates.silver
     ).toLocaleString()}`;
     drawR(
       silverDisplay,
@@ -1076,8 +1116,8 @@ const handleOrderReceipt = async (
     );
 
     // 18K gold rate (if needed, positioned further down)
-    const gold18Display = `Silver: ₹${Math.round(
-      liveRates.silver
+    const gold18Display = `18K: ₹${Math.round(
+      liveRates.gold18
     ).toLocaleString()}`;
     drawR(
       gold18Display,
@@ -1168,14 +1208,27 @@ const handleOrderReceipt = async (
 
     const ROW_Y = TBL_Y + 19;
 
-    draw(
-      order.itemName ||
-        "Custom Item",
-      col.name,
-      ROW_Y,
-      7.5,
-      black
+    // Wrap long item names so they never overlap the GROSS column.
+    const itemNameText = String(order.itemName || "Custom Item").trim();
+    const itemNameMaxWidth = col.gross - col.name - 12;
+    const itemNameLines = wrapText(
+      itemNameText,
+      itemNameMaxWidth,
+      customFont,
+      7.5
     );
+    const safeItemNameLines = itemNameLines.length > 0 ? itemNameLines : ["Custom Item"];
+    const itemLinePitch = 8;
+
+    safeItemNameLines.forEach((line: string, index: number) => {
+      draw(
+        line,
+        col.name,
+        ROW_Y + index * itemLinePitch,
+        7.5,
+        black
+      );
+    });
 
     draw(
       `${grossWt}g`,
@@ -1208,9 +1261,7 @@ const handleOrderReceipt = async (
     );
 
     draw(
-      `₹${Math.round(
-        vaAmount
-      ).toLocaleString()}`,
+      isPieceCostOrder ? "0%" : `${vaPer}%`,
       col.va,
       ROW_Y,
       7.5,
@@ -1227,13 +1278,14 @@ const handleOrderReceipt = async (
       black
     );
 
-    hLine(ROW_Y + 13);
+    const itemRowHeight = Math.max(13, safeItemNameLines.length * itemLinePitch + 5);
+    hLine(ROW_Y + itemRowHeight);
 
     // ============================================================
     // CART SUMMARY (REDUCED GAPS)
     // ============================================================
 
-    let cursorY = ROW_Y + 22;
+    let cursorY = ROW_Y + itemRowHeight + 9;
 
     draw(
       "CART SUMMARY",
@@ -1269,7 +1321,7 @@ const handleOrderReceipt = async (
     };
 
     // Reduced offset from 14 to 10 for more compact layout
-    let offset = 10;
+    let offset =14;
 
     // Metal / Piece Value
     cartRow(
@@ -1287,11 +1339,7 @@ const handleOrderReceipt = async (
     // VA
     cartRow(
       "VA",
-      isPieceCostOrder
-        ? "₹0 (Not Applied)"
-        : `₹${Math.round(
-            vaAmount
-          ).toLocaleString()}`,
+      isPieceCostOrder ? "0%" : `${vaPer}%`,
       cursorY + offset
     );
 
@@ -1801,7 +1849,7 @@ const handleOrderReceipt = async (
     cursorY = payLineY + 7;
 
     // ============================================================
-    // SETTLEMENT BOX
+    // SIGNATURES + SETTLEMENT BOX
     // ============================================================
 
     const settBoxW = 160;
@@ -1812,6 +1860,46 @@ const handleOrderReceipt = async (
 
     const SETT_TOP_Y =
       cursorY + 10;
+
+    // Keep signature fields on the left side of the settlement box.
+    // The blank vertical space above each line is intentionally reserved for signing.
+    const signatureLeftX = MARGIN_L;
+    const signatureAreaRightX = settBoxX - 12;
+    const signatureGap = 12;
+    const signatureWidth = Math.max(58, (signatureAreaRightX - signatureLeftX - signatureGap) / 2);
+    const customerSigX = signatureLeftX;
+    const salesmanSigX = customerSigX + signatureWidth + signatureGap;
+    const signatureLineTopY = SETT_TOP_Y + 31;
+
+    page.drawLine({
+      start: { x: customerSigX, y: A5_H - signatureLineTopY },
+      end: { x: customerSigX + signatureWidth, y: A5_H - signatureLineTopY },
+      thickness: 0.5,
+      color: grey,
+    });
+
+    page.drawLine({
+      start: { x: salesmanSigX, y: A5_H - signatureLineTopY },
+      end: { x: salesmanSigX + signatureWidth, y: A5_H - signatureLineTopY },
+      thickness: 0.5,
+      color: grey,
+    });
+
+    draw(
+      "Customer Signature",
+      customerSigX,
+      signatureLineTopY + 9,
+      6.2,
+      grey
+    );
+
+    draw(
+      "Salesman Signature",
+      salesmanSigX,
+      signatureLineTopY + 9,
+      6.2,
+      grey
+    );
 
     const settBoxBottomY =
       A5_H -
@@ -1963,6 +2051,7 @@ const handleOrderReceipt = async (
     );
   }
 };
+
 
 
   // ---------------------------------------------------------------------------
