@@ -5,7 +5,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { format } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
-
+import{AdminSidebar} from "@/components/AdminSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
@@ -312,26 +312,48 @@ const paymentModeLabel = (mode?: string) => {
 
 // ---------------------------------------------------------------------------
 // CANONICAL ORDER FINANCIALS
-// originalCartValue is the source of truth for the original bill.
-// Exchange and +/- adjustment must NEVER mutate that original value.
+//
+// FIX (was causing the Balance Due dialog to drift ~5k away from the
+// printed receipt): the functions below used to read `order.originalCartValue`
+// / `order.totalAmount`, snapshot fields that are written ONCE when the order
+// is first created (see the `totals` useMemo in the creation form) and are
+// never re-written by the edit flow (handleSaveEdit only PATCHes the raw
+// fields — netWeight, liveRate, vaPercentage, stoneCost, weightAdjustmentGrams,
+// adjustmentCost, discountAmount, etc). So the moment an order was edited
+// (e.g. a weight/amount adjustment), those cached totals went stale while the
+// receipt PDF kept recomputing everything live from the raw fields — hence
+// the mismatch between the dialog and the receipt.
+//
+// The fix: never trust the cached snapshot for display math. Every figure
+// below is recomputed live from the same raw fields, using the exact same
+// Metal -> VA -> Stone -> GST -> Weight Adjustment -> Exchange pipeline the
+// receipt uses, so the dialog and the printed receipt can never disagree.
 // ---------------------------------------------------------------------------
 const roundMoneyValue = (value: number) =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
-const calculateOriginalCartValue = (order: any) => {
-  const stored = Number(order?.originalCartValue);
-  if (Number.isFinite(stored) && stored > 0) return roundMoneyValue(stored);
+const getGoldExchangeValue = (order: any) =>
+  Math.max(0, Number(order?.discountAmount) || 0);
 
-  // Fallback only for legacy rows that do not have originalCartValue.
+const getSilverExchangeValue = (order: any) =>
+  Math.max(0, Number(order?.silverExchangeValue) || 0);
+
+const getExchangeValue = (order: any) =>
+  roundMoneyValue(
+    getGoldExchangeValue(order) + getSilverExchangeValue(order)
+  );
+
+// "Amount Before Adjustment" on the receipt: Metal + VA + Stone, then GST
+// on top of all three. Always recomputed live — never read from a cached
+// originalCartValue snapshot, which is what used to go stale after edits.
+const calculateOriginalCartValue = (order: any) => {
+  const pricingMode = String(order?.pricingMode || "GRAMS").toUpperCase();
+  const isPieceCost = pricingMode === "PIECE";
+
   const bookedWeight = Math.max(0, Number(order?.netWeight) || 0);
   const rate = Math.max(0, Number(order?.liveRate) || 0);
   const vaPercent = Math.max(0, Number(order?.vaPercentage) || 0);
   const stoneCost = Math.max(0, Number(order?.stoneCost) || 0);
-
-  const isPieceCost =
-    String(order?.metalType || "").toUpperCase() === "SILVER" &&
-    String(order?.purity || "") === "92.5" &&
-    String(order?.pricingMode || "GRAMS").toUpperCase() === "PIECE";
 
   const metalCost = roundMoneyValue(
     isPieceCost
@@ -344,32 +366,37 @@ const calculateOriginalCartValue = (order: any) => {
     ? 0
     : roundMoneyValue(metalCost * (vaPercent / 100));
 
-  // Original Cart Value excludes stone cost.
-  // Stone cost is a final settlement addition.
-  const gstBase = roundMoneyValue(metalCost + vaAmount);
-  const gst = roundMoneyValue(gstBase * 0.03);
+  // GST taxable base includes stone cost (matches the printed receipt).
+  const gstTaxableBase = roundMoneyValue(
+    Math.max(0, metalCost + vaAmount + stoneCost)
+  );
+  const gstAmount = roundMoneyValue(gstTaxableBase * 0.03);
 
-  return roundMoneyValue(gstBase + gst);
+  return roundMoneyValue(gstTaxableBase + gstAmount);
 };
 
-const getExchangeValue = (order: any) =>
-  Math.max(0, Number(order?.discountAmount) || 0);
-
-const getBasePayableAfterExchange = (order: any) =>
+// Amount Before Adjustment +/- the weight adjustment cost.
+// adjustmentCost already carries its own sign (e.g. -710 or +710).
+const getAdjustedAmountBeforeExchange = (order: any) =>
   roundMoneyValue(
     Math.max(
       0,
-      Number(order?.totalAmount) ||
-        calculateOriginalCartValue(order) - getExchangeValue(order)
+      calculateOriginalCartValue(order) + (Number(order?.adjustmentCost) || 0)
     )
   );
 
+// Payable amount BEFORE the weight adjustment is applied, net of exchange.
+// Used only for the "Balance Due Before Adjustment" breakdown line.
+const getBasePayableAfterExchange = (order: any) =>
+  roundMoneyValue(
+    Math.max(0, calculateOriginalCartValue(order) - getExchangeValue(order))
+  );
+
+// Final payable amount: Amount Before Adjustment, +/- weight adjustment,
+// minus exchange. This is exactly the receipt's "Payable After Exchange".
 const getFinalPayableBeforePayments = (order: any) =>
   roundMoneyValue(
-    Math.max(
-      0,
-      getBasePayableAfterExchange(order) + (Number(order?.adjustmentCost) || 0)
-    )
+    Math.max(0, getAdjustedAmountBeforeExchange(order) - getExchangeValue(order))
   );
 
 const getOriginalPaymentRows = (order: any) =>
@@ -466,6 +493,10 @@ export default function OrderManagementPage() {
     itemDescription: "",
     exchangeJewelleryName: "",
     exchangeJewelleryGrams: "",
+    hasSilverExchange: false,
+    silverExchangeJewelleryName: "",
+    silverExchangeJewelleryGrams: "",
+    silverExchangeValue: "",
     purity: "22",
     pricingMode: "GRAMS" as "GRAMS" | "PIECE",
     pieceCost: "",
@@ -514,6 +545,13 @@ export default function OrderManagementPage() {
         adjustmentCost: viewingOrder.adjustmentCost ?? 0,
         exchangeJewelleryName: viewingOrder.exchangeJewelleryName || "",
         exchangeJewelleryGrams: viewingOrder.exchangeJewelleryGrams ?? "",
+        hasSilverExchange:
+          Boolean(viewingOrder.silverExchangeJewelleryName) ||
+          Number(viewingOrder.silverExchangeJewelleryGrams || 0) > 0 ||
+          Number(viewingOrder.silverExchangeValue || 0) > 0,
+        silverExchangeJewelleryName: viewingOrder.silverExchangeJewelleryName || "",
+        silverExchangeJewelleryGrams: viewingOrder.silverExchangeJewelleryGrams ?? "",
+        silverExchangeValue: viewingOrder.silverExchangeValue ?? "",
       });
     }
   }, [viewingOrder]);
@@ -677,10 +715,18 @@ export default function OrderManagementPage() {
     const stoneCost =
       Number(order.stoneCost) || 0;
 
+    // TOTAL EXCHANGE DEDUCTION used by receipt calculations.
+    //
+    // Existing discountAmount = GOLD exchange value.
+    // silverExchangeValue = SILVER exchange value.
+    //
+    // IMPORTANT: use BOTH here. Previously the receipt used only
+    // discountAmount, so Silver Exchange was displayed but was not
+    // deducted from Payable After Exchange / Balance Due.
     const exchangeValue =
-      Math.max(
-        0,
-        Number(order.discountAmount) || 0
+      roundMoneyValue(
+        getGoldExchangeValue(order) +
+          getSilverExchangeValue(order)
       );
 
     // ============================================================
@@ -785,14 +831,17 @@ export default function OrderManagementPage() {
       );
 
     // ============================================================
-    // 7. DEDUCT JEWELLERY EXCHANGE
+    // 7. DEDUCT TOTAL JEWELLERY EXCHANGE
+    //
+    // totalExchange =
+    // Gold Exchange Value + Silver Exchange Value
     //
     // Example:
     //
-    // 168,931
-    // -51,400
-    // --------
-    // 117,531
+    // 12,360
+    // -2,360 Silver Exchange
+    // -------
+    // 10,000
     // ============================================================
 
     const payableAfterExchange =
@@ -864,7 +913,7 @@ export default function OrderManagementPage() {
       );
 
     // ============================================================
-    // TOTAL CLEARED INCLUDING EXCHANGE
+    // TOTAL CLEARED INCLUDING GOLD + SILVER EXCHANGE
     // ============================================================
 
     const totalPaidCleared =
@@ -1186,6 +1235,7 @@ export default function OrderManagementPage() {
         order.purity || ""
       );
 
+
     // ============================================================
     // VA
     // ============================================================
@@ -1319,19 +1369,30 @@ export default function OrderManagementPage() {
     // JEWELLERY EXCHANGE
     // ============================================================
 
-    if (exchangeValue > 0) {
+    const goldExchangeValue = getGoldExchangeValue(order);
+    const silverExchangeValue = getSilverExchangeValue(order);
+
+    if (goldExchangeValue > 0) {
       cartRow(
-        `Exchange Value [${
-          order.exchangeJewelleryName ||
-          "N/A"
+        `Gold Exchange [${
+          order.exchangeJewelleryName || "N/A"
         }]`,
-        `-₹${Math.round(
-          exchangeValue
-        ).toLocaleString()}`,
+        `-₹${Math.round(goldExchangeValue).toLocaleString()}`,
         cursorY + offset,
         gold
       );
+      offset += 7;
+    }
 
+    if (silverExchangeValue > 0) {
+      cartRow(
+        `Silver Exchange [${
+          order.silverExchangeJewelleryName || "N/A"
+        }]`,
+        `-₹${Math.round(silverExchangeValue).toLocaleString()}`,
+        cursorY + offset,
+        grey
+      );
       offset += 7;
     }
 
@@ -1626,19 +1687,27 @@ export default function OrderManagementPage() {
     // EXCHANGE
     // ============================================================
 
-    if (exchangeValue > 0) {
+    if (goldExchangeValue > 0) {
       finRow(
-        `Jewellery Exchange [${
-          order.exchangeJewelleryName ||
-          "N/A"
+        `Gold Exchange [${
+          order.exchangeJewelleryName || "N/A"
         }]`,
-        `₹${Math.round(
-          exchangeValue
-        ).toLocaleString()}`,
+        `₹${Math.round(goldExchangeValue).toLocaleString()}`,
         payLineY,
         emerald
       );
+      payLineY += 8;
+    }
 
+    if (silverExchangeValue > 0) {
+      finRow(
+        `Silver Exchange [${
+          order.silverExchangeJewelleryName || "N/A"
+        }]`,
+        `₹${Math.round(silverExchangeValue).toLocaleString()}`,
+        payLineY,
+        emerald
+      );
       payLineY += 8;
     }
 
@@ -1903,7 +1972,13 @@ export default function OrderManagementPage() {
     const vaPer = isPieceCost ? 0 : Math.max(0, Number(form.vaPercentage) || 0);
     const pieceCost = isPieceCost ? Math.max(0, Number(form.pieceCost) || 0) : 0;
     const sCost = Math.max(0, Number(form.stoneCost) || 0);
-    const disc = Math.max(0, Number(form.discountAmount) || 0);
+    const goldExchangeValue = Math.max(0, Number(form.discountAmount) || 0);
+    const silverExchangeValue = form.hasSilverExchange
+      ? Math.max(0, Number(form.silverExchangeValue) || 0)
+      : 0;
+    const totalExchangeValue = roundMoneyValue(
+      goldExchangeValue + silverExchangeValue
+    );
     const advance = getSplitTotal(initialPaymentSplits);
 
     const roundMoney = (value: number) =>
@@ -1939,7 +2014,7 @@ export default function OrderManagementPage() {
       Math.max(
         0,
         originalCartValue -
-          disc +
+          totalExchangeValue +
           sCost
       )
     );
@@ -1963,7 +2038,10 @@ export default function OrderManagementPage() {
       metalValue,
       goldValue: metalValue, // backward-compatible alias used by existing UI
       vaAmount,
-      discount: disc,
+      discount: goldExchangeValue,
+      goldExchangeValue,
+      silverExchangeValue,
+      totalExchangeValue,
       gstTaxableBase,
       gstAmount,
       totalWithGST,
@@ -2011,7 +2089,14 @@ export default function OrderManagementPage() {
           netWeight: totals.netWeight,
           liveRate: totals.isPieceCost ? 0 : Number(form.liveRate || 0),
           vaPercentage: totals.isPieceCost ? 0 : Number(form.vaPercentage || 0),
-          discountAmount: totals.discount,
+          discountAmount: totals.goldExchangeValue,
+          silverExchangeJewelleryName: form.hasSilverExchange
+            ? form.silverExchangeJewelleryName
+            : "",
+          silverExchangeJewelleryGrams: form.hasSilverExchange
+            ? Number(form.silverExchangeJewelleryGrams || 0)
+            : 0,
+          silverExchangeValue: totals.silverExchangeValue,
           grossWeight: totals.grossWeight,
           gstAmount: totals.gstAmount,
           originalCartValue: totals.originalCartValue,
@@ -2029,6 +2114,8 @@ export default function OrderManagementPage() {
         setForm({
           customerName: "", phoneNumber: "", address: "", itemName: "", itemDescription: "",
           exchangeJewelleryName: "", exchangeJewelleryGrams: "",
+          hasSilverExchange: false, silverExchangeJewelleryName: "",
+          silverExchangeJewelleryGrams: "", silverExchangeValue: "",
           purity: "22", pricingMode: "GRAMS", pieceCost: "", liveRate: "", requiredGrams: "",
           stoneWeight: "", vaPercentage: "", stoneCost: "", discountAmount: "",
           advanceCash: "", advancePaymentMode: "CASH", advanceReferenceNumber: "",
@@ -2144,12 +2231,14 @@ export default function OrderManagementPage() {
       "metalType", "purity", "pricingMode", "pieceCost", "liveRate",
       "netWeight", "stoneWeight", "vaPercentage", "stoneCost",
       "discountAmount", "exchangeJewelleryName", "exchangeJewelleryGrams",
+      "silverExchangeJewelleryName", "silverExchangeJewelleryGrams", "silverExchangeValue",
       "weightAdjustmentGrams", "adjustmentCost", "deadlineDate",
     ] as const;
 
     const numericKeys = new Set([
       "pieceCost", "liveRate", "netWeight", "stoneWeight", "vaPercentage",
       "stoneCost", "discountAmount", "exchangeJewelleryGrams",
+      "silverExchangeJewelleryGrams", "silverExchangeValue",
       "weightAdjustmentGrams", "adjustmentCost",
     ]);
 
@@ -2397,7 +2486,7 @@ export default function OrderManagementPage() {
   // ---------------------------------------------------------------------------
   const handleExportRegistryPdf = async (ordersToExport: any[] = filteredOrders) => {
     if (!ordersToExport.length) {
-      alert("No orders available to export.");
+      alert("No orders available for this filter.");
       return;
     }
 
@@ -2407,13 +2496,12 @@ export default function OrderManagementPage() {
       pdfDoc.registerFontkit(fontkit);
       const font = await pdfDoc.embedFont(fontBytes);
 
-      // A3 landscape: enough width for an all-fields order table.
-      const PAGE_W = 1190.55;
-      const PAGE_H = 841.89;
-      const MARGIN = 24;
-      const HEADER_H = 22;
-      const ROW_H = 28;
-      const FONT_SIZE = 5.7;
+      // A4 landscape — concise business report.
+      const PAGE_W = 841.89;
+      const PAGE_H = 595.28;
+      const MARGIN = 22;
+      const ROW_H = 24;
+      const HEADER_H = 23;
 
       const black = rgb(0.08, 0.08, 0.08);
       const grey = rgb(0.42, 0.42, 0.42);
@@ -2427,95 +2515,74 @@ export default function OrderManagementPage() {
         `₹${Math.round(Number(value) || 0).toLocaleString("en-IN")}`;
 
       const columns = [
-        ["orderId", "Order", 44],
-        ["date", "Date", 42],
-        ["customerName", "Customer", 56],
-        ["phoneNumber", "Phone", 48],
-        ["address", "Address", 86],
-        ["itemName", "Item", 55],
-        ["itemDescription", "Description", 72],
-        ["metalType", "Metal", 32],
-        ["purity", "Purity", 30],
-        ["pricingMode", "Pricing", 34],
-        ["pieceCost", "Piece ₹", 42],
-        ["liveRate", "Rate", 40],
-        ["netWeight", "Net g", 31],
-        ["stoneWeight", "Stone g", 33],
-        ["grossWeight", "Gross g", 34],
-        ["vaPercentage", "VA %", 28],
-        ["stoneCost", "Stone ₹", 42],
-        ["gst", "GST", 40],
-        ["originalCartValue", "Original", 46],
-        ["exchangeJewelleryName", "Exchange", 48],
-        ["exchangeJewelleryGrams", "Exch g", 33],
-        ["discountAmount", "Exch ₹", 42],
-        ["weightAdjustmentGrams", "Adj g", 31],
-        ["adjustmentCost", "Adj ₹", 40],
-        ["payable", "Payable", 46],
-        ["cash", "Cash", 42],
-        ["upi", "UPI", 42],
-        ["card", "Card", 42],
-        ["check", "Check", 42],
-        ["paid", "Paid", 44],
-        ["pending", "Pending", 44],
-        ["totalAmount", "Stored Total", 44],
-        ["advanceCash", "Cached Paid", 44],
-        ["balanceAmount", "Cached Bal", 44],
-        ["pricingRevisionAmount", "Revision ₹", 42],
-        ["pricingRevisionNote", "Revision Note", 68],
-        ["deadlineDate", "Deadline", 42],
-        ["createdAt", "Created", 46],
-        ["updatedAt", "Updated", 46],
-        ["createdBy", "Created By", 55],
-        ["jobWorkId", "Job Work", 52],
-        ["paymentRefs", "Payment Refs", 84],
-        ["status", "Status", 45],
+        ["customer", "Customer", 75],
+        ["phone", "Phone", 58],
+        ["total", "Total", 58],
+        ["cash", "Cash", 52],
+        ["upi", "UPI", 52],
+        ["card", "Card", 52],
+        ["check", "Check", 52],
+        ["goldGrams", "Gold Ex g", 52],
+        ["goldValue", "Gold Ex ₹", 58],
+        ["silverGrams", "Silver Ex g", 55],
+        ["silverValue", "Silver Ex ₹", 60],
+        ["pending", "Pending", 58],
+        ["status", "Status", 58],
       ] as const;
 
-      const totalBaseWidth = columns.reduce((s, c) => s + c[2], 0);
-      const scale = (PAGE_W - MARGIN * 2) / totalBaseWidth;
-      const widths = columns.map((c) => c[2] * scale);
+      const baseWidth = columns.reduce((sum, column) => sum + column[2], 0);
+      const scale = (PAGE_W - MARGIN * 2) / baseWidth;
+      const widths = columns.map((column) => column[2] * scale);
 
-      const textWidth = (text: string, size = FONT_SIZE) =>
+      const textWidth = (text: string, size = 6.4) =>
         font.widthOfTextAtSize(String(text ?? ""), size);
 
-      const fit = (value: any, maxWidth: number, size = FONT_SIZE) => {
-        const text = String(value ?? "-").replace(/\s+/g, " ").trim() || "-";
-        if (textWidth(text, size) <= maxWidth) return text;
-        let out = text;
-        while (out.length > 1 && textWidth(`${out}…`, size) > maxWidth) {
-          out = out.slice(0, -1);
+      const fit = (value: any, width: number, size = 6.4) => {
+        const original = String(value ?? "-").replace(/\s+/g, " ").trim() || "-";
+        if (textWidth(original, size) <= width) return original;
+        let text = original;
+        while (text.length > 1 && textWidth(`${text}…`, size) > width) {
+          text = text.slice(0, -1);
         }
-        return `${out}…`;
+        return `${text}…`;
       };
 
       let page = pdfDoc.addPage([PAGE_W, PAGE_H]);
       let y = PAGE_H - MARGIN;
 
       const drawTop = () => {
-        page.drawText("SUVARNA JEWELLERS — ORDER REPORT", {
-          x: MARGIN, y, size: 13, font, color: black,
+        page.drawText("SUVARNA JEWELLERS — CUSTOMER ORDER REPORT", {
+          x: MARGIN,
+          y,
+          size: 12,
+          font,
+          color: black,
         });
 
         const rangeLabel =
           datePreset === "OVERALL"
             ? "Overall"
-            : datePreset === "CUSTOM"
-            ? `Custom ${fromDate || "Beginning"} → ${toDate || "Today"}`
-            : `${datePreset} ${fromDate || "-"} → ${toDate || "-"}`;
+            : `${datePreset === "CUSTOM" ? "Custom" : datePreset}: ${fromDate || "Beginning"} to ${toDate || "Today"}`;
 
         page.drawText(
-          `Range: ${rangeLabel} | Status: ${statusFilter} | Search: ${searchTerm || "All"} | Generated: ${format(new Date(), "dd MMM yyyy, h:mm a")}`,
-          { x: MARGIN, y: y - 17, size: 7, font, color: grey }
+          `${rangeLabel} | Status: ${statusFilter} | Generated: ${format(new Date(), "dd MMM yyyy, h:mm a")}`,
+          {
+            x: MARGIN,
+            y: y - 16,
+            size: 6.8,
+            font,
+            color: grey,
+          }
         );
-        y -= 36;
+
+        y -= 34;
       };
 
       const drawHeader = () => {
         let x = MARGIN;
         page.drawRectangle({
           x: MARGIN,
-          y: y - HEADER_H + 5,
+          y: y - HEADER_H + 4,
           width: PAGE_W - MARGIN * 2,
           height: HEADER_H,
           color: soft,
@@ -2523,23 +2590,22 @@ export default function OrderManagementPage() {
           borderWidth: 0.7,
         });
 
-        columns.forEach((col, idx) => {
-          const w = widths[idx];
-          page.drawText(fit(col[1], w - 4, 5.5), {
-            x: x + 2, y: y - 8, size: 5.5, font, color: black,
+        columns.forEach((column, index) => {
+          const width = widths[index];
+          page.drawText(fit(column[1], width - 4, 6), {
+            x: x + 2,
+            y: y - 9,
+            size: 6,
+            font,
+            color: black,
           });
-          page.drawLine({
-            start: { x: x + w, y: y - HEADER_H + 5 },
-            end: { x: x + w, y: y + 5 },
-            thickness: 0.25,
-            color: lineGrey,
-          });
-          x += w;
+          x += width;
         });
+
         y -= HEADER_H;
       };
 
-      const nextPage = () => {
+      const newPage = () => {
         page = pdfDoc.addPage([PAGE_W, PAGE_H]);
         y = PAGE_H - MARGIN;
         drawTop();
@@ -2550,66 +2616,30 @@ export default function OrderManagementPage() {
       drawHeader();
 
       ordersToExport.forEach((order, index) => {
-        if (y - ROW_H < 115) nextPage();
+        if (y - ROW_H < 125) newPage();
 
         const modes = getPaymentModeTotals([order]);
-        const orderDate = getOrderDate(order);
-        const row: Record<string, any> = {
-          orderId: order.orderId,
-          date: orderDate ? format(orderDate, "dd-MM-yy") : "-",
-          customerName: order.customerName,
-          phoneNumber: order.phoneNumber,
-          address: order.address || "-",
-          itemName: order.itemName,
-          itemDescription: order.itemDescription || "-",
-          metalType: order.metalType,
-          purity: order.purity,
-          pricingMode: order.pricingMode,
-          pieceCost: money(order.pieceCost),
-          liveRate: money(order.liveRate),
-          netWeight: Number(order.netWeight || 0).toFixed(3),
-          stoneWeight: Number(order.stoneWeight || 0).toFixed(3),
-          grossWeight: Number(order.grossWeight || 0).toFixed(3),
-          vaPercentage: Number(order.vaPercentage || 0).toFixed(2),
-          stoneCost: money(order.stoneCost),
-          gst: money(order.gst),
-          originalCartValue: money(order.originalCartValue),
-          exchangeJewelleryName: order.exchangeJewelleryName || "-",
-          exchangeJewelleryGrams: Number(order.exchangeJewelleryGrams || 0).toFixed(3),
-          discountAmount: money(order.discountAmount),
-          weightAdjustmentGrams: Number(order.weightAdjustmentGrams || 0).toFixed(3),
-          adjustmentCost: money(order.adjustmentCost),
-          payable: money(getFinalPayableBeforePayments(order)),
+
+        const row = {
+          customer: order.customerName || "-",
+          phone: order.phoneNumber || "-",
+          total: money(getFinalPayableBeforePayments(order)),
           cash: money(modes.CASH),
           upi: money(modes.UPI),
           card: money(modes.CARD),
           check: money(modes.CHECK),
-          paid: money(getActualMoneyPaid(order)),
+          goldGrams: `${Number(order.exchangeJewelleryGrams || 0).toFixed(3)}g`,
+          goldValue: money(getGoldExchangeValue(order)),
+          silverGrams: `${Number(order.silverExchangeJewelleryGrams || 0).toFixed(3)}g`,
+          silverValue: money(getSilverExchangeValue(order)),
           pending: money(getFinalBalanceDue(order)),
-          totalAmount: money(order.totalAmount),
-          advanceCash: money(order.advanceCash),
-          balanceAmount: money(order.balanceAmount),
-          pricingRevisionAmount: money(order.pricingRevisionAmount),
-          pricingRevisionNote: order.pricingRevisionNote || "-",
-          deadlineDate: order.deadlineDate ? format(new Date(order.deadlineDate), "dd-MM-yy") : "-",
-          createdAt: order.createdAt ? format(new Date(order.createdAt), "dd-MM-yy HH:mm") : "-",
-          updatedAt: order.updatedAt ? format(new Date(order.updatedAt), "dd-MM-yy HH:mm") : "-",
-          createdBy: order.createdBy || "-",
-          jobWorkId: order.jobWorkId || "-",
-          paymentRefs: getOrderPayments(order)
-            .map((p: any) => {
-              const ref = p.checkNumber || p.referenceNumber || "";
-              const bank = p.bankName ? `/${p.bankName}` : "";
-              return `${paymentModeLabel(p.mode)}:${money(p.amount)}${ref ? `#${ref}${bank}` : ""}`;
-            })
-            .join(" | ") || "-",
           status: order.status || "-",
         };
 
         if (index % 2 === 1) {
           page.drawRectangle({
             x: MARGIN,
-            y: y - ROW_H + 4,
+            y: y - ROW_H + 3,
             width: PAGE_W - MARGIN * 2,
             height: ROW_H,
             color: rgb(0.992, 0.992, 0.992),
@@ -2617,13 +2647,13 @@ export default function OrderManagementPage() {
         }
 
         let x = MARGIN;
-        columns.forEach((col, idx) => {
-          const w = widths[idx];
-          const key = col[0];
-          page.drawText(fit(row[key], w - 4), {
+        columns.forEach((column, columnIndex) => {
+          const width = widths[columnIndex];
+          const key = column[0] as keyof typeof row;
+          page.drawText(fit(row[key], width - 4), {
             x: x + 2,
             y: y - 10,
-            size: FONT_SIZE,
+            size: 6.4,
             font,
             color:
               key === "pending" && getFinalBalanceDue(order) > 0
@@ -2632,18 +2662,12 @@ export default function OrderManagementPage() {
                 ? emerald
                 : black,
           });
-          page.drawLine({
-            start: { x: x + w, y: y - ROW_H + 4 },
-            end: { x: x + w, y: y + 4 },
-            thickness: 0.2,
-            color: lineGrey,
-          });
-          x += w;
+          x += width;
         });
 
         page.drawLine({
-          start: { x: MARGIN, y: y - ROW_H + 4 },
-          end: { x: PAGE_W - MARGIN, y: y - ROW_H + 4 },
+          start: { x: MARGIN, y: y - ROW_H + 3 },
+          end: { x: PAGE_W - MARGIN, y: y - ROW_H + 3 },
           thickness: 0.3,
           color: lineGrey,
         });
@@ -2651,60 +2675,96 @@ export default function OrderManagementPage() {
         y -= ROW_H;
       });
 
-      if (y < 220) {
+      if (y < 210) {
         page = pdfDoc.addPage([PAGE_W, PAGE_H]);
         y = PAGE_H - MARGIN;
       }
 
-      const modeTotals = getPaymentModeTotals(ordersToExport);
-      const totalAmount = ordersToExport.reduce((s, o) => s + getFinalPayableBeforePayments(o), 0);
-      const totalPaid = ordersToExport.reduce((s, o) => s + getActualMoneyPaid(o), 0);
-      const totalPending = ordersToExport.reduce((s, o) => s + getFinalBalanceDue(o), 0);
-      const totalCleared = Math.max(0, totalAmount - totalPending);
-      const totalExchange = ordersToExport.reduce((s, o) => s + getExchangeValue(o), 0);
-      const netAdjustments = ordersToExport.reduce((s, o) => s + Number(o.adjustmentCost || 0), 0);
-      const delivered = ordersToExport.filter((o) => o.status === "DELIVERED").length;
-      const active = ordersToExport.length - delivered;
+      const paymentTotals = getPaymentModeTotals(ordersToExport);
+      const summary = ordersToExport.reduce(
+        (acc, order) => {
+          acc.total += getFinalPayableBeforePayments(order);
+          acc.pending += getFinalBalanceDue(order);
+          acc.goldGrams += Math.max(0, Number(order.exchangeJewelleryGrams) || 0);
+          acc.goldValue += getGoldExchangeValue(order);
+          acc.silverGrams += Math.max(0, Number(order.silverExchangeJewelleryGrams) || 0);
+          acc.silverValue += getSilverExchangeValue(order);
+          return acc;
+        },
+        {
+          total: 0,
+          pending: 0,
+          goldGrams: 0,
+          goldValue: 0,
+          silverGrams: 0,
+          silverValue: 0,
+        }
+      );
 
-      y -= 14;
-      page.drawText("OVERALL SUMMARY", { x: MARGIN, y, size: 11, font, color: gold });
-      y -= 20;
+      const totalReceived =
+        paymentTotals.CASH +
+        paymentTotals.UPI +
+        paymentTotals.CARD +
+        paymentTotals.CHECK +
+        paymentTotals.untracked;
 
-      const summary = [
-        ["Orders", ordersToExport.length],
-        ["Total Amount", money(totalAmount)],
-        ["Total Cash", money(modeTotals.CASH)],
-        ["Total UPI", money(modeTotals.UPI)],
-        ["Total Card", money(modeTotals.CARD)],
-        ["Total Check", money(modeTotals.CHECK)],
-        ["Total Received", money(totalPaid)],
-        ["Cleared Amount", money(totalCleared)],
-        ["Pending Amount", money(totalPending)],
-        ["Exchange Value", money(totalExchange)],
-        ["Net Adjustment", money(netAdjustments)],
-        ["Delivered Orders", delivered],
-        ["Active Orders", active],
+      const cleared = Math.max(0, summary.total - summary.pending);
+
+      y -= 12;
+      page.drawText("OVERALL SUMMARY", {
+        x: MARGIN,
+        y,
+        size: 10,
+        font,
+        color: gold,
+      });
+      y -= 18;
+
+      const rows = [
+        ["Overall Order Amount", money(summary.total)],
+        ["Cash", money(paymentTotals.CASH)],
+        ["UPI", money(paymentTotals.UPI)],
+        ["Card", money(paymentTotals.CARD)],
+        ["Check", money(paymentTotals.CHECK)],
+        ["Total Money Received", money(totalReceived)],
+        ["Cleared Amount", money(cleared)],
+        ["Pending Amount", money(summary.pending)],
+        ["Gold Exchange Grams", `${summary.goldGrams.toFixed(3)}g`],
+        ["Gold Exchange Value", money(summary.goldValue)],
+        ["Silver Exchange Grams", `${summary.silverGrams.toFixed(3)}g`],
+        ["Silver Exchange Value", money(summary.silverValue)],
       ];
 
-      const boxW = (PAGE_W - MARGIN * 2 - 18) / 2;
-      summary.forEach(([label, value], index) => {
+      const boxW = (PAGE_W - MARGIN * 2 - 12) / 2;
+      rows.forEach(([label, value], index) => {
         const col = index % 2;
-        const row = Math.floor(index / 2);
-        const x = MARGIN + col * (boxW + 18);
-        const boxY = y - row * 29;
+        const rowIndex = Math.floor(index / 2);
+        const x = MARGIN + col * (boxW + 12);
+        const boxY = y - rowIndex * 27;
 
         page.drawRectangle({
-          x, y: boxY - 20, width: boxW, height: 24,
-          color: soft, borderColor: lineGrey, borderWidth: 0.5,
+          x,
+          y: boxY - 19,
+          width: boxW,
+          height: 23,
+          color: soft,
+          borderColor: lineGrey,
+          borderWidth: 0.5,
         });
+
         page.drawText(String(label), {
-          x: x + 8, y: boxY - 12, size: 7.4, font, color: grey,
+          x: x + 7,
+          y: boxY - 11,
+          size: 7,
+          font,
+          color: grey,
         });
-        const v = String(value);
-        page.drawText(v, {
-          x: x + boxW - 8 - textWidth(v, 8.2),
-          y: boxY - 12,
-          size: 8.2,
+
+        const valueText = String(value);
+        page.drawText(valueText, {
+          x: x + boxW - 7 - textWidth(valueText, 7.8),
+          y: boxY - 11,
+          size: 7.8,
           font,
           color: String(label).includes("Pending")
             ? rose
@@ -2714,18 +2774,18 @@ export default function OrderManagementPage() {
         });
       });
 
-      const bytes = await pdfDoc.save();
-      const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
 
-      const rangeName =
+      const name =
         datePreset === "OVERALL"
           ? "OVERALL"
           : `${datePreset}_${fromDate || "START"}_${toDate || "TODAY"}`;
 
-      link.download = `ORDER_REPORT_${rangeName}_${format(new Date(), "ddMMyy")}.pdf`;
+      link.download = `ORDER_REPORT_${name}_${format(new Date(), "ddMMyy")}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -2854,58 +2914,95 @@ export default function OrderManagementPage() {
             </LuxuryCard>
 
             {/* SEARCH + FILTER BAR */}
-            <LuxuryCard className="p-4 rounded-2xl border-gold/10 bg-white">
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(260px,1fr)_170px_170px_170px_auto_auto] items-end gap-3">
+            <LuxuryCard className="p-5 rounded-2xl border-gold/10 bg-white space-y-4">
+              {/* Main presets: always visible side by side */}
+              <div className="overflow-x-auto">
+                <div className="grid grid-cols-5 gap-2 min-w-[620px]">
+                  {([
+                    ["DAY", "Day"],
+                    ["WEEK", "Week"],
+                    ["MONTH", "Month"],
+                    ["YEAR", "Year"],
+                    ["OVERALL", "Overall"],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => applyDatePreset(value)}
+                      className={cn(
+                        "h-11 rounded-xl border text-[10px] font-black uppercase tracking-[0.14em] transition-all",
+                        datePreset === value
+                          ? "bg-slate-900 text-gold border-slate-900 shadow-lg"
+                          : "bg-white text-slate-500 border-slate-200 hover:border-gold/40"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Existing custom date filter remains available */}
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(240px,1fr)_170px_170px_170px_auto_auto] items-end gap-3">
                 <div className="min-w-0">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Search Orders</label>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Search Customer / Order</label>
                   <div className="relative mt-1.5">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <Input
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder="Order ID, customer, phone, item..."
+                      placeholder="Customer, phone, order ID..."
                       className="h-11 pl-11 rounded-xl"
                     />
                   </div>
                 </div>
 
-                <div className="w-full">
+                <div>
                   <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Status</label>
-                  <div className="relative mt-1.5">
-                    <ListFilter className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                    <select
-                      value={statusFilter}
-                      onChange={(e) => setStatusFilter(e.target.value as "ALL" | "ACTIVE" | "DELIVERED")}
-                      className="w-full h-11 pl-10 pr-3 rounded-xl border border-slate-200 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-gold/20"
-                    >
-                      <option value="ALL">All statuses</option>
-                      <option value="ACTIVE">Pending / Active</option>
-                      <option value="DELIVERED">Delivered</option>
-                    </select>
-                  </div>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as "ALL" | "ACTIVE" | "DELIVERED")}
+                    className="mt-1.5 w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-sm font-medium outline-none"
+                  >
+                    <option value="ALL">All</option>
+                    <option value="ACTIVE">Active</option>
+                    <option value="DELIVERED">Delivered</option>
+                  </select>
                 </div>
 
-                <div className="w-full">
+                <div>
                   <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">From Date</label>
-                  <div className="relative mt-1.5">
-                    <CalendarDays className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                    <Input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => setFromDate(e.target.value)} className="h-11 pl-10 rounded-xl" />
-                  </div>
+                  <Input
+                    type="date"
+                    value={fromDate}
+                    max={toDate || undefined}
+                    onChange={(e) => {
+                      setDatePreset("CUSTOM");
+                      setFromDate(e.target.value);
+                    }}
+                    className="mt-1.5 h-11 rounded-xl"
+                  />
                 </div>
 
-                <div className="w-full">
+                <div>
                   <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">To Date</label>
-                  <div className="relative mt-1.5">
-                    <CalendarDays className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                    <Input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} className="h-11 pl-10 rounded-xl" />
-                  </div>
+                  <Input
+                    type="date"
+                    value={toDate}
+                    min={fromDate || undefined}
+                    onChange={(e) => {
+                      setDatePreset("CUSTOM");
+                      setToDate(e.target.value);
+                    }}
+                    className="mt-1.5 h-11 rounded-xl"
+                  />
                 </div>
 
                 <Button
                   type="button"
                   variant="outline"
                   onClick={clearRegistryFilters}
-                  className="h-11 px-4 rounded-xl border-slate-200 text-slate-600 gap-2 whitespace-nowrap"
+                  className="h-11 rounded-xl border-slate-200 gap-2"
                 >
                   <RotateCcw className="w-4 h-4" /> Clear
                 </Button>
@@ -2914,20 +3011,21 @@ export default function OrderManagementPage() {
                   type="button"
                   onClick={() => handleExportRegistryPdf(filteredOrders)}
                   disabled={!filteredOrders.length || isLoading}
-                  className="h-11 px-5 rounded-xl bg-slate-900 hover:bg-black text-gold gap-2 disabled:opacity-40 whitespace-nowrap"
+                  className="h-11 rounded-xl bg-slate-900 hover:bg-black text-gold gap-2"
                 >
-                  <Download className="w-4 h-4" /> Export PDF
+                  <Download className="w-4 h-4" /> Report PDF
                 </Button>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-2 mt-3 px-1">
+
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                 <p className="text-[10px] uppercase tracking-widest font-bold text-slate-400">
                   Showing {filteredOrders.length} of {orders.length} orders
                 </p>
-                {(fromDate || toDate) && (
-                  <p className="text-[10px] font-bold text-gold">
-                    Booking date: {fromDate || "Beginning"} → {toDate || "Today"}
-                  </p>
-                )}
+                <p className="text-[10px] font-bold text-gold">
+                  {datePreset === "OVERALL"
+                    ? "Overall records"
+                    : `${datePreset === "CUSTOM" ? "Custom" : datePreset}: ${fromDate || "Beginning"} → ${toDate || "Today"}`}
+                </p>
               </div>
             </LuxuryCard>
 
@@ -2984,8 +3082,15 @@ export default function OrderManagementPage() {
                               Exchange Cleared: ₹{getExchangeValue(o).toLocaleString()}
                             </p>
                           )}
-                          {(o.exchangeJewelleryName || o.exchangeJewelleryGrams) && (
-                            <p className="text-xs text-slate-400 mt-1">Exchange: {o.exchangeJewelleryName || "Item"} · {Number(o.exchangeJewelleryGrams || 0)}g</p>
+                          {(o.exchangeJewelleryName || Number(o.exchangeJewelleryGrams || 0) > 0) && (
+                            <p className="text-xs text-amber-600 mt-1">
+                              Gold Exchange: {o.exchangeJewelleryName || "Item"} · {Number(o.exchangeJewelleryGrams || 0)}g · ₹{Number(o.discountAmount || 0).toLocaleString("en-IN")}
+                            </p>
+                          )}
+                          {(o.silverExchangeJewelleryName || Number(o.silverExchangeJewelleryGrams || 0) > 0) && (
+                            <p className="text-xs text-slate-500 mt-1">
+                              Silver Exchange: {o.silverExchangeJewelleryName || "Item"} · {Number(o.silverExchangeJewelleryGrams || 0)}g · ₹{Number(o.silverExchangeValue || 0).toLocaleString("en-IN")}
+                            </p>
                           )}
                           {o.payments?.length > 0 && (
                             <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
@@ -3146,15 +3251,35 @@ export default function OrderManagementPage() {
                   <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Item</p>
                   <p className="text-lg font-serif font-bold text-slate-900">{viewingOrder?.itemName}</p>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <div className="flex justify-between text-xs text-slate-600 mb-1"><span>Exchange Jewellery</span><span className="font-bold">{viewingOrder?.exchangeJewelleryName || "-"}</span></div>
-                  <div className="flex justify-between text-xs text-slate-500"><span>Exchange Grams</span><span className="font-bold">{Number(viewingOrder?.exchangeJewelleryGrams || 0)}g</span></div>
-                </div>
-                {Number(viewingOrder?.discountAmount) > 0 && (
-                  <div className="p-3 bg-rose-50 rounded-xl border border-rose-100">
-                    <div className="flex justify-between text-xs text-rose-600 font-bold"><span>Jewellery Exchange Value</span><span>-₹{Number(viewingOrder?.discountAmount).toLocaleString()}</span></div>
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 space-y-1">
+                  <div className="flex justify-between text-xs text-amber-800 font-bold">
+                    <span>Gold Exchange</span>
+                    <span>{viewingOrder?.exchangeJewelleryName || "-"}</span>
                   </div>
-                )}
+                  <div className="flex justify-between text-[10px] text-amber-700">
+                    <span>Grams</span>
+                    <span className="font-bold">{Number(viewingOrder?.exchangeJewelleryGrams || 0)}g</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-rose-600 font-bold">
+                    <span>Value</span>
+                    <span>-₹{Number(viewingOrder?.discountAmount || 0).toLocaleString("en-IN")}</span>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                  <div className="flex justify-between text-xs text-slate-800 font-bold">
+                    <span>Silver Exchange</span>
+                    <span>{viewingOrder?.silverExchangeJewelleryName || "-"}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-slate-600">
+                    <span>Grams</span>
+                    <span className="font-bold">{Number(viewingOrder?.silverExchangeJewelleryGrams || 0)}g</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-slate-700 font-bold">
+                    <span>Value</span>
+                    <span>-₹{Number(viewingOrder?.silverExchangeValue || 0).toLocaleString("en-IN")}</span>
+                  </div>
+                </div>
                 <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
                   <div className="space-y-1">
                     <div className="flex justify-between text-xs text-emerald-700 font-bold">
@@ -3669,11 +3794,110 @@ export default function OrderManagementPage() {
                   </div>
                   <Input type="number" min="0" value={form.stoneCost} onChange={(e) => handleInputChange("stoneCost", e.target.value)} placeholder="Stone ₹" className="h-12" />
                 </div>
-                <div className="relative"><div className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-rose-50 rounded-lg"><Tag className="w-4 h-4 text-rose-500" /></div><Input placeholder="Jewellery Exchange value (₹)" type="number" min="0" className="h-14 pl-14 border-rose-100 font-bold text-rose-600" value={form.discountAmount} onChange={(e) => handleInputChange("discountAmount", e.target.value)} /></div>
-                <div className="grid grid-cols-2 gap-5">
-                  <Input placeholder="Exchange Jewellery Name" value={form.exchangeJewelleryName} onChange={(e) => handleInputChange("exchangeJewelleryName", e.target.value)} className="h-12" />
-                  <Input placeholder="Exchange Grams" type="number" min="0" value={form.exchangeJewelleryGrams} onChange={(e) => handleInputChange("exchangeJewelleryGrams", e.target.value)} className="h-12" />
+                <div className="rounded-[2rem] border border-amber-200 bg-amber-50/40 p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">Gold Exchange</p>
+                      <p className="text-[10px] text-amber-600 mt-1">Existing exchange fields are treated as Gold.</p>
+                    </div>
+                    <span className="text-xs font-bold text-amber-800">
+                      -₹{totals.goldExchangeValue.toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <Input
+                      placeholder="Gold Jewellery Name"
+                      value={form.exchangeJewelleryName}
+                      onChange={(e) => handleInputChange("exchangeJewelleryName", e.target.value)}
+                      className="h-12 bg-white"
+                    />
+                    <Input
+                      placeholder="Gold Exchange Grams"
+                      type="number"
+                      min="0"
+                      value={form.exchangeJewelleryGrams}
+                      onChange={(e) => handleInputChange("exchangeJewelleryGrams", e.target.value)}
+                      className="h-12 bg-white"
+                    />
+                    <Input
+                      placeholder="Gold Exchange Value (₹)"
+                      type="number"
+                      min="0"
+                      value={form.discountAmount}
+                      onChange={(e) => handleInputChange("discountAmount", e.target.value)}
+                      className="h-12 bg-white font-bold text-rose-600"
+                    />
+                  </div>
                 </div>
+
+                <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-5 space-y-4">
+                  <label className="flex items-center justify-between gap-4 cursor-pointer">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-700">Silver Exchange</p>
+                      <p className="text-[10px] text-slate-400 mt-1">Tick to add a separate silver exchange entry.</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.hasSilverExchange)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setForm((prev: any) => ({
+                          ...prev,
+                          hasSilverExchange: checked,
+                          silverExchangeJewelleryName: checked ? prev.silverExchangeJewelleryName : "",
+                          silverExchangeJewelleryGrams: checked ? prev.silverExchangeJewelleryGrams : "",
+                          silverExchangeValue: checked ? prev.silverExchangeValue : "",
+                        }));
+                      }}
+                      className="h-5 w-5 accent-slate-900"
+                    />
+                  </label>
+
+                  {form.hasSilverExchange && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <Input
+                        placeholder="Silver Jewellery Name"
+                        value={form.silverExchangeJewelleryName}
+                        onChange={(e) => handleInputChange("silverExchangeJewelleryName", e.target.value)}
+                        className="h-12 bg-white"
+                      />
+                      <Input
+                        placeholder="Silver Exchange Grams"
+                        type="number"
+                        min="0"
+                        value={form.silverExchangeJewelleryGrams}
+                        onChange={(e) => handleInputChange("silverExchangeJewelleryGrams", e.target.value)}
+                        className="h-12 bg-white"
+                      />
+                      <Input
+                        placeholder="Silver Exchange Value (₹)"
+                        type="number"
+                        min="0"
+                        value={form.silverExchangeValue}
+                        onChange={(e) => handleInputChange("silverExchangeValue", e.target.value)}
+                        className="h-12 bg-white font-bold text-slate-700"
+                      />
+                    </div>
+                  )}
+
+                  {form.hasSilverExchange && (
+                    <div className="flex justify-between rounded-xl bg-white border border-slate-200 px-4 py-3 text-xs">
+                      <span className="font-bold text-slate-500">Silver Exchange Deduction</span>
+                      <span className="font-black text-slate-900">
+                        -₹{totals.silverExchangeValue.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {(totals.goldExchangeValue > 0 || totals.silverExchangeValue > 0) && (
+                  <div className="flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Total Exchange Deduction</span>
+                    <span className="font-serif text-lg font-bold text-emerald-800">
+                      -₹{totals.totalExchangeValue.toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                )}
                 <div className="space-y-4">
                   <Input
                     type="date"
@@ -3712,7 +3936,16 @@ export default function OrderManagementPage() {
                   <div className="space-y-4 pt-4">
                     <div className="flex justify-between text-sm"><span className="text-slate-400">Metal Value</span><span>₹{totals.goldValue.toLocaleString()}</span></div>
                     <div className="flex justify-between text-sm"><span className="text-slate-400">VA + Gem</span><span className="text-gold">+ ₹{(totals.vaAmount + totals.stoneCost).toLocaleString()}</span></div>
-                    {totals.discount > 0 && <div className="flex justify-between text-sm font-bold text-rose-400 bg-rose-400/5 p-2 rounded-lg border border-rose-400/20"><span>Exchange value</span><span>- ₹{totals.discount.toLocaleString()}</span></div>}
+                    {totals.totalExchangeValue > 0 && (
+                      <div className="space-y-1 text-sm font-bold text-rose-400 bg-rose-400/5 p-2 rounded-lg border border-rose-400/20">
+                        {totals.goldExchangeValue > 0 && (
+                          <div className="flex justify-between"><span>Gold Exchange</span><span>- ₹{totals.goldExchangeValue.toLocaleString()}</span></div>
+                        )}
+                        {totals.silverExchangeValue > 0 && (
+                          <div className="flex justify-between"><span>Silver Exchange</span><span>- ₹{totals.silverExchangeValue.toLocaleString()}</span></div>
+                        )}
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm"><span className="text-slate-400 italic">GST (3% on Metal + VA + Stone)</span><span className="text-slate-300">+ ₹{Math.round(totals.gstAmount).toLocaleString()}</span></div>
                   </div>
                   <GoldDivider className="opacity-20 my-8" />

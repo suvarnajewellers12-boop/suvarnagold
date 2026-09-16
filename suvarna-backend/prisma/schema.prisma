@@ -79,7 +79,9 @@ model Order {
   // "PIECE" = direct pieceCost. Used for Silver 92.5; VA is forced to 0.
   pricingMode            String    @default("GRAMS")
   pieceCost              Float     @default(0)
-
+  silverExchangeJewelleryName  String?
+  silverExchangeJewelleryGrams Float  @default(0)
+  silverExchangeValue          Float  @default(0)
   liveRate               Float
   netWeight              Float
   stoneWeight            Float

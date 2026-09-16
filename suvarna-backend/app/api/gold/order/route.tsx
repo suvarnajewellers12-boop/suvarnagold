@@ -103,6 +103,7 @@ export async function POST(req: Request) {
       metalType, purity, pricingMode = "GRAMS", pieceCost = 0,
       liveRate, netWeight, stoneWeight, vaPercentage, stoneCost,
       exchangeJewelleryName, exchangeJewelleryGrams, discountAmount,
+      silverExchangeJewelleryName, silverExchangeJewelleryGrams, silverExchangeValue,
       deadlineDate,
     } = body;
 
@@ -126,7 +127,11 @@ export async function POST(req: Request) {
     const vaPercentageValue = isPieceCost ? 0 : Math.max(0, Number(vaPercentage) || 0);
     const stoneWeightValue = Math.max(0, Number(stoneWeight) || 0);
     const stoneCostValue = Math.max(0, Number(stoneCost) || 0);
-    const exchangeValue = Math.max(0, Number(discountAmount) || 0);
+    const goldExchangeValue = Math.max(0, Number(discountAmount) || 0);
+    const silverExchangeValueAmount = Math.max(0, Number(silverExchangeValue) || 0);
+    const totalExchangeValue = roundMoney(
+      goldExchangeValue + silverExchangeValueAmount
+    );
 
     if (isPieceCost ? pieceCostValue <= 0 : netWeightValue <= 0) {
       return NextResponse.json(
@@ -140,7 +145,9 @@ export async function POST(req: Request) {
     const gstTaxableBase = roundMoney(metalValue + vaAmount + stoneCostValue);
     const gstAmount = roundMoney(gstTaxableBase * 0.03);
     const originalCartValue = roundMoney(gstTaxableBase + gstAmount);
-    const totalAmount = roundMoney(Math.max(0, originalCartValue - exchangeValue));
+    const totalAmount = roundMoney(
+      Math.max(0, originalCartValue - totalExchangeValue)
+    );
 
     // Split initial payment. Each selected mode becomes its own Payment row.
     // Legacy single-mode payload is still accepted.
@@ -204,7 +211,18 @@ export async function POST(req: Request) {
         originalCartValue,
         exchangeJewelleryName: exchangeJewelleryName || null,
         exchangeJewelleryGrams: Math.max(0, Number(exchangeJewelleryGrams) || 0),
-        discountAmount: exchangeValue,
+        // Existing exchange fields are the GOLD exchange.
+        discountAmount: goldExchangeValue,
+
+        // New SILVER exchange fields.
+        silverExchangeJewelleryName:
+          String(silverExchangeJewelleryName || "").trim() || null,
+        silverExchangeJewelleryGrams: Math.max(
+          0,
+          Number(silverExchangeJewelleryGrams) || 0
+        ),
+        silverExchangeValue: silverExchangeValueAmount,
+
         totalAmount,
         advanceCash: initialPaymentTotal,
         balanceAmount: roundMoney(Math.max(0, totalAmount - initialPaymentTotal)),
@@ -241,7 +259,11 @@ export async function POST(req: Request) {
         order,
         calculation: {
           metalValue, vaAmount, stoneCost: stoneCostValue, gstAmount,
-          originalCartValue, exchangeValue, totalAmount,
+          originalCartValue,
+          goldExchangeValue,
+          silverExchangeValue: silverExchangeValueAmount,
+          totalExchangeValue,
+          totalAmount,
           initialPayment: initialPaymentTotal,
           balanceAmount: order.balanceAmount,
         },
