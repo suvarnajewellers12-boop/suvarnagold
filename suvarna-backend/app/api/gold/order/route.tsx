@@ -86,6 +86,35 @@ function normalizePayments(raw: unknown, fallbackNote: string): {
 }
 
 
+function normalizePhoneNumbers(rawPhoneNumbers: unknown, legacyPhoneNumber: unknown) {
+  const source = Array.isArray(rawPhoneNumbers)
+    ? rawPhoneNumbers
+    : legacyPhoneNumber
+      ? [legacyPhoneNumber]
+      : [];
+
+  const phoneNumbers = source
+    .map((value) => String(value ?? "").replace(/\D/g, "").slice(-10))
+    .filter(Boolean);
+
+  const uniquePhoneNumbers = [...new Set(phoneNumbers)];
+
+  if (uniquePhoneNumbers.length === 0) {
+    return { phoneNumbers: [] as string[], error: "At least one phone number is required" };
+  }
+
+  const invalid = uniquePhoneNumbers.find((phone) => phone.length !== 10);
+  if (invalid) {
+    return {
+      phoneNumbers: [] as string[],
+      error: "Every phone number must contain exactly 10 digits",
+    };
+  }
+
+  return { phoneNumbers: uniquePhoneNumbers };
+}
+
+
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get("authorization");
@@ -107,9 +136,23 @@ export async function POST(req: Request) {
       deadlineDate,
     } = body;
 
-    if (!customerName || !phoneNumber || !itemName) {
-      return NextResponse.json({ error: "Customer name, phone number and item name are required" }, { status: 400, headers: corsHeaders() });
+    const normalizedPhones = normalizePhoneNumbers(body.phoneNumbers, phoneNumber);
+    if (normalizedPhones.error) {
+      return NextResponse.json(
+        { error: normalizedPhones.error },
+        { status: 400, headers: corsHeaders() }
+      );
     }
+
+    if (!customerName || !itemName) {
+      return NextResponse.json(
+        { error: "Customer name, at least one phone number and item name are required" },
+        { status: 400, headers: corsHeaders() }
+      );
+    }
+
+    const phoneNumbers = normalizedPhones.phoneNumbers;
+    const primaryPhoneNumber = phoneNumbers[0];
 
     const normalizedAddress = String(address || "").trim();
 
@@ -193,7 +236,9 @@ export async function POST(req: Request) {
       data: {
         orderId,
         customerName,
-        phoneNumber,
+        // Keep a primary phone for old screens/reports while storing every number.
+        phoneNumber: primaryPhoneNumber,
+        phoneNumbers,
         address: normalizedAddress || null,
         itemName,
         itemDescription: itemDescription || null,

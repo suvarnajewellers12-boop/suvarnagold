@@ -40,6 +40,7 @@ export async function GET(req: Request) {
         orderId: true,
         customerName: true,
         phoneNumber: true,
+        phoneNumbers: true,
         address: true,
         itemName: true,
         itemDescription: true,

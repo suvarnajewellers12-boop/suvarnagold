@@ -121,6 +121,7 @@ model Order {
   updatedAt              DateTime  @updatedAt @default(now())
 
   payments               Payment[]
+  phoneNumbers String[] @default([])
 
   jobWorkId              String?
   jobWork                GoldJobWork? @relation(fields: [jobWorkId], references: [id])
