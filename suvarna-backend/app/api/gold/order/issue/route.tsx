@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
+import { PaymentMode } from "@prisma/client";
 
 function corsHeaders() {
   return {
@@ -14,112 +15,196 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders() });
 }
 
+
+const PAYMENT_MODES: PaymentMode[] = ["CASH", "UPI", "CARD", "CHECK"];
+
+const roundMoney = (value: number) =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
+type PaymentInput = {
+  amount: number | string;
+  mode: PaymentMode | string;
+  referenceNumber?: string | null;
+  checkNumber?: string | null;
+  bankName?: string | null;
+  note?: string | null;
+  paidAt?: string | Date | null;
+};
+
+function normalizePayments(raw: unknown, fallbackNote: string): {
+  payments: Array<{
+    amount: number;
+    mode: PaymentMode;
+    referenceNumber: string | null;
+    checkNumber: string | null;
+    bankName: string | null;
+    note: string | null;
+    paidAt: Date;
+  }>;
+  error?: string;
+} {
+  if (!Array.isArray(raw)) return { payments: [] };
+
+  const payments = [];
+  for (const item of raw as PaymentInput[]) {
+    const amount = roundMoney(Number(item?.amount) || 0);
+    const mode = String(item?.mode || "").toUpperCase() as PaymentMode;
+
+    if (amount <= 0) continue;
+    if (!PAYMENT_MODES.includes(mode)) {
+      return { payments: [], error: `Invalid payment mode: ${String(item?.mode || "")}` };
+    }
+
+    const checkNumber = String(item?.checkNumber || "").trim() || null;
+    if (mode === "CHECK" && !checkNumber) {
+      return { payments: [], error: "Check number is required for check payment" };
+    }
+
+    const paidAt = item?.paidAt ? new Date(item.paidAt) : new Date();
+    if (Number.isNaN(paidAt.getTime())) {
+      return { payments: [], error: "Invalid payment date" };
+    }
+
+    payments.push({
+      amount,
+      mode,
+      referenceNumber:
+        mode === "UPI" || mode === "CARD"
+          ? String(item?.referenceNumber || "").trim() || null
+          : null,
+      checkNumber: mode === "CHECK" ? checkNumber : null,
+      bankName:
+        mode === "CHECK"
+          ? String(item?.bankName || "").trim() || null
+          : null,
+      note: String(item?.note || fallbackNote).trim() || fallbackNote,
+      paidAt,
+    });
+  }
+
+  return { payments };
+}
+
+
 export async function PATCH(req: Request) {
   try {
     const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new NextResponse(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders() });
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders() });
     }
-
-    const token = authHeader.split(" ")[1];
-    const decoded: any = verifyToken(token);
-
-    if (!decoded || decoded.role !== "SUPER_ADMIN" && decoded.role !== "ADMIN") {
-      return new NextResponse(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: corsHeaders() });
+    const decoded: any = verifyToken(authHeader.slice(7));
+    if (!decoded || (decoded.role !== "SUPER_ADMIN" && decoded.role !== "ADMIN")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: corsHeaders() });
     }
 
     const body = await req.json();
     const { orderId } = body;
-
     if (!orderId) {
-      return new NextResponse(JSON.stringify({ error: "Order ID is required" }), { status: 400, headers: corsHeaders() });
+      return NextResponse.json({ error: "Order ID is required" }, { status: 400, headers: corsHeaders() });
     }
 
-    const existing = await prisma.order.findUnique({ where: { id: orderId } });
-    if (!existing) {
-      return new NextResponse(JSON.stringify({ error: "Order not found" }), { status: 404, headers: corsHeaders() });
+    const normalized = normalizePayments(
+      Array.isArray(body.payments)
+        ? body.payments.map((p: any) => ({ ...p, note: p.note ?? "Final settlement at pickup" }))
+        : [],
+      "Final settlement at pickup"
+    );
+    if (normalized.error) {
+      return NextResponse.json({ error: normalized.error }, { status: 400, headers: corsHeaders() });
     }
 
-    if (existing.status === "DELIVERED") {
-      return new NextResponse(JSON.stringify({ error: "Order has already been delivered" }), { status: 409, headers: corsHeaders() });
-    }
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      const existing = await tx.order.findUnique({ where: { id: orderId } });
+      if (!existing) throw new Error("ORDER_NOT_FOUND");
+      if (existing.status === "DELIVERED") throw new Error("ORDER_DELIVERED");
 
-    // If there's still a balance at pickup, log it as a final payment before marking DELIVERED,
-    // so the ledger always sums to totalAmount with no gap.
-    const remaining = existing.totalAmount - existing.advanceCash;
+      const paidAgg = await tx.payment.aggregate({
+        where: { orderId },
+        _sum: { amount: true },
+      });
+      const paidSoFar = roundMoney(paidAgg._sum.amount || 0);
 
-    const ops: any[] = [];
-    if (remaining > 0.01) {
-      ops.push(
-        prisma.payment.create({
-          data: {
-            orderId,
-            amount: remaining,
-            note: "Final settlement at pickup",
-            paidAt: new Date(),
-            createdBy: decoded.id,
-          },
-        })
+      // THIS fixes the positive-adjustment bug.
+      // totalAmount = payable after exchange BEFORE final adjustment.
+      const finalPayable = roundMoney(
+        Math.max(0, Number(existing.totalAmount || 0) + Number(existing.adjustmentCost || 0))
       );
-    }
+      const remaining = roundMoney(Math.max(0, finalPayable - paidSoFar));
 
-    ops.push(
-      prisma.order.update({
+      const settlementTotal = roundMoney(
+        normalized.payments.reduce((sum, p) => sum + p.amount, 0)
+      );
+
+      if (remaining > 0.01 && normalized.payments.length === 0) {
+        throw new Error(`SETTLEMENT_REQUIRED:${remaining.toFixed(2)}`);
+      }
+
+      if (Math.abs(settlementTotal - remaining) > 0.01) {
+        throw new Error(`SETTLEMENT_MISMATCH:${remaining.toFixed(2)}:${settlementTotal.toFixed(2)}`);
+      }
+
+      if (normalized.payments.length) {
+        await tx.payment.createMany({
+          data: normalized.payments.map((p) => ({
+            orderId,
+            amount: p.amount,
+            mode: p.mode,
+            referenceNumber: p.referenceNumber,
+            checkNumber: p.checkNumber,
+            bankName: p.bankName,
+            note: p.note,
+            paidAt: p.paidAt,
+            createdBy: decoded.id,
+          })),
+        });
+      }
+
+      const finalPaidTotal = roundMoney(paidSoFar + settlementTotal);
+
+      return tx.order.update({
         where: { id: orderId },
         data: {
-          advanceCash: existing.totalAmount,
+          advanceCash: finalPaidTotal,
           balanceAmount: 0,
           status: "DELIVERED",
         },
-        select: {
-          id: true,
-          orderId: true,
-          customerName: true,
-          phoneNumber: true,
-          itemName: true,
-          itemDescription: true,
-          metalType: true,
-          purity: true,
-          liveRate: true,
-          stoneWeight: true,
-          netWeight: true,
-          grossWeight: true,
-          vaPercentage: true,
-          stoneCost: true,
-          gst: true,
-          originalCartValue: true,
-          exchangeJewelleryName: true,
-          exchangeJewelleryGrams: true,
-          totalAmount: true,
-          advanceCash: true,
-          discountAmount: true,
-          balanceAmount: true,
-          weightAdjustmentGrams: true,
-          adjustmentCost: true,
-          deadlineDate: true,
-          createdAt: true,
-          createdBy: true,
-          status: true,
-          jobWorkId: true,
-          payments: {
-            select: { id: true, amount: true, note: true, paidAt: true, createdBy: true, createdAt: true },
-            orderBy: { paidAt: "asc" },
-          },
+        include: {
+          payments: { orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }] },
         },
-      })
-    );
+      });
+    });
 
-    const results = await prisma.$transaction(ops);
-    const updatedOrder = results[results.length - 1];
-
-    return new NextResponse(
-      JSON.stringify({ success: true, message: "Order settled and issued successfully", order: updatedOrder }),
+    return NextResponse.json(
+      { success: true, message: "Order settled and issued successfully", order: updatedOrder },
       { status: 200, headers: corsHeaders() }
     );
   } catch (error: any) {
+    if (error?.message === "ORDER_NOT_FOUND") {
+      return NextResponse.json({ error: "Order not found" }, { status: 404, headers: corsHeaders() });
+    }
+    if (error?.message === "ORDER_DELIVERED") {
+      return NextResponse.json({ error: "Order has already been delivered" }, { status: 409, headers: corsHeaders() });
+    }
+    if (String(error?.message || "").startsWith("SETTLEMENT_REQUIRED:")) {
+      const remaining = Number(String(error.message).split(":")[1] || 0);
+      return NextResponse.json(
+        { error: `Final settlement payment of ₹${remaining.toLocaleString("en-IN")} is required before delivery` },
+        { status: 400, headers: corsHeaders() }
+      );
+    }
+    if (String(error?.message || "").startsWith("SETTLEMENT_MISMATCH:")) {
+      const [, required, received] = String(error.message).split(":");
+      return NextResponse.json(
+        {
+          error: `Settlement split must equal the exact balance. Required ₹${Number(required).toLocaleString("en-IN")}, received ₹${Number(received).toLocaleString("en-IN")}`,
+        },
+        { status: 400, headers: corsHeaders() }
+      );
+    }
+
     console.error("ISSUE_ORDER_ERROR:", error);
-    return new NextResponse(
-      JSON.stringify({ error: "Failed to issue item", details: error.message }),
+    return NextResponse.json(
+      { error: "Failed to issue item", details: error?.message || "Unknown error" },
       { status: 500, headers: corsHeaders() }
     );
   }

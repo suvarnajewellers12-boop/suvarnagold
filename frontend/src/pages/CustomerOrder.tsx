@@ -23,7 +23,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-const API_BASE = "https://suvarnagold-16e5.vercel.app/api/gold/order";
+const API_BASE = "http://localhost:3000/api/gold/order";
 
 const getOrderDate = (order: any) => {
   const raw = order?.createdAt || order?.bookingDate || order?.orderDate || order?.date;
@@ -33,6 +33,224 @@ const getOrderDate = (order: any) => {
 };
 
 type PaymentMode = "CASH" | "UPI" | "CARD" | "CHECK";
+
+type PaymentSplit = {
+  mode: PaymentMode;
+  amount: string;
+  referenceNumber: string;
+  checkNumber: string;
+  bankName: string;
+};
+
+const PAYMENT_MODE_OPTIONS: Array<{ mode: PaymentMode; label: string }> = [
+  { mode: "CASH", label: "Cash" },
+  { mode: "UPI", label: "UPI" },
+  { mode: "CARD", label: "Card" },
+  { mode: "CHECK", label: "Check" },
+];
+
+const createPaymentSplit = (mode: PaymentMode): PaymentSplit => ({
+  mode,
+  amount: "",
+  referenceNumber: "",
+  checkNumber: "",
+  bankName: "",
+});
+
+const getSplitTotal = (splits: PaymentSplit[]) =>
+  roundMoneyValue(
+    splits.reduce((sum, split) => sum + Math.max(0, Number(split.amount) || 0), 0)
+  );
+
+const toPaymentPayload = (splits: PaymentSplit[], note: string) =>
+  splits
+    .filter((split) => Math.max(0, Number(split.amount) || 0) > 0)
+    .map((split) => ({
+      amount: roundMoneyValue(Math.max(0, Number(split.amount) || 0)),
+      mode: split.mode,
+      referenceNumber:
+        split.mode === "UPI" || split.mode === "CARD"
+          ? split.referenceNumber.trim() || null
+          : null,
+      checkNumber:
+        split.mode === "CHECK" ? split.checkNumber.trim() || null : null,
+      bankName:
+        split.mode === "CHECK" ? split.bankName.trim() || null : null,
+      note,
+    }));
+
+function PaymentSplitEditor({
+  splits,
+  onChange,
+  targetAmount,
+  title,
+}: {
+  splits: PaymentSplit[];
+  onChange: (next: PaymentSplit[]) => void;
+  targetAmount?: number;
+  title: string;
+}) {
+  const total = getSplitTotal(splits);
+  const enabled = new Set(splits.map((split) => split.mode));
+
+  const toggleMode = (mode: PaymentMode) => {
+    if (enabled.has(mode)) {
+      onChange(splits.filter((split) => split.mode !== mode));
+    } else {
+      onChange([...splits, createPaymentSplit(mode)]);
+    }
+  };
+
+  const updateSplit = (
+    mode: PaymentMode,
+    field: keyof Omit<PaymentSplit, "mode">,
+    value: string
+  ) => {
+    onChange(
+      splits.map((split) =>
+        split.mode === mode ? { ...split, [field]: value } : split
+      )
+    );
+  };
+
+  const difference =
+    typeof targetAmount === "number"
+      ? roundMoneyValue(targetAmount - total)
+      : 0;
+
+  return (
+    <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+            {title}
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Select every mode the customer is using.
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[9px] font-bold uppercase text-slate-400">Split Total</p>
+          <p className="font-serif text-xl font-bold text-slate-900">
+            ₹{total.toLocaleString("en-IN")}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {PAYMENT_MODE_OPTIONS.map(({ mode, label }) => {
+          const checked = enabled.has(mode);
+          return (
+            <label
+              key={mode}
+              className={cn(
+                "flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all",
+                checked
+                  ? "border-emerald-300 bg-emerald-50"
+                  : "border-slate-200 bg-white"
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => toggleMode(mode)}
+                className="h-4 w-4 accent-emerald-600"
+              />
+              <span className="text-xs font-black uppercase tracking-wider text-slate-700">
+                {label}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+
+      <div className="space-y-3">
+        {splits.map((split) => (
+          <div
+            key={split.mode}
+            className="rounded-2xl border border-white bg-white p-4 shadow-sm"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-xs font-black uppercase text-slate-700">
+                {paymentModeLabel(split.mode)}
+              </span>
+              <span className="text-[10px] font-bold text-slate-400">
+                Payment portion
+              </span>
+            </div>
+
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder={`${paymentModeLabel(split.mode)} amount (₹)`}
+              value={split.amount}
+              onChange={(e) => updateSplit(split.mode, "amount", e.target.value)}
+              className="h-11 font-bold"
+            />
+
+            {(split.mode === "UPI" || split.mode === "CARD") && (
+              <Input
+                placeholder={
+                  split.mode === "UPI"
+                    ? "UPI Transaction / UTR Number"
+                    : "Card Transaction / Receipt Reference"
+                }
+                value={split.referenceNumber}
+                onChange={(e) =>
+                  updateSplit(split.mode, "referenceNumber", e.target.value)
+                }
+                className="mt-2 h-11"
+              />
+            )}
+
+            {split.mode === "CHECK" && (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Input
+                  placeholder="Check Number"
+                  value={split.checkNumber}
+                  onChange={(e) =>
+                    updateSplit(split.mode, "checkNumber", e.target.value)
+                  }
+                  className="h-11"
+                />
+                <Input
+                  placeholder="Bank Name"
+                  value={split.bankName}
+                  onChange={(e) =>
+                    updateSplit(split.mode, "bankName", e.target.value)
+                  }
+                  className="h-11"
+                />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {typeof targetAmount === "number" && (
+        <div
+          className={cn(
+            "flex items-center justify-between rounded-xl border px-4 py-3 text-xs font-bold",
+            Math.abs(difference) <= 0.01
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-amber-200 bg-amber-50 text-amber-700"
+          )}
+        >
+          <span>
+            {Math.abs(difference) <= 0.01
+              ? "Split matches required amount"
+              : difference > 0
+              ? "Still to allocate"
+              : "Over allocated"}
+          </span>
+          <span>₹{Math.abs(difference).toLocaleString("en-IN")}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 const getPaidAmount = (order: any) => Number(order?.advanceCash) || 0;
 
@@ -139,96 +357,39 @@ const getExchangeValue = (order: any) =>
 
 const getBasePayableAfterExchange = (order: any) =>
   roundMoneyValue(
-    Math.max(0, calculateOriginalCartValue(order) - getExchangeValue(order))
+    Math.max(
+      0,
+      Number(order?.totalAmount) ||
+        calculateOriginalCartValue(order) - getExchangeValue(order)
+    )
   );
 
 const getFinalPayableBeforePayments = (order: any) =>
   roundMoneyValue(
     Math.max(
       0,
-      getBasePayableAfterExchange(order) +
-        Math.max(0, Number(order?.stoneCost) || 0)
+      getBasePayableAfterExchange(order) + (Number(order?.adjustmentCost) || 0)
     )
   );
 
-// The adjustment changes the FINAL payment only.
-//
-// Example:
-// Balance before adjustment = ₹88,199
-// adjustmentCost = -₹710
-// Final payment = ₹87,489
-//
-// The ₹710 is shown only once as part of the final-payment formula.
 const getOriginalPaymentRows = (order: any) =>
   getOrderPayments(order).map((payment: any) => ({
     ...payment,
     amount: Math.max(0, Number(payment?.amount) || 0),
   }));
 
-const getMoneyPaidBeforeFinalPayment = (order: any) => {
-  const payments = getOriginalPaymentRows(order);
-
-  if (payments.length <= 1) return 0;
-
-  return roundMoneyValue(
-    payments
-      .slice(0, -1)
-      .reduce(
-        (sum: number, payment: any) =>
-          sum + Math.max(0, Number(payment?.amount) || 0),
-        0
-      )
-  );
-};
-
-const getPreAdjustmentBalanceForFinalPayment = (order: any) =>
+const getActualMoneyPaid = (order: any) =>
   roundMoneyValue(
-    Math.max(
-      0,
-      getFinalPayableBeforePayments(order) -
-        getMoneyPaidBeforeFinalPayment(order)
+    getOriginalPaymentRows(order).reduce(
+      (sum: number, payment: any) =>
+        sum + Math.max(0, Number(payment?.amount) || 0),
+      0
     )
   );
 
-const getFinalPaymentAmount = (order: any) => {
-  const preAdjustmentBalance = getPreAdjustmentBalanceForFinalPayment(order);
-  const adjustmentCost = Number(order?.adjustmentCost) || 0;
-
-  return roundMoneyValue(
-    Math.max(0, preAdjustmentBalance + adjustmentCost)
-  );
-};
-
-const getAdjustedPaymentRows = (order: any) => {
-  const payments = getOriginalPaymentRows(order);
-  const adjustmentCost = Number(order?.adjustmentCost) || 0;
-
-  // Normal/new orders must keep the real payment amounts.
-  if (!payments.length || adjustmentCost === 0) {
-    return payments;
-  }
-
-  // Only a delivered/final settlement receipt may rewrite the last payment
-  // to show the final adjusted payment.
-  if (order?.status !== "DELIVERED") {
-    return payments;
-  }
-
-  const lastIndex = payments.length - 1;
-
-  payments[lastIndex] = {
-    ...payments[lastIndex],
-    originalAmount: Number(payments[lastIndex].amount || 0),
-    amount: getFinalPaymentAmount(order),
-    appliedAdjustment: adjustmentCost,
-  };
-
-  return payments;
-};
-
 const getActualCashPaid = (order: any) =>
   roundMoneyValue(
-    getAdjustedPaymentRows(order).reduce((sum: number, payment: any) => {
+    getOriginalPaymentRows(order).reduce((sum: number, payment: any) => {
       const mode = String(payment?.mode || payment?.paymentMode || "").toUpperCase();
       return mode === "CASH"
         ? sum + Math.max(0, Number(payment?.amount) || 0)
@@ -236,40 +397,26 @@ const getActualCashPaid = (order: any) =>
     }, 0)
   );
 
-const getActualMoneyPaid = (order: any) =>
+const getTotalPaymentCleared = (order: any) =>
+  roundMoneyValue(getActualMoneyPaid(order) + getExchangeValue(order));
+
+const getFinalBalanceDue = (order: any) =>
   roundMoneyValue(
-    getAdjustedPaymentRows(order).reduce(
-      (sum: number, payment: any) =>
-        sum + Math.max(0, Number(payment?.amount) || 0),
-      0
+    Math.max(0, getFinalPayableBeforePayments(order) - getActualMoneyPaid(order))
+  );
+
+// These remain for the existing detail/receipt labels.
+const getPreAdjustmentBalanceForFinalPayment = (order: any) =>
+  roundMoneyValue(
+    Math.max(
+      0,
+      getBasePayableAfterExchange(order) - getActualMoneyPaid(order)
     )
   );
 
-const getTotalPaymentCleared = (order: any) =>
-  roundMoneyValue(
-    getActualMoneyPaid(order) +
-    Math.max(0, getExchangeValue(order))
-  );
+const getFinalPaymentAmount = (order: any) => getFinalBalanceDue(order);
 
-// Balance due must always reflect the real payment rows, regardless of
-// order.status. "DELIVERED" is a fulfillment state, not proof of payment —
-// an order can be marked DELIVERED (manually, or via a bug) while still
-// owing a balance, and the UI must not silently hide that by forcing the
-// balance to 0.
-const getFinalBalanceDue = (order: any) => {
-  const original = calculateOriginalCartValue(order);
-  const exchange = getExchangeValue(order);
-  const realMoneyPaid = getOriginalPaymentRows(order).reduce(
-    (sum: number, payment: any) =>
-      sum + Math.max(0, Number(payment?.amount) || 0),
-    0
-  );
-  const adjustmentCost = Number(order?.adjustmentCost) || 0;
-
-  return roundMoneyValue(
-    Math.max(0, original - exchange - realMoneyPaid + adjustmentCost)
-  );
-};
+const getAdjustedPaymentRows = (order: any) => getOriginalPaymentRows(order);
 
 const parseDateInput = (value: string, endOfDay = false) => {
   if (!value) return null;
@@ -313,6 +460,7 @@ export default function OrderManagementPage() {
   const [form, setForm] = useState({
     customerName: "",
     phoneNumber: "",
+    address :"",
     itemName: "",
     itemDescription: "",
     exchangeJewelleryName: "",
@@ -337,13 +485,11 @@ export default function OrderManagementPage() {
   // Edit Form State
   const [editForm, setEditForm] = useState<any>({});
 
-  // Payment Form State
-  const [paymentAmount, setPaymentAmount] = useState("");
+  // Split-payment state
+  const [initialPaymentSplits, setInitialPaymentSplits] = useState<PaymentSplit[]>([]);
+  const [paymentSplits, setPaymentSplits] = useState<PaymentSplit[]>([]);
   const [paymentNote, setPaymentNote] = useState("");
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>("CASH");
-  const [paymentReferenceNumber, setPaymentReferenceNumber] = useState("");
-  const [paymentBankName, setPaymentBankName] = useState("");
-  const [paymentCheckNumber, setPaymentCheckNumber] = useState("");
+  const [paymentPurpose, setPaymentPurpose] = useState<"ADD" | "SETTLE">("ADD");
 
   useEffect(() => {
     if (viewingOrder) {
@@ -503,10 +649,6 @@ export default function OrderManagementPage() {
     const weightAdj =
       Number(order.weightAdjustmentGrams) || 0;
 
-    // adjustmentCost MUST already contain the correct sign.
-    // Example:
-    // -0.05g => -710
-    // +0.05g => +710
     const adjustmentCost =
       Number(order.adjustmentCost) || 0;
 
@@ -684,67 +826,14 @@ export default function OrderManagementPage() {
       rawPayments.map((payment: any) => ({
         ...payment,
       }));
-
     // ============================================================
     // DELIVERY / FINAL SETTLEMENT
-    //
-    // Keep all OLD payments unchanged.
-    //
-    // Recalculate ONLY the LAST payment using:
-    //
-    // payableAfterExchange - previous payments
-    //
-    // This guarantees that the bottom matches the top.
     // ============================================================
-
-    if (
-      type === "DELIVERY" &&
-      payments.length > 0
-    ) {
-      const previousPayments =
-        payments.slice(0, -1);
-
-      const previousPaymentsTotal =
-        roundMoneyValue(
-          previousPayments.reduce(
-            (
-              total: number,
-              payment: any
-            ) =>
-              total +
-              Math.max(
-                0,
-                Number(
-                  payment.amount || 0
-                )
-              ),
-            0
-          )
-        );
-
-      const exactFinalPayment =
-        roundMoneyValue(
-          Math.max(
-            0,
-            payableAfterExchange -
-              previousPaymentsTotal
-          )
-        );
-
-      const lastIndex =
-        payments.length - 1;
-
-      payments[lastIndex] = {
-        ...payments[lastIndex],
-
-        // IMPORTANT:
-        // overwrite stale/wrong settlement value
-        // only for receipt calculation.
-        amount: exactFinalPayment,
-
-        isFinalSettlementPayment: true,
-      };
-    }
+    // IMPORTANT: never rewrite the last row.
+    // A final settlement may contain several rows (Cash + UPI + Card + Check).
+    // The API already stores the exact final split, so the receipt prints those
+    // rows exactly as recorded.
+    // ============================================================
 
     // ============================================================
     // TOTAL CASH / UPI / CARD / CHEQUE PAID
@@ -1082,15 +1171,9 @@ export default function OrderManagementPage() {
         order.purity || ""
       );
 
-    cartRow(
-      "Pricing Basis",
-      isPieceCostOrder
-        ? `${purityName} ${metalName} — Piece Cost`
-        : `${purityName} ${metalName} — Grams × Live Rate`,
-      cursorY + offset
-    );
 
-    offset += 7;
+
+
 
     // ============================================================
     // VA
@@ -1383,32 +1466,6 @@ export default function OrderManagementPage() {
     let payLineY =
       cursorY + 6;
 
-    // ============================================================
-    // SHOW FINAL ADJUSTED BILL BEFORE EXCHANGE
-    // ============================================================
-
-    finRow(
-      "Adjusted Amount Before Exchange",
-      `₹${Math.round(
-        adjustedAmountBeforeExchange
-      ).toLocaleString()}`,
-      payLineY,
-      black
-    );
-
-    payLineY += 7;
-
-    // Also show the actual payable after exchange.
-    finRow(
-      "Payable After Exchange",
-      `₹${Math.round(
-        payableAfterExchange
-      ).toLocaleString()}`,
-      payLineY,
-      emerald
-    );
-
-    payLineY += 9;
 
     // ============================================================
     // PAYMENT ROWS
@@ -1442,8 +1499,7 @@ export default function OrderManagementPage() {
 
           const isFinalSettlement =
             type === "DELIVERY" &&
-            index ===
-              payments.length - 1;
+            String(payment.note || "").toLowerCase().includes("final settlement");
 
           const label =
             `${modeLabel} • ${dateStr}` +
@@ -1503,6 +1559,31 @@ export default function OrderManagementPage() {
     );
 
     payLineY += 8;
+
+    const receiptModeTotals = payments.reduce(
+      (acc: Record<PaymentMode, number>, payment: any) => {
+        const mode = String(payment.mode || "").toUpperCase() as PaymentMode;
+        if (mode in acc) {
+          acc[mode] = roundMoneyValue(
+            acc[mode] + Math.max(0, Number(payment.amount) || 0)
+          );
+        }
+        return acc;
+      },
+      { CASH: 0, UPI: 0, CARD: 0, CHECK: 0 }
+    );
+
+    (["CASH", "UPI", "CARD", "CHECK"] as PaymentMode[]).forEach((mode) => {
+      if (receiptModeTotals[mode] > 0) {
+        finRow(
+          `${paymentModeLabel(mode)} Total`,
+          `₹${Math.round(receiptModeTotals[mode]).toLocaleString()}`,
+          payLineY,
+          black
+        );
+        payLineY += 7;
+      }
+    });
 
     // ============================================================
     // EXCHANGE
@@ -1786,7 +1867,7 @@ export default function OrderManagementPage() {
     const pieceCost = isPieceCost ? Math.max(0, Number(form.pieceCost) || 0) : 0;
     const sCost = Math.max(0, Number(form.stoneCost) || 0);
     const disc = Math.max(0, Number(form.discountAmount) || 0);
-    const advance = Math.max(0, Number(form.advanceCash) || 0);
+    const advance = getSplitTotal(initialPaymentSplits);
 
     const roundMoney = (value: number) =>
       Math.round((value + Number.EPSILON) * 100) / 100;
@@ -1854,7 +1935,7 @@ export default function OrderManagementPage() {
       originalCartValue,
       grossWeight: netWeight + stoneW,
     };
-  }, [form, metalType]);
+  }, [form, metalType, initialPaymentSplits]);
 
   const handleSubmit = async () => {
     if (!form.customerName || form.phoneNumber.length < 10) {
@@ -1868,12 +1949,8 @@ export default function OrderManagementPage() {
       return alert("Enter the grams required to make this item.");
     }
 
-    const enteredAdvance = Math.max(0, Number(form.advanceCash) || 0);
-    const normalizedAdvance =
-      enteredAdvance > totals.totalWithGST &&
-      Math.abs(enteredAdvance - Math.round(totals.totalWithGST)) < 0.01
-        ? totals.totalWithGST
-        : enteredAdvance;
+    const enteredAdvance = getSplitTotal(initialPaymentSplits);
+    const normalizedAdvance = enteredAdvance;
 
     if (normalizedAdvance > totals.totalWithGST + 0.01) {
       return alert(
@@ -1904,6 +1981,7 @@ export default function OrderManagementPage() {
           totalAmount: totals.totalWithGST,
           advanceCash: normalizedAdvance,
           balanceAmount: Math.max(0, totals.totalWithGST - normalizedAdvance),
+          initialPayments: toPaymentPayload(initialPaymentSplits, "Initial payment"),
         }),
       });
 
@@ -1919,6 +1997,7 @@ export default function OrderManagementPage() {
           advanceCash: "", advancePaymentMode: "CASH", advanceReferenceNumber: "",
           advanceBankName: "", advanceCheckNumber: "", deadlineDate: "",
         });
+        setInitialPaymentSplits([]);
         fetchOrders();
       } else {
         const err = await res.json().catch(() => ({}));
@@ -1928,73 +2007,113 @@ export default function OrderManagementPage() {
     finally { setIsSubmitting(false); }
   };
 
-  const handleIssueOrderToClient = async () => {
+  const resetPaymentDialog = () => {
+    setPaymentSplits([]);
+    setPaymentNote("");
+    setPaymentPurpose("ADD");
+  };
+
+  const openAddPaymentDialog = () => {
+    resetPaymentDialog();
+    setPaymentPurpose("ADD");
+    setIsPaymentOpen(true);
+  };
+
+  const openSettlementDialog = () => {
     if (!viewingOrder) return;
+    const remaining = getFinalBalanceDue(viewingOrder);
+    resetPaymentDialog();
+    setPaymentPurpose("SETTLE");
+
+    // If already completely paid, delivery can be confirmed with no payment rows.
+    if (remaining <= 0.01) {
+      handleIssueOrderToClient([]);
+      return;
+    }
+
+    setIsPaymentOpen(true);
+  };
+
+  const handleIssueOrderToClient = async (splits: PaymentSplit[] = paymentSplits) => {
+    if (!viewingOrder) return;
+
+    const required = getFinalBalanceDue(viewingOrder);
+    const settlementTotal = getSplitTotal(splits);
+
+    if (required > 0.01 && Math.abs(settlementTotal - required) > 0.01) {
+      return alert(
+        `Final settlement split must exactly equal ₹${required.toLocaleString("en-IN", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}.`
+      );
+    }
+
+    const invalidCheck = splits.find(
+      (split) =>
+        split.mode === "CHECK" &&
+        Number(split.amount || 0) > 0 &&
+        !split.checkNumber.trim()
+    );
+    if (invalidCheck) return alert("Enter the check number for the check payment.");
+
     setIsSubmitting(true);
     try {
       const res = await fetch(`${API_BASE}/issue`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ orderId: viewingOrder.id }),
+        body: JSON.stringify({
+          orderId: viewingOrder.id,
+          payments: toPaymentPayload(splits, "Final settlement at pickup"),
+        }),
       });
+
+      const data = await res.json().catch(() => ({}));
+
       if (res.ok) {
-        const data = await res.json();
         const deliveredOrder = { ...viewingOrder, ...data.order, status: "DELIVERED" };
+
+        // The API has now stored every settlement split as a real Payment row.
+        // Therefore the delivered order must calculate to exactly zero.
+        if (getFinalBalanceDue(deliveredOrder) > 0.01) {
+          console.error("SETTLEMENT_INVARIANT_FAILED", deliveredOrder);
+          return alert("Settlement was saved, but the returned balance is not zero. Please refresh before printing.");
+        }
 
         setToastMsg("Payment Settled & Item Delivered!");
         setShowToast(true);
+        setIsPaymentOpen(false);
+        resetPaymentDialog();
 
         await handleOrderReceipt(deliveredOrder, "download", "DELIVERY");
 
         setViewingOrder(null);
         fetchOrders();
       } else {
-        const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to settle order.");
+        alert(data.error || "Failed to settle order.");
       }
-    } catch (err) { console.error("ISSUE_ERROR", err); }
-    finally { setIsSubmitting(false); }
+    } catch (err) {
+      console.error("ISSUE_ERROR", err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSaveEdit = async () => {
     if (!viewingOrder) return;
 
-    // Send ONLY fields that actually changed.
-    // This is critical: adjustment-only edits must not resend pricing fields and
-    // accidentally trigger a recalculation of Original Cart Value / VA / GST.
     const editableKeys = [
-      "customerName",
-      "phoneNumber",
-      "itemName",
-      "itemDescription",
-      "metalType",
-      "purity",
-      "pricingMode",
-      "pieceCost",
-      "liveRate",
-      "netWeight",
-      "stoneWeight",
-      "vaPercentage",
-      "stoneCost",
-      "discountAmount",
-      "exchangeJewelleryName",
-      "exchangeJewelleryGrams",
-      "weightAdjustmentGrams",
-      "adjustmentCost",
-      "deadlineDate",
+      "customerName", "phoneNumber", "itemName", "itemDescription",
+      "metalType", "purity", "pricingMode", "pieceCost", "liveRate",
+      "netWeight", "stoneWeight", "vaPercentage", "stoneCost",
+      "discountAmount", "exchangeJewelleryName", "exchangeJewelleryGrams",
+      "weightAdjustmentGrams", "adjustmentCost", "deadlineDate",
     ] as const;
 
     const numericKeys = new Set([
-      "pieceCost",
-      "liveRate",
-      "netWeight",
-      "stoneWeight",
-      "vaPercentage",
-      "stoneCost",
-      "discountAmount",
-      "exchangeJewelleryGrams",
-      "weightAdjustmentGrams",
-      "adjustmentCost",
+      "pieceCost", "liveRate", "netWeight", "stoneWeight", "vaPercentage",
+      "stoneCost", "discountAmount", "exchangeJewelleryGrams",
+      "weightAdjustmentGrams", "adjustmentCost",
     ]);
 
     const changedFields: Record<string, any> = {};
@@ -2006,17 +2125,13 @@ export default function OrderManagementPage() {
       if (numericKeys.has(key)) {
         const nextNumber = Number(nextValue ?? 0);
         const currentNumber = Number(currentValue ?? 0);
-
         if (Math.abs(nextNumber - currentNumber) > 0.000001) {
           changedFields[key] = nextValue === "" ? 0 : nextValue;
         }
         return;
       }
 
-      const nextText = String(nextValue ?? "");
-      const currentText = String(currentValue ?? "");
-
-      if (nextText !== currentText) {
+      if (String(nextValue ?? "") !== String(currentValue ?? "")) {
         changedFields[key] = nextValue;
       }
     });
@@ -2027,7 +2142,6 @@ export default function OrderManagementPage() {
     }
 
     setIsSubmitting(true);
-
     try {
       const res = await fetch(`${API_BASE}/edit`, {
         method: "PATCH",
@@ -2035,14 +2149,10 @@ export default function OrderManagementPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          orderId: viewingOrder.id,
-          ...changedFields,
-        }),
+        body: JSON.stringify({ orderId: viewingOrder.id, ...changedFields }),
       });
 
       const data = await res.json().catch(() => ({}));
-
       if (res.ok) {
         setViewingOrder(data.order);
         setToastMsg("Order Updated!");
@@ -2061,16 +2171,32 @@ export default function OrderManagementPage() {
 
   const handleRecordPayment = async () => {
     if (!viewingOrder) return;
-    const amt = Number(paymentAmount);
-    if (!amt || amt <= 0) return alert("Enter a valid payment amount.");
+
+    if (paymentPurpose === "SETTLE") {
+      await handleIssueOrderToClient(paymentSplits);
+      return;
+    }
+
+    const amt = getSplitTotal(paymentSplits);
+    if (amt <= 0) return alert("Select at least one payment mode and enter an amount.");
 
     const currentBalance = getFinalBalanceDue(viewingOrder);
     if (amt > currentBalance + 0.01) {
-      return alert(`Payment cannot be greater than the current balance ₹${currentBalance.toLocaleString("en-IN", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}.`);
+      return alert(
+        `Payment cannot be greater than the current balance ₹${currentBalance.toLocaleString("en-IN", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}.`
+      );
     }
+
+    const invalidCheck = paymentSplits.find(
+      (split) =>
+        split.mode === "CHECK" &&
+        Number(split.amount || 0) > 0 &&
+        !split.checkNumber.trim()
+    );
+    if (invalidCheck) return alert("Enter the check number for the check payment.");
 
     setIsSubmitting(true);
     try {
@@ -2079,33 +2205,27 @@ export default function OrderManagementPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           orderId: viewingOrder.id,
-          amount: amt,
+          payments: toPaymentPayload(paymentSplits, paymentNote || "Order payment"),
           note: paymentNote,
-          mode: paymentMode,
-          referenceNumber: paymentMode === "UPI" || paymentMode === "CARD" ? paymentReferenceNumber.trim() || null : null,
-          bankName: paymentMode === "CHECK" ? paymentBankName.trim() || null : null,
-          checkNumber: paymentMode === "CHECK" ? paymentCheckNumber.trim() || null : null,
         }),
       });
+
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const data = await res.json();
         setViewingOrder(data.order);
-        setToastMsg(`Payment of ₹${amt.toLocaleString()} recorded`);
+        setToastMsg(`Payment of ₹${amt.toLocaleString("en-IN")} recorded`);
         setShowToast(true);
         setIsPaymentOpen(false);
-        setPaymentAmount("");
-        setPaymentNote("");
-        setPaymentMode("CASH");
-        setPaymentReferenceNumber("");
-        setPaymentBankName("");
-        setPaymentCheckNumber("");
+        resetPaymentDialog();
         fetchOrders();
       } else {
-        const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to record payment.");
+        alert(data.error || "Failed to record payment.");
       }
-    } catch (err) { console.error("PAYMENT_ERROR", err); }
-    finally { setIsSubmitting(false); }
+    } catch (err) {
+      console.error("PAYMENT_ERROR", err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -2419,7 +2539,7 @@ export default function OrderManagementPage() {
         const totalPaymentCleared = getTotalPaymentCleared(order);
 
         fieldRow("Original Cart Value", `₹${originalAmount.toLocaleString()}`, { color: black });
-        fieldRow("Total Cash Paid", `₹${actualCashPaid.toLocaleString()}`, { color: emerald });
+        fieldRow("Total Money Paid", `₹${actualCashPaid.toLocaleString()}`, { color: emerald });
 
         if (actualMoneyPaid !== actualCashPaid) {
           fieldRow("Total Money Paid (All Modes)", `₹${actualMoneyPaid.toLocaleString()}`, { color: emerald });
@@ -2958,8 +3078,8 @@ export default function OrderManagementPage() {
                 <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
                   <div className="space-y-1">
                     <div className="flex justify-between text-xs text-emerald-700 font-bold">
-                      <span>Total Cash Paid</span>
-                      <span>₹{getActualCashPaid(viewingOrder).toLocaleString()}</span>
+                      <span>Total Money Paid</span>
+                      <span>₹{getActualMoneyPaid(viewingOrder).toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between text-xs text-emerald-700 font-bold">
                       <span>Jewellery Exchange Cleared</span>
@@ -3012,9 +3132,9 @@ export default function OrderManagementPage() {
                   </div>
 
                   <div className="pt-4 border-t border-white/10">
-                    <p className="text-[10px] text-slate-300 uppercase font-bold mb-2">Total Cash Paid</p>
+                    <p className="text-[10px] text-slate-300 uppercase font-bold mb-2">Total Money Paid</p>
                     <p className="text-2xl font-serif font-bold text-emerald-400">
-                      ₹{getActualCashPaid(viewingOrder).toLocaleString()}
+                      ₹{getActualMoneyPaid(viewingOrder).toLocaleString()}
                     </p>
                   </div>
 
@@ -3079,7 +3199,7 @@ export default function OrderManagementPage() {
                   <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Payment History</h4>
                   {viewingOrder?.status !== "DELIVERED" && (
                     <Button
-                      onClick={() => setIsPaymentOpen(true)}
+                      onClick={openAddPaymentDialog}
                       size="sm"
                       className="h-8 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-3"
                     >
@@ -3131,7 +3251,7 @@ export default function OrderManagementPage() {
               {/* CUSTOMER PICKUP */}
               {viewingOrder?.status !== "DELIVERED" && (
                 <Button
-                  onClick={handleIssueOrderToClient}
+                  onClick={openSettlementDialog}
                   disabled={isSubmitting}
                   className="w-full h-20 rounded-[2rem] font-serif font-bold text-lg flex items-center justify-center gap-3 shadow-2xl transition-all shadow-gold/20 bg-gold text-slate-900 hover:bg-white active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -3143,79 +3263,79 @@ export default function OrderManagementPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ================= RECORD PAYMENT DIALOG ================= */}
-      <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
-        <DialogContent className="max-w-md rounded-[2rem] p-8 bg-white">
+      {/* ================= SPLIT PAYMENT / FINAL SETTLEMENT DIALOG ================= */}
+      <Dialog
+        open={isPaymentOpen}
+        onOpenChange={(open) => {
+          setIsPaymentOpen(open);
+          if (!open) resetPaymentDialog();
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto rounded-[2rem] p-8 bg-white">
           <DialogHeader>
-            <DialogTitle className="text-xl font-serif font-bold">Record Payment — {viewingOrder?.orderId}</DialogTitle>
+            <DialogTitle className="text-2xl font-serif font-bold">
+              {paymentPurpose === "SETTLE" ? "Final Settlement" : "Record Payment"} — {viewingOrder?.orderId}
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 mt-4">
-            <div className="p-4 bg-slate-50 rounded-xl flex justify-between text-sm">
-              <span className="text-slate-500">Remaining Balance</span>
-              <span className="font-bold text-slate-900">₹{getFinalBalanceDue(viewingOrder).toLocaleString()}</span>
-            </div>
-            <Input
-              placeholder="Amount Received (₹)"
-              type="number"
-              min="0"
-              value={paymentAmount}
-              onChange={(e) => setPaymentAmount(e.target.value)}
-              className="h-14 font-bold"
-            />
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Mode of Payment</label>
-              <select
-                value={paymentMode}
-                onChange={(e) => {
-                  const mode = e.target.value as PaymentMode;
-                  setPaymentMode(mode);
-                  setPaymentReferenceNumber("");
-                  setPaymentBankName("");
-                  setPaymentCheckNumber("");
-                }}
-                className="w-full h-12 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-100"
-              >
-                <option value="CASH">Cash</option>
-                <option value="UPI">UPI</option>
-                <option value="CARD">Card</option>
-                <option value="CHECK">Check</option>
-              </select>
+
+          <div className="space-y-5 mt-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-slate-900 p-4 text-white">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Current Balance</p>
+                <p className="mt-1 font-serif text-2xl font-bold text-gold">
+                  ₹{getFinalBalanceDue(viewingOrder).toLocaleString("en-IN")}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-700">
+                  Selected Payments
+                </p>
+                <p className="mt-1 font-serif text-2xl font-bold text-emerald-800">
+                  ₹{getSplitTotal(paymentSplits).toLocaleString("en-IN")}
+                </p>
+              </div>
             </div>
 
-            {(paymentMode === "UPI" || paymentMode === "CARD") && (
+            <PaymentSplitEditor
+              splits={paymentSplits}
+              onChange={setPaymentSplits}
+              targetAmount={paymentPurpose === "SETTLE" ? getFinalBalanceDue(viewingOrder) : undefined}
+              title={paymentPurpose === "SETTLE" ? "Final payment methods" : "Payment methods"}
+            />
+
+            {paymentPurpose === "ADD" && (
               <Input
-                placeholder={paymentMode === "UPI" ? "UPI Transaction / UTR Number" : "Card Transaction / Receipt Reference"}
-                value={paymentReferenceNumber}
-                onChange={(e) => setPaymentReferenceNumber(e.target.value)}
+                placeholder="Note (optional)"
+                value={paymentNote}
+                onChange={(e) => setPaymentNote(e.target.value)}
                 className="h-12"
               />
             )}
 
-            {paymentMode === "CHECK" && (
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  placeholder="Check Number"
-                  value={paymentCheckNumber}
-                  onChange={(e) => setPaymentCheckNumber(e.target.value)}
-                  className="h-12"
-                />
-                <Input
-                  placeholder="Bank Name"
-                  value={paymentBankName}
-                  onChange={(e) => setPaymentBankName(e.target.value)}
-                  className="h-12"
-                />
+            {paymentPurpose === "SETTLE" && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
+                Delivery is confirmed only when the selected payment methods add up to the exact remaining balance.
+                After settlement, Balance Due must be ₹0.
               </div>
             )}
 
-            <Input
-              placeholder="Note (optional)"
-              value={paymentNote}
-              onChange={(e) => setPaymentNote(e.target.value)}
-              className="h-12"
-            />
-            <Button onClick={handleRecordPayment} disabled={isSubmitting} className="w-full h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold">
-              {isSubmitting ? <Loader2 className="animate-spin" /> : "Save Payment"}
+            <Button
+              onClick={handleRecordPayment}
+              disabled={isSubmitting}
+              className={cn(
+                "w-full h-14 text-white rounded-2xl font-bold",
+                paymentPurpose === "SETTLE"
+                  ? "bg-slate-900 hover:bg-slate-800"
+                  : "bg-emerald-600 hover:bg-emerald-700"
+              )}
+            >
+              {isSubmitting ? (
+                <Loader2 className="animate-spin" />
+              ) : paymentPurpose === "SETTLE" ? (
+                "Settle Full Balance & Confirm Delivery"
+              ) : (
+                "Save Split Payment"
+              )}
             </Button>
           </div>
         </DialogContent>
@@ -3331,7 +3451,7 @@ export default function OrderManagementPage() {
                       if (!(metalType === "SILVER" && nextPurity === "92.5")) {
                         setForm((prev) => ({ ...prev, pricingMode: "GRAMS", pieceCost: "" }));
                       }
-                    }} className="h-14 border border-slate-200 rounded-xl px-4 text-sm bg-white font-bold">{metalType === "GOLD" ? (<><option value="24">24K</option><option value="22">22K</option><option value="18">18K</option></>) : (<><option value="999">999%</option><option value="92.5">92.5%</option><option value="80">80%</option></>)}</select>
+                    }} className="h-14 border border-slate-200 rounded-xl px-4 text-sm bg-white font-bold">{metalType === "GOLD" ? (<><option value="24">24K</option><option value="22">22K</option><option value="18">18K</option></>) : (<><option value="80">80%</option><option value="92.5">92.5%</option><option value="other">other</option></>)}</select>
                   <Input type="number" min="0" value={form.liveRate} onChange={(e) => handleInputChange("liveRate", e.target.value)} placeholder="Live Rate" className="h-14 font-bold" />
                 </div>
               </section>
@@ -3459,44 +3579,34 @@ export default function OrderManagementPage() {
                   <Input placeholder="Exchange Jewellery Name" value={form.exchangeJewelleryName} onChange={(e) => handleInputChange("exchangeJewelleryName", e.target.value)} className="h-12" />
                   <Input placeholder="Exchange Grams" type="number" min="0" value={form.exchangeJewelleryGrams} onChange={(e) => handleInputChange("exchangeJewelleryGrams", e.target.value)} className="h-12" />
                 </div>
-                <div className="grid grid-cols-2 gap-5">
-                  <Input type="date" value={form.deadlineDate} onChange={(e) => handleInputChange("deadlineDate", e.target.value)} className="h-12" />
-                  <Input placeholder="Initial Payment (₹)" type="number" min="0" value={form.advanceCash} onChange={(e) => handleInputChange("advanceCash", e.target.value)} className="h-12 border-emerald-100 text-emerald-600 font-bold" />
-                </div>
+                <div className="space-y-4">
+                  <Input
+                    type="date"
+                    value={form.deadlineDate}
+                    onChange={(e) => handleInputChange("deadlineDate", e.target.value)}
+                    className="h-12"
+                  />
 
-                {Number(form.advanceCash || 0) > 0 && (
-                  <div className="space-y-4 p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Initial Payment Mode</label>
-                      <select
-                        value={form.advancePaymentMode}
-                        onChange={(e) => handleInputChange("advancePaymentMode", e.target.value)}
-                        className="w-full h-12 rounded-xl border border-emerald-100 bg-white px-4 text-sm font-bold outline-none"
-                      >
-                        <option value="CASH">Cash</option>
-                        <option value="UPI">UPI</option>
-                        <option value="CARD">Card</option>
-                        <option value="CHECK">Check</option>
-                      </select>
+                  <PaymentSplitEditor
+                    splits={initialPaymentSplits}
+                    onChange={setInitialPaymentSplits}
+                    title="Initial payment methods"
+                  />
+
+                  <div className="flex items-center justify-between rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4">
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700">
+                        Initial Payment Total
+                      </p>
+                      <p className="text-[10px] text-emerald-600">
+                        Sum of all selected payment methods
+                      </p>
                     </div>
-
-                    {(form.advancePaymentMode === "UPI" || form.advancePaymentMode === "CARD") && (
-                      <Input
-                        placeholder={form.advancePaymentMode === "UPI" ? "UPI Transaction / UTR Number" : "Card Transaction / Receipt Reference"}
-                        value={form.advanceReferenceNumber}
-                        onChange={(e) => handleInputChange("advanceReferenceNumber", e.target.value)}
-                        className="h-12 bg-white"
-                      />
-                    )}
-
-                    {form.advancePaymentMode === "CHECK" && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <Input placeholder="Check Number" value={form.advanceCheckNumber} onChange={(e) => handleInputChange("advanceCheckNumber", e.target.value)} className="h-12 bg-white" />
-                        <Input placeholder="Bank Name" value={form.advanceBankName} onChange={(e) => handleInputChange("advanceBankName", e.target.value)} className="h-12 bg-white" />
-                      </div>
-                    )}
+                    <p className="font-serif text-2xl font-bold text-emerald-800">
+                      ₹{getSplitTotal(initialPaymentSplits).toLocaleString("en-IN")}
+                    </p>
                   </div>
-                )}
+                </div>
               </section>
             </div>
 

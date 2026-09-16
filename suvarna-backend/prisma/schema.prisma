@@ -72,11 +72,9 @@ model Order {
   phoneNumber            String
   itemName               String
   itemDescription        String?
-
+  address                String?
   metalType              String
   purity                 String
-
-  // Pricing basis:
   // "GRAMS" = netWeight × liveRate and VA can apply.
   // "PIECE" = direct pieceCost. Used for Silver 92.5; VA is forced to 0.
   pricingMode            String    @default("GRAMS")
