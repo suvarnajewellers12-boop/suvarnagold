@@ -900,520 +900,570 @@ const exportToPDF = () => {
 };
 
     const handleReceiptAction = async (purchase: any, ratesData: any, mode: "download" | "print") => {
-        if (!ratesData) return;
-
-        try {
-            const [templateBytes, fontBytes] = await Promise.all([
-                fetch("/receipt.pdf").then((res) => res.arrayBuffer()),
-                fetch("/fonts/NotoSans-VariableFont_wdth,wght.ttf").then((res) => res.arrayBuffer()),
-            ]);
-
-            const A5_W = 419.53;
-            const A5_H = 595.28;
-
-            const SAFE_TOP = 80;
-            const SAFE_BOTTOM = 544;
-
-            // ── Left/Right page margin ────────────────────────────────────────────
-            const MARGIN_L = 30;
-            const MARGIN_R = A5_W - 30;       // 389.53
-
-            const gold = rgb(0.72, 0.52, 0.04);
-            const grey = rgb(0.45, 0.45, 0.45);
-            const black = rgb(0, 0, 0);
-            const red = rgb(0.8, 0, 0);
-            const lightGrey = rgb(0.85, 0.85, 0.85);
-
-            // ── Column positions ──────────────────────────────────────────────────
-            const col = {
-                name: 30,
-                purity: 130,
-                gross: 170,
-                sWt: 206,
-                net: 242,
-                rate: 276,
-                va: 316,
-                price: 389,   // right-anchored via drawR
-            };
-
-            // ── Shared pen helpers ────────────────────────────────────────────────
-            const makePen = (page: any) => {
-                const draw = (
-                    text: string,
-                    x: number,
-                    yFromTop: number,
-                    size = 9,
-                    color = black
-                ) =>
-                    page.drawText(String(text ?? ""), {
-                        x,
-                        y: A5_H - yFromTop,
-                        size,
-                        font: customFont,
-                        color,
-                    });
-
-                const drawR = (
-                    text: string,
-                    rightX: number,
-                    yFromTop: number,
-                    size = 9,
-                    color = black
-                ) => {
-                    const w = customFont.widthOfTextAtSize(String(text ?? ""), size);
-                    page.drawText(String(text ?? ""), {
-                        x: rightX - w,
-                        y: A5_H - yFromTop,
-                        size,
-                        font: customFont,
-                        color,
-                    });
+            if (!ratesData) return;
+    
+            try {
+                const [templateBytes, fontBytes] = await Promise.all([
+                    fetch("/receipt.pdf").then((res) => res.arrayBuffer()),
+                    fetch("/fonts/NotoSans-VariableFont_wdth,wght.ttf").then((res) => res.arrayBuffer()),
+                ]);
+    
+                const A5_W = 419.53;
+                const A5_H = 595.28;
+    
+                const SAFE_TOP = 80;
+                const SAFE_BOTTOM = 544;
+    
+                // ── Left/Right page margin ────────────────────────────────────────────
+                const MARGIN_L = 30;
+                const MARGIN_R = A5_W - 30;       // 389.53
+    
+                const gold = rgb(0.72, 0.52, 0.04);
+                const grey = rgb(0.45, 0.45, 0.45);
+                const black = rgb(0, 0, 0);
+                const red = rgb(0.8, 0, 0);
+                const lightGrey = rgb(0.85, 0.85, 0.85);
+    
+                // ── Column positions ──────────────────────────────────────────────────
+                const col = {
+                    name: 30,
+                    purity: 130,
+                    gross: 170,
+                    sWt: 206,
+                    net: 242,
+                    rate: 276,
+                    va: 316,
+                    price: 389,   // right-anchored via drawR
                 };
-
-                const hLine = (yFromTop: number, lineColor = lightGrey, thickness = 0.4) =>
-                    page.drawLine({
-                        start: { x: MARGIN_L, y: A5_H - yFromTop },
-                        end: { x: MARGIN_R, y: A5_H - yFromTop },
-                        thickness,
-                        color: lineColor,
-                    });
-
-                // ── Word-wrap helper ──────────────────────────────────────────────
-                // Draws `text` word-by-word within `maxWidth`. Returns line count.
-                const drawWrapped = (
-                    text: string,
-                    x: number,
-                    yFromTop: number,
-                    maxWidth: number,
-                    size = 7,
-                    color = grey,
-                    lineH = 10
-                ): number => {
-                    const words: string[] = String(text ?? "").split(" ");
-                    const lines: string[] = [];
-                    let current = "";
-
-                    for (const word of words) {
-                        const test = current ? `${current} ${word}` : word;
-                        if (customFont.widthOfTextAtSize(test, size) <= maxWidth) {
-                            current = test;
-                        } else {
-                            if (current) lines.push(current);
-                            current = word;
-                        }
-                    }
-                    if (current) lines.push(current);
-
-                    lines.forEach((line, i) =>
-                        page.drawText(line, {
+    
+                // ── Shared pen helpers ────────────────────────────────────────────────
+                const makePen = (page: any) => {
+                    const draw = (
+                        text: string,
+                        x: number,
+                        yFromTop: number,
+                        size = 9,
+                        color = black
+                    ) =>
+                        page.drawText(String(text ?? ""), {
                             x,
-                            y: A5_H - (yFromTop + i * lineH),
+                            y: A5_H - yFromTop,
                             size,
                             font: customFont,
                             color,
-                        })
-                    );
-
-                    return lines.length;
-                };
-
-                return { draw, drawR, hLine, drawWrapped };
-            };
-
-            // set per-doc below
-            let customFont: any;
-
-            // ── Header ────────────────────────────────────────────────────────────
-            // Returns Y after the header so the table knows where to start.
-            const stampHeader = (page: any, pageNum: number, totalPages: number): number => {
-                const { draw, drawR, hLine, drawWrapped } = makePen(page);
-
-                drawR(`Page ${pageNum} of ${totalPages}`, MARGIN_R, SAFE_TOP + 10, 7.5, grey);
-                hLine(SAFE_TOP + 14);
-
-                // ── Left column: Invoice + Date ───────────────────────────────────
-                const INV_Y = SAFE_TOP + 28;
-                draw(`INVOICE: ${purchase.invoice}`, col.name, INV_Y, 8.5, black);
-                draw(`Date: ${format(new Date(purchase.date), "dd-MM-yyyy")}`,
-                    col.name, INV_Y + 13, 7.5, grey);
-
-                // ── Right column: Customer block with wrapping ────────────────────
-                // Available width = from CUST_X to MARGIN_R
-                const CUST_X = A5_W / 2 + 5;           // ≈ 215
-                const CUST_MAXW = MARGIN_R - CUST_X;       // ≈ 175 px
-
-                draw(`Customer: ${purchase.customer}`, CUST_X, INV_Y, 8.5, black);
-                draw(`Phone: ${purchase.phone}`, CUST_X, INV_Y + 13, 7.5, grey);
-
-                // Address wraps onto as many lines as needed
-                const addrLines = drawWrapped(
-                    `Address: ${purchase.address}`,
-                    CUST_X,
-                    INV_Y + 26,       // start 26 px below invoice row
-                    CUST_MAXW,
-                    7,                // font size
-                    grey,
-                    10                // line height
-                );
-
-                // Email sits immediately below the last address line
-                const emailY = INV_Y + 26 + addrLines * 10 + 2;
-                draw(`Email: ${purchase.email}`, CUST_X, emailY, 7, grey);
-
-                // Divider sits 12 px below email
-                const sepY = emailY + 12;
-                hLine(sepY);
-
-                // ── Rates bar ─────────────────────────────────────────────────────
-                const RATES_Y = sepY + 14;
-                draw(
-                    `24K: ₹${liveRates.gold24}  |  22K: ₹${liveRates.gold22}  |  18K: ₹${liveRates.gold18}  |  Silver: ₹${liveRates.silver}`,
-                    col.name, RATES_Y, 7.5, black
-                );
-                hLine(RATES_Y + 12);
-                return RATES_Y + 12;
-            };
-
-            // ── Table column headers ──────────────────────────────────────────────
-            const stampTableHead = (page: any, afterY: number): number => {
-                const { draw, drawR, hLine } = makePen(page);
-                const H = afterY + 14;
-
-                draw("ITEM DETAILS", col.name, H, 7, grey);
-                draw("PURITY", col.purity, H, 7, grey);
-                draw("GROSS", col.gross, H, 7, grey);
-                draw("S.WT", col.sWt, H, 7, grey);
-                draw("NET", col.net, H, 7, grey);
-                draw("RATE", col.rate, H, 7, grey);
-                draw("VA(₹)", col.va, H, 7, grey);
-                drawR("PRICE", col.price, H, 7, grey);
-
-                hLine(H + 9);
-                return H + 9;
-            };
-
-            // ── Single item row ───────────────────────────────────────────────────
-            const stampItemRow = (page: any, item: any, afterY: number): number => {
-                const { draw, drawR, hLine, drawWrapped } = makePen(page);
-                const R = afterY + 18;
-
-                const k = String(item.purity || "").replace(/\D/g, "") || "22";
-                const rateStr = liveRates[`gold${k}`] || liveRates.gold22;
-                const effectiveRate = parseFloat(String(rateStr).replace(/[^\d.-]/g, "")) || 0;
-                const vaAmount = effectiveRate * item.grams * (item.va / 100);
-
-                // Product name — wrap within the name column width
-                const NAME_MAXW = col.purity - col.name - 4;
-                const nameLines = drawWrapped(
-                    item.productName,
-                    col.name, R,
-                    NAME_MAXW,
-                    9, black, 11
-                );
-
-                // SKU / HUID below the wrapped name
-                const skuY = R + nameLines * 11 + 2;
-                const huidY = skuY + 11;
-                draw(`SKU:  ${item.sku || "N/A"}`, col.name, skuY, 7, grey);
-                draw(`HUID: ${item.huid || "N/A"}`, col.name, huidY, 7, grey);
-
-                // Purity + stone cost — always anchored at row top
-                draw(item.purity, col.purity, R, 9, black);
-                draw("S.Cost:", col.purity, R + 14, 6.5, grey);
-                draw(item.stoneCost.toLocaleString(), col.purity, R + 24, 7, black);
-
-                // Numeric columns
-                draw(`${item.grams}g`, col.gross, R, 9);
-                draw(`${item.stoneWeight}g`, col.sWt, R, 9);
-                draw(`${item.netWt}g`, col.net, R, 9);
-                draw(Math.round(effectiveRate).toLocaleString(), col.rate, R, 9);
-                draw(Math.round(vaAmount).toLocaleString(), col.va, R, 9);
-                drawR(item.itemCost.toLocaleString(), col.price, R, 9);
-
-                // Row separator — whichever is taller drives the height
-                const rowBottom = Math.max(huidY + 10, R + 36);
-                hLine(rowBottom + 4);
-                return rowBottom + 4;
-            };
-
-            // ── Totals block (last page only) ─────────────────────────────────────
-            const stampTotals = (page: any, afterY: number) => {
-                const { draw, drawR, hLine } = makePen(page);
-
-                const LABEL_X = 258;
-                const VALUE_X = col.price;
-                let tY = afterY + 18;
-
-                const totRow = (
-                    label: string,
-                    value: string,
-                    size = 8.5,
-                    lColor = grey,
-                    vColor = black
-                ) => {
-                    if (tY > SAFE_BOTTOM - 12) return;
-                    drawR(label, LABEL_X, tY, size, lColor);
-                    drawR(value, VALUE_X, tY, size, vColor);
-                    tY += 15;
-                };
-
-                totRow("Subtotal:", `₹${purchase.subtotal.toLocaleString()}`);
-
-
-                if (purchase.discount > 0)
-                    totRow("Manager Discount:", `-₹${purchase.discount.toLocaleString()}`, 8.5, grey, red);
-                // if (purchase.exchangeDiscount > 0)
-                //     totRow("Exchange Discount:", `-₹${purchase.exchangeDiscount.toLocaleString()}`, 8.5, grey, red);
-
-                if (purchase.cgst > 0)
-                    totRow("CGST (1.5%):", `₹${purchase.cgst.toLocaleString()}`);
-                if (purchase.sgst > 0)
-                    totRow("SGST (1.5%):", `₹${purchase.sgst.toLocaleString()}`);
-                if (purchase.couponDiscount > 0)
-                    totRow("Coupon Redeemed:", `-₹${purchase.couponDiscount.toLocaleString()}`, 8.5, grey, red);
-                if (tY > SAFE_BOTTOM - 35) return;
-                tY += 4;
-
-                // ── Grand Total box ───────────────────────────────────────────────
-                const grandTotalText = `₹${Math.round(purchase.grandTotal).toLocaleString()}`;
-                const grandLabelText = "GRAND TOTAL:";
-
-                const grandTotalW = customFont.widthOfTextAtSize(grandTotalText, 12);
-                const grandLabelW = customFont.widthOfTextAtSize(grandLabelText, 10);
-
-                const PAD_H = 10, PAD_V = 6, GAP = 12;
-                const boxW = grandLabelW + GAP + grandTotalW + PAD_H * 2;
-                const boxH = 12 + PAD_V * 2;
-                const boxX = MARGIN_R - boxW;
-                const boxBottomY = A5_H - tY - boxH;
-
-                page.drawRectangle({
-                    x: boxX, y: boxBottomY, width: boxW, height: boxH,
-                    color: rgb(0.98, 0.95, 0.88),
-                    borderColor: gold,
-                    borderWidth: 0.8,
-                });
-                page.drawText(grandLabelText, {
-                    x: boxX + PAD_H,
-                    y: boxBottomY + PAD_V,
-                    size: 10, font: customFont, color: gold,
-                });
-                page.drawText(grandTotalText, {
-                    x: MARGIN_R - PAD_H - grandTotalW,
-                    y: boxBottomY + PAD_V,
-                    size: 12, font: customFont, color: gold,
-                });
-
-                tY += boxH + 10;
-
-                // ── Payment Mode section ──────────────────────────────────────────
-                const hasPayments =
-                    purchase.payments.cash > 0 ||
-                    purchase.payments.upi > 0 ||
-                    purchase.payments.card > 0 ||
-                    purchase.payments.cheque > 0 ||
-                    purchase.goldExchangeValue > 0 ||
-                    purchase.silverExchangeValue > 0;
-
-                if (hasPayments && tY <= SAFE_BOTTOM - 20) {
-                    // Section divider line
-                    hLine(tY);
-                    tY += 10;
-
-                    draw("PAYMENT MODE", col.name, tY, 8, gold);
-                    tY += 13;
-
-                    const PAY_VAL_X = 220;
-
-                    const payRow = (label: string, amount: number) => {
-                        if (tY > SAFE_BOTTOM - 10) return;
-                        draw(label, col.name + 6, tY, 8, grey);
-                        drawR(`₹${Math.round(amount).toLocaleString()}`, PAY_VAL_X, tY, 8, black);
-                        tY += 12;
+                        });
+    
+                    const drawR = (
+                        text: string,
+                        rightX: number,
+                        yFromTop: number,
+                        size = 9,
+                        color = black
+                    ) => {
+                        const w = customFont.widthOfTextAtSize(String(text ?? ""), size);
+                        page.drawText(String(text ?? ""), {
+                            x: rightX - w,
+                            y: A5_H - yFromTop,
+                            size,
+                            font: customFont,
+                            color,
+                        });
                     };
-
-                    if (purchase.payments.cash > 0)
-                        payRow("Cash", purchase.payments.cash);
-                    if (purchase.payments.cheque > 0)
-                        payRow("Cheque", purchase.payments.cheque);
-                    if (purchase.payments.upi > 0)
-                        payRow("UPI", purchase.payments.upi);
-
-                    if (purchase.goldExchangeValue > 0) {
-                        const goldName =
-                            purchase.goldExchangeName &&
-                            purchase.goldExchangeName !== "None"
+    
+                    const hLine = (yFromTop: number, lineColor = lightGrey, thickness = 0.4) =>
+                        page.drawLine({
+                            start: { x: MARGIN_L, y: A5_H - yFromTop },
+                            end: { x: MARGIN_R, y: A5_H - yFromTop },
+                            thickness,
+                            color: lineColor,
+                        });
+    
+                    // ── Word-wrap helper ──────────────────────────────────────────────
+                    // Draws `text` word-by-word within `maxWidth`. Returns line count.
+                    const drawWrapped = (
+                        text: string,
+                        x: number,
+                        yFromTop: number,
+                        maxWidth: number,
+                        size = 7,
+                        color = grey,
+                        lineH = 10
+                    ): number => {
+                        const words: string[] = String(text ?? "").split(" ");
+                        const lines: string[] = [];
+                        let current = "";
+    
+                        for (const word of words) {
+                            const test = current ? `${current} ${word}` : word;
+                            if (customFont.widthOfTextAtSize(test, size) <= maxWidth) {
+                                current = test;
+                            } else {
+                                if (current) lines.push(current);
+                                current = word;
+                            }
+                        }
+                        if (current) lines.push(current);
+    
+                        lines.forEach((line, i) =>
+                            page.drawText(line, {
+                                x,
+                                y: A5_H - (yFromTop + i * lineH),
+                                size,
+                                font: customFont,
+                                color,
+                            })
+                        );
+    
+                        return lines.length;
+                    };
+    
+                    return { draw, drawR, hLine, drawWrapped };
+                };
+    
+                // set per-doc below
+                let customFont: any;
+    
+                // ── Header ────────────────────────────────────────────────────────────
+                // Returns Y after the header so the table knows where to start.
+                const stampHeader = (page: any, pageNum: number, totalPages: number): number => {
+                    const { draw, drawR, hLine, drawWrapped } = makePen(page);
+    
+                    drawR(`Page ${pageNum} of ${totalPages}`, MARGIN_R, SAFE_TOP + 10, 7.5, grey);
+                    hLine(SAFE_TOP + 14);
+    
+                    // ── Left column: Invoice + Date ───────────────────────────────────
+                    const INV_Y = SAFE_TOP + 28;
+                    draw(`INVOICE: ${purchase.invoice}`, col.name, INV_Y, 8.5, black);
+                    draw(`Date: ${format(new Date(purchase.date), "dd-MM-yyyy")}`,
+                        col.name, INV_Y + 13, 7.5, grey);
+                    console.log("date:", purchase.date)
+                    draw(`Time: ${format(new Date(purchase.date), "hh:mm a")}`,
+                        col.name, INV_Y + 24, 7.5, grey);
+    
+                    // ── Right column: Customer block with wrapping ────────────────────
+                    // Available width = from CUST_X to MARGIN_R
+                    const CUST_X = A5_W / 2 + 5;           // ≈ 215
+                    const CUST_MAXW = MARGIN_R - CUST_X;       // ≈ 175 px
+    
+                    draw(`Customer: ${purchase.customer}`, CUST_X, INV_Y, 8.5, black);
+                    draw(`Phone: ${purchase.phone}`, CUST_X, INV_Y + 13, 7.5, grey);
+    
+                    // Address wraps onto as many lines as needed
+                    const addrLines = drawWrapped(
+                        `Address: ${purchase.address}`,
+                        CUST_X,
+                        INV_Y + 26,       // start 26 px below invoice row
+                        CUST_MAXW,
+                        7,                // font size
+                        grey,
+                        10                // line height
+                    );
+    
+                    // Email sits immediately below the last address line
+                    const emailY = INV_Y + 26 + addrLines * 10 + 2;
+                    draw(`Email: ${purchase.email}`, CUST_X, emailY, 7, grey);
+    
+                    // Divider sits 12 px below email
+                    const sepY = emailY + 12;
+                    hLine(sepY);
+    
+                    // ── Rates bar ─────────────────────────────────────────────────────
+                    const RATES_Y = sepY + 14;
+                    draw(
+                        `24K: ₹${liveRates.gold24}  |  22K: ₹${liveRates.gold22}  |  18K: ₹${liveRates.gold18}  |  Silver: ₹${liveRates.silver}`,
+                        col.name, RATES_Y, 7.5, black
+                    );
+                    hLine(RATES_Y + 12);
+                    return RATES_Y + 12;
+                };
+    
+                // ── Table column headers ──────────────────────────────────────────────
+                const stampTableHead = (page: any, afterY: number): number => {
+                    const { draw, drawR, hLine } = makePen(page);
+                    const H = afterY + 14;
+    
+                    draw("ITEM DETAILS", col.name, H, 7, grey);
+                    draw("PURITY", col.purity, H, 7, grey);
+                    draw("GROSS", col.gross, H, 7, grey);
+                    draw("S.WT", col.sWt, H, 7, grey);
+                    draw("NET", col.net, H, 7, grey);
+                    draw("RATE", col.rate, H, 7, grey);
+                    draw("VA(₹)", col.va, H, 7, grey);
+                    drawR("PRICE", col.price, H, 7, grey);
+    
+                    hLine(H + 9);
+                    return H + 9;
+                };
+    
+                // ── Single item row ───────────────────────────────────────────────────
+                const stampItemRow = (page: any, item: any, afterY: number): number => {
+                    const { draw, drawR, hLine, drawWrapped } = makePen(page);
+                    console.log("Stamping item:", item);
+                    const R = afterY + 18;
+    
+                    const purityRaw = String(item.purity || "").toLowerCase();
+                    const categoryRaw = String(item.category || "").toLowerCase();
+    
+                    // Detect if item is silver by checking purity or category keywords
+                    const isSilver = purityRaw.includes("silver") || categoryRaw.includes("silver") || purityRaw.includes("ag") || purityRaw.includes("sterling") || /925|900/.test(purityRaw);
+    
+                    // Normalize purity to common gold-k format (e.g. 24, 22, 18)
+                    const purityDigits = String(item.purity || "").replace(/\D/g, "");
+                    let k = "22"; // default fallback
+                    if (isSilver) {
+                        // For silver items we'll use the silver rate directly
+                        k = "silver";
+                    } else if (purityDigits.length === 2) {
+                        k = purityDigits;
+                    } else if (purityDigits.length === 3) {
+                        // Map common millesimal marks to karat equivalents
+                        const map3: any = { '999': '24', '916': '22', '750': '18', '585': '14' };
+                        k = map3[purityDigits] || '22';
+                    } else if (purityRaw.includes('24k') || purityRaw.includes('24')) {
+                        k = '24';
+                    } else if (purityRaw.includes('18k') || purityRaw.includes('18')) {
+                        k = '18';
+                    }
+    
+                    // Choose the live rate depending on metal
+                    let rateStr: any;
+                    if (k === 'silver') {
+                        rateStr = liveRates?.silver;
+                    } else {
+                        rateStr = liveRates ? (liveRates[`gold${k}`] || liveRates.gold22) : undefined;
+                    }
+    
+                    const effectiveRate = parseFloat(String(rateStr || 0).replace(/[^\d.-]/g, "")) || 0;
+                    const vaAmount = effectiveRate * (item.grams - (item.stoneWeight || 0)) * (item.va / 100);
+    
+                    // Product name — wrap within the name column width
+                    const NAME_MAXW = col.purity - col.name - 4;
+                    const nameLines = drawWrapped(
+                        item.productName,
+                        col.name, R,
+                        NAME_MAXW,
+                        9, black, 11
+                    );
+    
+                    // SKU / HUID below the wrapped name
+                    const skuY = R + nameLines * 11 + 2;
+                    const huidY = skuY + 11;
+                    draw(`SKU:  ${item.sku || "N/A"}`, col.name, skuY, 7, grey);
+                    draw(`ItemCode: ${item.huid || "N/A"}`, col.name, huidY, 7, grey);
+    
+                    // Purity + stone cost — always anchored at row top
+                    draw(item.purity, col.purity, R, 9, black);
+                    draw("S.Cost:", col.purity, R + 14, 6.5, grey);
+                    draw(item.stoneCost.toLocaleString(), col.purity, R + 24, 7, black);
+    
+                    // Numeric columns
+                    draw(`${item.grams}g`, col.gross, R, 9);
+                    draw(`${item.stoneWeight}g`, col.sWt, R, 9);
+                    draw(`${item.grams - (item.stoneWeight || 0)}g`, col.net - 10, R, 9);
+    
+                    // Draw the main rate centered in the RATE column (single print only)
+                    const rateText = Math.round(effectiveRate).toLocaleString();
+                    const rateW = customFont.widthOfTextAtSize(rateText, 9);
+                    const rateX = col.rate - rateW / 2;
+                    draw(rateText, rateX, R, 9);
+    
+                    // VA and price
+                    draw(Math.round(vaAmount).toLocaleString(), col.va, R, 9);
+                    drawR(item.itemCost.toLocaleString(), col.price, R, 9);
+    
+                    // Row separator — whichever is taller drives the height
+                    const rowBottom = Math.max(huidY + 10, R + 36);
+                    hLine(rowBottom + 4);
+                    return rowBottom + 4;
+                };
+    
+                // ── Totals block (last page only) ─────────────────────────────────────
+                const stampTotals = (page: any, afterY: number) => {
+                    const { draw, drawR, hLine } = makePen(page);
+    
+                    const LABEL_X = 258;
+                    const VALUE_X = col.price;
+                    let tY = afterY + 18;
+    
+                    const totRow = (
+                        label: string,
+                        value: string,
+                        size = 8.5,
+                        lColor = grey,
+                        vColor = black
+                    ) => {
+                        if (tY > SAFE_BOTTOM - 12) return;
+                        drawR(label, LABEL_X, tY, size, lColor);
+                        drawR(value, VALUE_X, tY, size, vColor);
+                        tY += 15;
+                    };
+    
+                    totRow("Subtotal:", `₹${purchase.subtotal.toLocaleString()}`);
+    
+    
+                    if (purchase.discount > 0)
+                        totRow("Manager Discount:", `-₹${purchase.discount.toLocaleString()}`, 8.5, grey, red);
+                    // if (purchase.exchangeDiscount > 0)
+                    //     totRow("Exchange Discount:", `-₹${purchase.exchangeDiscount.toLocaleString()}`, 8.5, grey, red);
+    
+                    if (purchase.cgst > 0)
+                        totRow("CGST (1.5%):", `₹${purchase.cgst.toLocaleString()}`);
+                    if (purchase.sgst > 0)
+                        totRow("SGST (1.5%):", `₹${purchase.sgst.toLocaleString()}`);
+                    if (purchase.couponDiscount > 0)
+                        totRow("Coupon Redeemed:", `-₹${purchase.couponDiscount.toLocaleString()}`, 8.5, grey, red);
+                    if (tY > SAFE_BOTTOM - 35) return;
+                    tY += 4;
+    
+                    // ── Grand Total box ───────────────────────────────────────────────
+                    const grandTotalText = `₹${Math.round(purchase.grandTotal).toLocaleString()}`;
+                    const grandLabelText = "GRAND TOTAL:";
+    
+                    const grandTotalW = customFont.widthOfTextAtSize(grandTotalText, 12);
+                    const grandLabelW = customFont.widthOfTextAtSize(grandLabelText, 10);
+    
+                    const PAD_H = 10, PAD_V = 6, GAP = 12;
+                    const boxW = grandLabelW + GAP + grandTotalW + PAD_H * 2;
+                    const boxH = 12 + PAD_V * 2;
+                    const boxX = MARGIN_R - boxW;
+                    const boxBottomY = A5_H - tY - boxH;
+    
+                    page.drawRectangle({
+                        x: boxX, y: boxBottomY, width: boxW, height: boxH,
+                        color: rgb(0.98, 0.95, 0.88),
+                        borderColor: gold,
+                        borderWidth: 0.8,
+                    });
+                    page.drawText(grandLabelText, {
+                        x: boxX + PAD_H,
+                        y: boxBottomY + PAD_V,
+                        size: 10, font: customFont, color: gold,
+                    });
+                    page.drawText(grandTotalText, {
+                        x: MARGIN_R - PAD_H - grandTotalW,
+                        y: boxBottomY + PAD_V,
+                        size: 12, font: customFont, color: gold,
+                    });
+    
+                    tY += boxH + 10;
+    
+                    // ── Payment Mode section ──────────────────────────────────────────
+                    const hasPayments =
+                        purchase.payments.cash > 0 ||
+                        purchase.payments.upi > 0 ||
+                        purchase.payments.card > 0 ||
+                        purchase.payments.cheque > 0 ||
+                        purchase.goldExchangeValue > 0 ||
+                        purchase.silverExchangeValue > 0;
+    
+                    if (hasPayments && tY <= SAFE_BOTTOM - 20) {
+                        // Section divider line
+                        hLine(tY);
+                        tY += 10;
+    
+                        draw("PAYMENT MODE", col.name, tY, 8, gold);
+                        tY += 13;
+    
+                        const PAY_VAL_X = 220;
+    
+                        const payRow = (label: string, amount: number) => {
+                            if (tY > SAFE_BOTTOM - 10) return;
+                            draw(label, col.name + 6, tY, 8, grey);
+                            drawR(`₹${Math.round(amount).toLocaleString()}`, PAY_VAL_X, tY, 8, black);
+                            tY += 12;
+                        };
+    
+                        if (purchase.payments.cash > 0)
+                            payRow("Cash", purchase.payments.cash);
+                        if (purchase.payments.cheque > 0)
+                            payRow("Cheque", purchase.payments.cheque);
+                        if (purchase.payments.upi > 0)
+                            payRow("UPI", purchase.payments.upi);
+                        if (purchase.goldExchangeValue > 0) {
+                            const goldName = purchase.goldExchangeName && purchase.goldExchangeName !== "None"
                                 ? ` [${purchase.goldExchangeName}]`
                                 : "";
-                        const goldGrams =
-                            Number(purchase.goldExchangeGrams || 0) > 0
+                            const goldGrams = purchase.goldExchangeGrams > 0
                                 ? ` (${Number(purchase.goldExchangeGrams).toFixed(3)}g)`
                                 : "";
-
-                        payRow(
-                            `Gold Exchange${goldName}`,
-                            purchase.goldExchangeValue
-                        );
-                    }
-
-                    if (purchase.silverExchangeValue > 0) {
-                        const silverName =
-                            purchase.silverExchangeName &&
-                            purchase.silverExchangeName !== "None"
+                            payRow(`Gold Exchange${goldName}$`, purchase.goldExchangeValue);
+                        }
+                        if (purchase.silverExchangeValue > 0) {
+                            const silverName = purchase.silverExchangeName && purchase.silverExchangeName !== "None"
                                 ? ` [${purchase.silverExchangeName}]`
                                 : "";
-                        const silverGrams =
-                            Number(purchase.silverExchangeGrams || 0) > 0
+                            const silverGrams = purchase.silverExchangeGrams > 0
                                 ? ` (${Number(purchase.silverExchangeGrams).toFixed(3)}g)`
                                 : "";
-
-                        payRow(
-                            `Silver Exchange${silverName}`,
-                            purchase.silverExchangeValue
-                        );
+                            payRow(`Silver Exchange${silverName}`, purchase.silverExchangeValue);
+                        }
+                        if (purchase.payments.card > 0)
+                            payRow("Debit / Credit Card", purchase.payments.card);
+    
+                        tY += 6;
                     }
-
-                    if (purchase.payments.card > 0)
-                        payRow("Debit / Credit Card", purchase.payments.card);
-
-                    tY += 6;
-                }
-
-                const hasStaff = Boolean(
-                    purchase.salesman && purchase.salesman !== "Unassigned"
-                ) || Boolean(
-                    purchase.cashier && purchase.cashier !== "Unassigned"
-                );
-
-                if (hasStaff && tY <= SAFE_BOTTOM - 24) {
-                    hLine(tY);
-                    tY += 10;
-
-                    draw("ASSIGNED STAFF", col.name, tY, 8, gold);
-                    tY += 13;
-
-                    const STAFF_VAL_X = 220;
-
-                    if (purchase.salesman && purchase.salesman !== "Unassigned") {
-                        draw("Salesman", col.name + 6, tY, 8, grey);
-                        drawR(purchase.salesman, STAFF_VAL_X, tY, 8, black);
-                        tY += 12;
+    
+                    const hasStaff = Boolean(
+                        purchase.salesman && purchase.salesman !== "Unassigned"
+                    ) || Boolean(
+                        purchase.cashier && purchase.cashier !== "Unassigned"
+                    );
+    
+                    if (hasStaff && tY <= SAFE_BOTTOM - 24) {
+                        hLine(tY);
+                        tY += 10;
+    
+                        draw("ASSIGNED STAFF", col.name, tY, 8, gold);
+                        tY += 13;
+    
+                        const STAFF_VAL_X = 220;
+    
+                        if (purchase.salesman && purchase.salesman !== "Unassigned") {
+                            draw("Salesman", col.name + 6, tY, 8, grey);
+                            drawR(purchase.salesman, STAFF_VAL_X, tY, 8, black);
+                            tY += 12;
+                        }
+    
+                        if (purchase.cashier && purchase.cashier !== "Unassigned") {
+                            draw("Cashier", col.name + 6, tY, 8, grey);
+                            drawR(purchase.cashier, STAFF_VAL_X, tY, 8, black);
+                            tY += 12;
+                        }
                     }
-
-                    if (purchase.cashier && purchase.cashier !== "Unassigned") {
-                        draw("Cashier", col.name + 6, tY, 8, grey);
-                        drawR(purchase.cashier, STAFF_VAL_X, tY, 8, black);
-                        tY += 12;
+    
+                    // ── Footer ────────────────────────────────────────────────────────
+                    if (tY <= SAFE_BOTTOM - 28) {
+                        draw("Thank you for shopping with Suvarna Jewellers!", col.name, tY, 8, grey);
+                        draw("Queries: suvarnajewellers12@gmail.com", col.name, tY + 13, 7, grey);
                     }
-                }
-
-                // ── Footer ────────────────────────────────────────────────────────
-                if (tY <= SAFE_BOTTOM - 28) {
-                    draw("Thank you for shopping with Suvarna Jewellers!", col.name, tY, 8, grey);
-                    draw("Queries: suvarnajewellers12@gmail.com", col.name, tY + 13, 7, grey);
-                }
-            };
-
-            // ── Build all pages ───────────────────────────────────────────────────
-            const buildPages = async (
-                pdfDoc: any,
-                getPage: (i: number) => Promise<any>
-            ) => {
-                const totalPages = purchase.items.length;
-                for (let i = 0; i < purchase.items.length; i++) {
-                    const page = await getPage(i);
-                    const { draw } = makePen(page);
-                    const isLast = i === purchase.items.length - 1;
-
-                    const headerEnd = stampHeader(page, i + 1, totalPages);
-                    const tableEnd = stampTableHead(page, headerEnd);
-                    const rowEnd = stampItemRow(page, purchase.items[i], tableEnd);
-
-                    if (isLast) {
-                        stampTotals(page, rowEnd);
-                    } else {
-                        draw("(Continued on next page…)", col.name, SAFE_BOTTOM - 10, 7, grey);
+                };
+    
+                // ── Build all pages ───────────────────────────────────────────────────
+                const buildPages = async (
+                    pdfDoc: any,
+                    getPage: (i: number) => Promise<any>
+                ) => {
+                    const totalPages = purchase.items.length;
+                    for (let i = 0; i < purchase.items.length; i++) {
+                        const page = await getPage(i);
+                        const { draw } = makePen(page);
+                        const isLast = i === purchase.items.length - 1;
+    
+                        const headerEnd = stampHeader(page, i + 1, totalPages);
+                        const tableEnd = stampTableHead(page, headerEnd);
+                        const rowEnd = stampItemRow(page, purchase.items[i], tableEnd);
+    
+                        if (isLast) {
+                            stampTotals(page, rowEnd);
+                        } else {
+                            draw("(Continued on next page…)", col.name, SAFE_BOTTOM - 10, 7, grey);
+                        }
                     }
+                };
+    
+                const token = localStorage.getItem("token");
+    
+                // ══════════════════════════════════════════════════════════════════════
+                // 1. EMAIL PDF — branded template
+                // ══════════════════════════════════════════════════════════════════════
+                if (purchase.email) {
+                    const emailDoc = await PDFDocument.create();
+                    emailDoc.registerFontkit(fontkit);
+                    customFont = await emailDoc.embedFont(fontBytes);
+    
+                    const templateDoc = await PDFDocument.load(templateBytes);
+    
+                    await buildPages(emailDoc, async () => {
+                        const [copied] = await emailDoc.copyPages(templateDoc, [0]);
+                        copied.setSize(A5_W, A5_H);
+                        emailDoc.addPage(copied);
+                        return copied;
+                    });
+    
+                    const emailBytes = await emailDoc.save();
+    
+                    const pdfBase64 = await new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            const base64String = (reader.result as string).split(",")[1];
+                            resolve(base64String);
+                        };
+                        reader.readAsDataURL(new Blob([emailBytes.buffer as ArrayBuffer]));
+                    });
+    
+                    fetch("https://suvarnagold-16e5.vercel.app/api/reports/send-report", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({
+                            email: purchase.email,
+                            customerName: purchase.customer,
+                            invoice: purchase.invoice,
+                            pdfData: pdfBase64,
+                        }),
+                    }).catch((err) => console.error("Email API Error:", err));
                 }
-            };
-
-            const token = localStorage.getItem("token");
-
-            // ══════════════════════════════════════════════════════════════════════
-            // 1. EMAIL PDF — branded template
-            // ══════════════════════════════════════════════════════════════════════
-            if (purchase.email) {
-                const emailDoc = await PDFDocument.create();
-                emailDoc.registerFontkit(fontkit);
-                customFont = await emailDoc.embedFont(fontBytes);
-
-                const templateDoc = await PDFDocument.load(templateBytes);
-
-                await buildPages(emailDoc, async () => {
-                    const [copied] = await emailDoc.copyPages(templateDoc, [0]);
-                    copied.setSize(A5_W, A5_H);
-                    emailDoc.addPage(copied);
-                    return copied;
-                });
-
-                const emailBytes = await emailDoc.save();
-
-                const pdfBase64 = await new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                        const base64String = (reader.result as string).split(",")[1];
-                        resolve(base64String);
-                    };
-                    reader.readAsDataURL(new Blob([emailBytes.buffer as ArrayBuffer]));
-                });
-
-                fetch("https://suvarnagold-16e5.vercel.app/api/reports/send-report", {
-                    method: "POST",
+                await fetch('https://suvarnagold-16e5.vercel.app/api/otp/thankyou', {
+                    method: 'POST',
                     headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`,
+                        'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        email: purchase.email,
-                        customerName: purchase.customer,
-                        invoice: purchase.invoice,
-                        pdfData: pdfBase64,
-                    }),
-                }).catch((err) => console.error("Admin Email API Error:", err));
-            }
-
-            // ══════════════════════════════════════════════════════════════════════
-            // 2. PRINT / DOWNLOAD PDF — blank page (data only)
-            // ══════════════════════════════════════════════════════════════════════
-            const printDoc = await PDFDocument.create();
-            printDoc.registerFontkit(fontkit);
-            customFont = await printDoc.embedFont(fontBytes);
-
-            await buildPages(printDoc, async () => {
-                return printDoc.addPage([A5_W, A5_H]);
-            });
-
-            const printBytes = await printDoc.save();
-            const blob = new Blob([printBytes.buffer as ArrayBuffer], { type: "application/pdf" });
-            const pdfUrl = URL.createObjectURL(blob);
-
-            if (mode === "download") {
-                const link = document.createElement("a");
-                link.href = pdfUrl;
-                link.download = `Invoice_${purchase.invoice}.pdf`;
-                link.click();
-            } else {
-                const printWindow = window.open(pdfUrl);
-                if (printWindow) {
-                    printWindow.addEventListener("load", () => printWindow.print());
+                        name: purchase.customer,  // This replaces ##var1##
+                        phone: purchase.phone // The customer's 10-digit number
+                    })
+                });
+                // ══════════════════════════════════════════════════════════════════════
+                // 2. PRINT PDF — blank page (data only)
+                // ══════════════════════════════════════════════════════════════════════
+                const printDoc = await PDFDocument.create();
+                printDoc.registerFontkit(fontkit);
+                customFont = await printDoc.embedFont(fontBytes);
+    
+                await buildPages(printDoc, async () => {
+                    return printDoc.addPage([A5_W, A5_H]);
+                });
+    
+                const printBytes = await printDoc.save();
+                const blob = new Blob([printBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+                const pdfUrl = URL.createObjectURL(blob);
+    
+                if (mode === "download") {
+                    // 3. DOWNLOAD PDF — branded template
+                    const downloadDoc = await PDFDocument.create();
+                    downloadDoc.registerFontkit(fontkit);
+                    customFont = await downloadDoc.embedFont(fontBytes);
+    
+                    const templateDoc = await PDFDocument.load(templateBytes);
+    
+                    await buildPages(downloadDoc, async () => {
+                        const [copied] = await downloadDoc.copyPages(templateDoc, [0]);
+                        copied.setSize(A5_W, A5_H);
+                        downloadDoc.addPage(copied);
+                        return copied;
+                    });
+    
+                    const downloadBytes = await downloadDoc.save();
+                    const downloadBlob = new Blob([downloadBytes.buffer as ArrayBuffer], { type: "application/pdf" });
+                    const downloadUrl = URL.createObjectURL(downloadBlob);
+    
+                    const link = document.createElement("a");
+                    link.href = downloadUrl;
+                    link.download = `Invoice_${purchase.invoice}.pdf`;
+                    link.click();
+                } else {
+                    const printWindow = window.open(pdfUrl);
+                    if (printWindow) {
+                        printWindow.addEventListener("load", () => printWindow.print());
+                    }
                 }
+    
+            } catch (error) {
+                console.error("PDF Generation Error", error);
             }
-
-        } catch (error) {
-            console.error("PDF Generation Error", error);
-        }
-    };
-
+        };
     return (
         <SidebarProvider>
             <div className="min-h-screen flex w-full bg-background overflow-hidden">
