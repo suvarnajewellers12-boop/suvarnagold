@@ -99,7 +99,7 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const {
-      customerName, phoneNumber, itemName, itemDescription,
+      customerName, phoneNumber, address, itemName, itemDescription,
       metalType, purity, pricingMode = "GRAMS", pieceCost = 0,
       liveRate, netWeight, stoneWeight, vaPercentage, stoneCost,
       exchangeJewelleryName, exchangeJewelleryGrams, discountAmount,
@@ -109,6 +109,8 @@ export async function POST(req: Request) {
     if (!customerName || !phoneNumber || !itemName) {
       return NextResponse.json({ error: "Customer name, phone number and item name are required" }, { status: 400, headers: corsHeaders() });
     }
+
+    const normalizedAddress = String(address || "").trim();
 
     const normalizedMetal = String(metalType || "").toUpperCase();
     const normalizedPurity = String(purity || "");
@@ -185,6 +187,7 @@ export async function POST(req: Request) {
         orderId,
         customerName,
         phoneNumber,
+        address: normalizedAddress || null,
         itemName,
         itemDescription: itemDescription || null,
         metalType: normalizedMetal,

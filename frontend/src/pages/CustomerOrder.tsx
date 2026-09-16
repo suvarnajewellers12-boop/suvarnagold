@@ -455,12 +455,13 @@ export default function OrderManagementPage() {
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "DELIVERED">("ALL");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [datePreset, setDatePreset] = useState<"DAY" | "WEEK" | "MONTH" | "YEAR" | "OVERALL" | "CUSTOM">("OVERALL");
 
   // Creation Form State
   const [form, setForm] = useState({
     customerName: "",
     phoneNumber: "",
-    address :"",
+    address: "",
     itemName: "",
     itemDescription: "",
     exchangeJewelleryName: "",
@@ -496,6 +497,7 @@ export default function OrderManagementPage() {
       setEditForm({
         customerName: viewingOrder.customerName || "",
         phoneNumber: viewingOrder.phoneNumber || "",
+        address: viewingOrder.address || "",
         itemName: viewingOrder.itemName || "",
         itemDescription: viewingOrder.itemDescription || "",
         metalType: viewingOrder.metalType || "GOLD",
@@ -649,6 +651,10 @@ export default function OrderManagementPage() {
     const weightAdj =
       Number(order.weightAdjustmentGrams) || 0;
 
+    // adjustmentCost MUST already contain the correct sign.
+    // Example:
+    // -0.05g => -710
+    // +0.05g => +710
     const adjustmentCost =
       Number(order.adjustmentCost) || 0;
 
@@ -964,14 +970,23 @@ export default function OrderManagementPage() {
       grey
     );
 
-    hLine(CUST_Y + 32);
+    const customerAddress = String(order.address || "").trim();
+    if (customerAddress) {
+      const shortAddress =
+        customerAddress.length > 68
+          ? `${customerAddress.slice(0, 65)}...`
+          : customerAddress;
+      draw(`Address: ${shortAddress}`, MARGIN_L, CUST_Y + 32, 7, grey);
+    }
+
+    hLine(CUST_Y + (customerAddress ? 43 : 32));
 
     // ============================================================
     // ITEM TABLE
     // ============================================================
 
     const TBL_Y =
-      CUST_Y + 50;
+      CUST_Y + (customerAddress ? 61 : 50);
 
     const col = {
       name: MARGIN_L,
@@ -1170,10 +1185,6 @@ export default function OrderManagementPage() {
       String(
         order.purity || ""
       );
-
-
-
-
 
     // ============================================================
     // VA
@@ -1466,6 +1477,32 @@ export default function OrderManagementPage() {
     let payLineY =
       cursorY + 6;
 
+    // ============================================================
+    // SHOW FINAL ADJUSTED BILL BEFORE EXCHANGE
+    // ============================================================
+
+    finRow(
+      "Adjusted Amount Before Exchange",
+      `₹${Math.round(
+        adjustedAmountBeforeExchange
+      ).toLocaleString()}`,
+      payLineY,
+      black
+    );
+
+    payLineY += 7;
+
+    // Also show the actual payable after exchange.
+    finRow(
+      "Payable After Exchange",
+      `₹${Math.round(
+        payableAfterExchange
+      ).toLocaleString()}`,
+      payLineY,
+      emerald
+    );
+
+    payLineY += 9;
 
     // ============================================================
     // PAYMENT ROWS
@@ -1990,7 +2027,7 @@ export default function OrderManagementPage() {
         setShowToast(true);
         setIsFormOpen(false);
         setForm({
-          customerName: "", phoneNumber: "", itemName: "", itemDescription: "",
+          customerName: "", phoneNumber: "", address: "", itemName: "", itemDescription: "",
           exchangeJewelleryName: "", exchangeJewelleryGrams: "",
           purity: "22", pricingMode: "GRAMS", pieceCost: "", liveRate: "", requiredGrams: "",
           stoneWeight: "", vaPercentage: "", stoneCost: "", discountAmount: "",
@@ -2103,7 +2140,7 @@ export default function OrderManagementPage() {
     if (!viewingOrder) return;
 
     const editableKeys = [
-      "customerName", "phoneNumber", "itemName", "itemDescription",
+      "customerName", "phoneNumber", "address", "itemName", "itemDescription",
       "metalType", "purity", "pricingMode", "pieceCost", "liveRate",
       "netWeight", "stoneWeight", "vaPercentage", "stoneCost",
       "discountAmount", "exchangeJewelleryName", "exchangeJewelleryGrams",
@@ -2231,6 +2268,44 @@ export default function OrderManagementPage() {
   // ---------------------------------------------------------------------------
   // SEARCH, DATE FILTERS & DASHBOARD SUMMARY
   // ---------------------------------------------------------------------------
+  const formatDateInputValue = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const applyDatePreset = (
+    preset: "DAY" | "WEEK" | "MONTH" | "YEAR" | "OVERALL" | "CUSTOM"
+  ) => {
+    setDatePreset(preset);
+
+    if (preset === "CUSTOM") return;
+
+    if (preset === "OVERALL") {
+      setFromDate("");
+      setToDate("");
+      return;
+    }
+
+    const today = new Date();
+    const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    let start = new Date(end);
+
+    if (preset === "WEEK") {
+      const day = start.getDay();
+      const diff = day === 0 ? 6 : day - 1;
+      start.setDate(start.getDate() - diff);
+    } else if (preset === "MONTH") {
+      start = new Date(today.getFullYear(), today.getMonth(), 1);
+    } else if (preset === "YEAR") {
+      start = new Date(today.getFullYear(), 0, 1);
+    }
+
+    setFromDate(formatDateInputValue(start));
+    setToDate(formatDateInputValue(end));
+  };
+
   const filteredOrders = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     const start = parseDateInput(fromDate);
@@ -2241,6 +2316,7 @@ export default function OrderManagementPage() {
         order.orderId,
         order.customerName,
         order.phoneNumber,
+        order.address,
         order.itemName,
         order.metalType,
         order.status,
@@ -2272,23 +2348,32 @@ export default function OrderManagementPage() {
   const registrySummary = useMemo(() => {
     return filteredOrders.reduce(
       (summary, order) => {
-        summary.orderValue += calculateOriginalCartValue(order);
+        const recorded = getActualMoneyPaid(order);
+        const pending = getFinalBalanceDue(order);
+        const payable = getFinalPayableBeforePayments(order);
 
-        const actualRecordedPayments = getOriginalPaymentRows(order).reduce(
-          (sum: number, payment: any) =>
-            sum + Math.max(0, Number(payment?.amount) || 0),
-          0
-        );
-
-        summary.received += actualRecordedPayments > 0
-          ? actualRecordedPayments
-          : getPaidAmount(order);
-
-        summary.pending += getFinalBalanceDue(order);
+        summary.totalAmount += payable;
+        summary.received += recorded;
+        summary.pending += pending;
+        summary.cleared += Math.max(0, payable - pending);
+        summary.exchange += getExchangeValue(order);
+        summary.adjustments += Number(order.adjustmentCost || 0);
         summary.count += 1;
+        if (order.status === "DELIVERED") summary.delivered += 1;
+        else summary.active += 1;
         return summary;
       },
-      { orderValue: 0, received: 0, pending: 0, count: 0 }
+      {
+        totalAmount: 0,
+        received: 0,
+        pending: 0,
+        cleared: 0,
+        exchange: 0,
+        adjustments: 0,
+        count: 0,
+        delivered: 0,
+        active: 0,
+      }
     );
   }, [filteredOrders]);
 
@@ -2304,6 +2389,7 @@ export default function OrderManagementPage() {
     setStatusFilter("ALL");
     setFromDate("");
     setToDate("");
+    setDatePreset("OVERALL");
   };
 
   // ---------------------------------------------------------------------------
@@ -2319,339 +2405,332 @@ export default function OrderManagementPage() {
       const fontBytes = await fetch("/fonts/NotoSans-VariableFont_wdth,wght.ttf").then((res) => res.arrayBuffer());
       const pdfDoc = await PDFDocument.create();
       pdfDoc.registerFontkit(fontkit);
-      const customFont = await pdfDoc.embedFont(fontBytes);
-      const exportPaymentModes = getPaymentModeTotals(ordersToExport);
+      const font = await pdfDoc.embedFont(fontBytes);
 
-      const A4_W = 595.28;
-      const A4_H = 841.89;
-      const MARGIN = 42;
-      const CONTENT_W = A4_W - MARGIN * 2;
-      const gold = rgb(0.72, 0.52, 0.04);
+      // A3 landscape: enough width for an all-fields order table.
+      const PAGE_W = 1190.55;
+      const PAGE_H = 841.89;
+      const MARGIN = 24;
+      const HEADER_H = 22;
+      const ROW_H = 28;
+      const FONT_SIZE = 5.7;
+
       const black = rgb(0.08, 0.08, 0.08);
       const grey = rgb(0.42, 0.42, 0.42);
-      const lightGrey = rgb(0.88, 0.88, 0.88);
+      const lineGrey = rgb(0.82, 0.82, 0.82);
+      const soft = rgb(0.97, 0.97, 0.97);
+      const gold = rgb(0.72, 0.52, 0.04);
       const emerald = rgb(0.06, 0.47, 0.23);
       const rose = rgb(0.72, 0.12, 0.12);
-      const softGold = rgb(0.98, 0.96, 0.90);
 
-      let page = pdfDoc.addPage([A4_W, A4_H]);
-      let cursorY = A4_H - MARGIN;
+      const money = (value: any) =>
+        `₹${Math.round(Number(value) || 0).toLocaleString("en-IN")}`;
 
-      const textWidth = (value: string, size: number) => customFont.widthOfTextAtSize(String(value ?? ""), size);
+      const columns = [
+        ["orderId", "Order", 44],
+        ["date", "Date", 42],
+        ["customerName", "Customer", 56],
+        ["phoneNumber", "Phone", 48],
+        ["address", "Address", 86],
+        ["itemName", "Item", 55],
+        ["itemDescription", "Description", 72],
+        ["metalType", "Metal", 32],
+        ["purity", "Purity", 30],
+        ["pricingMode", "Pricing", 34],
+        ["pieceCost", "Piece ₹", 42],
+        ["liveRate", "Rate", 40],
+        ["netWeight", "Net g", 31],
+        ["stoneWeight", "Stone g", 33],
+        ["grossWeight", "Gross g", 34],
+        ["vaPercentage", "VA %", 28],
+        ["stoneCost", "Stone ₹", 42],
+        ["gst", "GST", 40],
+        ["originalCartValue", "Original", 46],
+        ["exchangeJewelleryName", "Exchange", 48],
+        ["exchangeJewelleryGrams", "Exch g", 33],
+        ["discountAmount", "Exch ₹", 42],
+        ["weightAdjustmentGrams", "Adj g", 31],
+        ["adjustmentCost", "Adj ₹", 40],
+        ["payable", "Payable", 46],
+        ["cash", "Cash", 42],
+        ["upi", "UPI", 42],
+        ["card", "Card", 42],
+        ["check", "Check", 42],
+        ["paid", "Paid", 44],
+        ["pending", "Pending", 44],
+        ["totalAmount", "Stored Total", 44],
+        ["advanceCash", "Cached Paid", 44],
+        ["balanceAmount", "Cached Bal", 44],
+        ["pricingRevisionAmount", "Revision ₹", 42],
+        ["pricingRevisionNote", "Revision Note", 68],
+        ["deadlineDate", "Deadline", 42],
+        ["createdAt", "Created", 46],
+        ["updatedAt", "Updated", 46],
+        ["createdBy", "Created By", 55],
+        ["jobWorkId", "Job Work", 52],
+        ["paymentRefs", "Payment Refs", 84],
+        ["status", "Status", 45],
+      ] as const;
 
-      const splitText = (value: any, maxWidth: number, size = 9) => {
-        const raw = String(value ?? "-").trim() || "-";
-        const paragraphs = raw.split(/\r?\n/);
-        const lines: string[] = [];
+      const totalBaseWidth = columns.reduce((s, c) => s + c[2], 0);
+      const scale = (PAGE_W - MARGIN * 2) / totalBaseWidth;
+      const widths = columns.map((c) => c[2] * scale);
 
-        paragraphs.forEach((paragraph) => {
-          const words = paragraph.split(/\s+/).filter(Boolean);
-          if (!words.length) {
-            lines.push("");
-            return;
-          }
-          let line = words[0];
-          for (let i = 1; i < words.length; i++) {
-            const test = `${line} ${words[i]}`;
-            if (textWidth(test, size) <= maxWidth) line = test;
-            else {
-              lines.push(line);
-              line = words[i];
-            }
-          }
-          lines.push(line);
+      const textWidth = (text: string, size = FONT_SIZE) =>
+        font.widthOfTextAtSize(String(text ?? ""), size);
+
+      const fit = (value: any, maxWidth: number, size = FONT_SIZE) => {
+        const text = String(value ?? "-").replace(/\s+/g, " ").trim() || "-";
+        if (textWidth(text, size) <= maxWidth) return text;
+        let out = text;
+        while (out.length > 1 && textWidth(`${out}…`, size) > maxWidth) {
+          out = out.slice(0, -1);
+        }
+        return `${out}…`;
+      };
+
+      let page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+      let y = PAGE_H - MARGIN;
+
+      const drawTop = () => {
+        page.drawText("SUVARNA JEWELLERS — ORDER REPORT", {
+          x: MARGIN, y, size: 13, font, color: black,
         });
-        return lines;
+
+        const rangeLabel =
+          datePreset === "OVERALL"
+            ? "Overall"
+            : datePreset === "CUSTOM"
+            ? `Custom ${fromDate || "Beginning"} → ${toDate || "Today"}`
+            : `${datePreset} ${fromDate || "-"} → ${toDate || "-"}`;
+
+        page.drawText(
+          `Range: ${rangeLabel} | Status: ${statusFilter} | Search: ${searchTerm || "All"} | Generated: ${format(new Date(), "dd MMM yyyy, h:mm a")}`,
+          { x: MARGIN, y: y - 17, size: 7, font, color: grey }
+        );
+        y -= 36;
       };
 
-      const newPage = () => {
-        page = pdfDoc.addPage([A4_W, A4_H]);
-        cursorY = A4_H - MARGIN;
-      };
-
-      const ensureSpace = (needed = 40) => {
-        if (cursorY - needed < MARGIN) newPage();
-      };
-
-      const drawText = (value: any, x: number, y: number, size = 9, color = black) => {
-        page.drawText(String(value ?? "-"), { x, y, size, font: customFont, color });
-      };
-
-      const drawRight = (value: any, rightX: number, y: number, size = 9, color = black) => {
-        const text = String(value ?? "-");
-        drawText(text, rightX - textWidth(text, size), y, size, color);
-      };
-
-      const line = (y: number, color = lightGrey, thickness = 0.6) => {
-        page.drawLine({ start: { x: MARGIN, y }, end: { x: A4_W - MARGIN, y }, thickness, color });
-      };
-
-      const drawWrapped = (value: any, x: number, maxWidth: number, size = 9, color = black, lineHeight = 13) => {
-        const lines = splitText(value, maxWidth, size);
-        lines.forEach((txt) => {
-          ensureSpace(lineHeight + 4);
-          drawText(txt || " ", x, cursorY, size, color);
-          cursorY -= lineHeight;
+      const drawHeader = () => {
+        let x = MARGIN;
+        page.drawRectangle({
+          x: MARGIN,
+          y: y - HEADER_H + 5,
+          width: PAGE_W - MARGIN * 2,
+          height: HEADER_H,
+          color: soft,
+          borderColor: gold,
+          borderWidth: 0.7,
         });
-        return lines.length;
-      };
 
-      const fieldRow = (label: string, value: any, options?: { color?: any; bold?: boolean }) => {
-        const labelW = 150;
-        const valueX = MARGIN + labelW;
-        const maxValueW = CONTENT_W - labelW;
-        const lines = splitText(value, maxValueW, 9);
-        const rowH = Math.max(18, lines.length * 13 + 3);
-        ensureSpace(rowH + 4);
-        drawText(label, MARGIN, cursorY, 8, grey);
-        lines.forEach((txt, i) => drawText(txt || "-", valueX, cursorY - i * 13, 9, options?.color || black));
-        cursorY -= rowH;
-      };
-
-      const sectionTitle = (title: string) => {
-        ensureSpace(28);
-        cursorY -= 4;
-        drawText(title.toUpperCase(), MARGIN, cursorY, 8.5, gold);
-        cursorY -= 9;
-        line(cursorY, gold, 0.8);
-        cursorY -= 15;
-      };
-
-      // ---------------- REPORT HEADER ----------------
-      drawText("ORDER REGISTRY — CUSTOMER FULL DETAILS", MARGIN, cursorY, 16, black);
-      drawRight(`Generated: ${format(new Date(), "dd MMM yyyy, h:mm a")}`, A4_W - MARGIN, cursorY + 1, 8, grey);
-      cursorY -= 24;
-      line(cursorY, gold, 1.2);
-      cursorY -= 20;
-
-      const filterText = [
-        searchTerm ? `Search: ${searchTerm}` : null,
-        statusFilter !== "ALL" ? `Status: ${statusFilter}` : null,
-        fromDate ? `From: ${fromDate}` : null,
-        toDate ? `To: ${toDate}` : null,
-      ].filter(Boolean).join("  •  ") || "All current orders";
-
-      drawWrapped(filterText, MARGIN, CONTENT_W, 8.5, grey, 12);
-      cursorY -= 4;
-
-      page.drawRectangle({
-        x: MARGIN,
-        y: cursorY - 88,
-        width: CONTENT_W,
-        height: 88,
-        color: softGold,
-        borderColor: gold,
-        borderWidth: 0.7,
-      });
-      drawText(`Orders: ${ordersToExport.length}`, MARGIN + 14, cursorY - 18, 9, black);
-      drawText(`Order Value: ₹${Math.round(ordersToExport.reduce((s, o) => s + calculateOriginalCartValue(o), 0)).toLocaleString()}`, MARGIN + 14, cursorY - 36, 9, black);
-      drawText(`Received: ₹${Math.round(ordersToExport.reduce((s, o) => s + getPaidAmount(o), 0)).toLocaleString()}`, MARGIN + 190, cursorY - 18, 9, emerald);
-      drawText(`Pending: ₹${Math.round(ordersToExport.reduce((s, o) => s + getFinalBalanceDue(o), 0)).toLocaleString()}`, MARGIN + 190, cursorY - 36, 9, rose);
-      drawText(`Cash: ₹${Math.round(exportPaymentModes.CASH).toLocaleString()}`, MARGIN + 14, cursorY - 60, 8.5, black);
-      drawText(`UPI: ₹${Math.round(exportPaymentModes.UPI).toLocaleString()}`, MARGIN + 132, cursorY - 60, 8.5, black);
-      drawText(`Card: ₹${Math.round(exportPaymentModes.CARD).toLocaleString()}`, MARGIN + 245, cursorY - 60, 8.5, black);
-      drawText(`Check: ₹${Math.round(exportPaymentModes.CHECK).toLocaleString()}`, MARGIN + 365, cursorY - 60, 8.5, black);
-      if (exportPaymentModes.untracked > 0) {
-        drawText(`Legacy / unclassified: ₹${Math.round(exportPaymentModes.untracked).toLocaleString()}`, MARGIN + 14, cursorY - 77, 7.5, grey);
-      }
-      cursorY -= 108;
-
-      // ---------------- ORDER DETAILS ----------------
-      ordersToExport.forEach((order, index) => {
-        if (index > 0) {
-          ensureSpace(90);
-          cursorY -= 8;
-          line(cursorY, lightGrey, 1);
-          cursorY -= 24;
-        }
-
-        ensureSpace(120);
-        const orderDate = getOrderDate(order);
-        const totalPaid = getPaidAmount(order);
-        const originalAmount = calculateOriginalCartValue(order);
-        const basePayable = getBasePayableAfterExchange(order);
-        const balance = getFinalBalanceDue(order);
-        const bookedWeight = Number(order.netWeight) || 0;
-        const adjustment = Number(order.weightAdjustmentGrams) || 0;
-        const finalNetWeight = bookedWeight + adjustment;
-        const stoneWeight = Number(order.stoneWeight) || 0;
-        const grossWeight = Number(order.grossWeight) || finalNetWeight + stoneWeight;
-
-        drawText(order.customerName || "Unnamed Customer", MARGIN, cursorY, 14, black);
-        drawRight(`#${order.orderId || "-"}`, A4_W - MARGIN, cursorY, 10, gold);
-        cursorY -= 18;
-        drawText(`${order.phoneNumber ? `+91 ${order.phoneNumber}` : "No phone"}  •  ${order.status || "-"}`, MARGIN, cursorY, 8.5, grey);
-        if (orderDate) drawRight(format(orderDate, "dd MMM yyyy, h:mm a"), A4_W - MARGIN, cursorY, 8, grey);
-        cursorY -= 13;
-        line(cursorY, lightGrey, 0.7);
-        cursorY -= 14;
-
-        sectionTitle("Customer & Booking");
-        fieldRow("Customer Name", order.customerName || "-");
-        fieldRow("Phone Number", order.phoneNumber ? `+91 ${order.phoneNumber}` : "-");
-        fieldRow("Order ID", order.orderId || "-");
-        fieldRow("Booking Date", orderDate ? format(orderDate, "dd MMM yyyy, h:mm a") : "-");
-        fieldRow("Deadline Date", order.deadlineDate ? format(new Date(order.deadlineDate), "dd MMM yyyy") : "-");
-        fieldRow("Current Status", order.status || "-");
-        sectionTitle("Article Details");
-        fieldRow("Item Name", order.itemName || "-");
-        fieldRow("Description", order.itemDescription || "-");
-        fieldRow("Metal", `${order.metalType || "-"} / ${order.purity || "-"}${order.metalType === "GOLD" ? "K" : "%"}`);
-        fieldRow("Pricing Basis", String(order.pricingMode || "GRAMS") === "PIECE" ? "Piece Cost" : "Grams");
-        if (String(order.pricingMode || "GRAMS") === "PIECE") {
-          fieldRow("Piece Cost / Metal Value", `₹${Number(order.pieceCost || 0).toLocaleString()}`);
-          fieldRow("VA Percentage", "0% — Not Applied");
-        } else {
-          fieldRow("Live Rate", `₹${Number(order.liveRate || 0).toLocaleString()}`);
-          fieldRow("VA Percentage", `${Number(order.vaPercentage || 0)}%`);
-        }
-
-        sectionTitle("Weight Details");
-        fieldRow("Booked Net Weight", `${bookedWeight.toFixed(3)} g`);
-        fieldRow("Weight Adjustment (Balance Only)", `${adjustment >= 0 ? "+" : ""}${adjustment.toFixed(3)} g`);
-        fieldRow("Final Physical Net Weight", `${finalNetWeight.toFixed(3)} g`);
-        fieldRow("Stone Weight", `${stoneWeight.toFixed(3)} g`);
-        fieldRow("Gross Weight", `${grossWeight.toFixed(3)} g`);
-        fieldRow(
-          Number(order.adjustmentCost || 0) >= 0
-            ? "Final Payment Adjustment Added"
-            : "Final Payment Adjustment Deducted",
-          `${Number(order.adjustmentCost || 0) >= 0 ? "+" : "-"}₹${Math.abs(Number(order.adjustmentCost || 0)).toLocaleString()}`
-        );
-
-        sectionTitle("Exchange & Charges");
-        fieldRow("Exchange Jewellery", order.exchangeJewelleryName || "-");
-        fieldRow("Exchange Grams", `${Number(order.exchangeJewelleryGrams || 0).toFixed(3)} g`);
-        fieldRow("Stone Cost (Final Addition)", `+₹${Number(order.stoneCost || 0).toLocaleString()}`);
-        if (Number(order.pricingRevisionAmount || 0) !== 0 || order.pricingRevisionNote) {
-          fieldRow(
-            "Pricing Revision",
-            `${Number(order.pricingRevisionAmount || 0) >= 0 ? "+" : "-"}₹${Math.abs(Number(order.pricingRevisionAmount || 0)).toLocaleString()}${order.pricingRevisionNote ? ` • ${order.pricingRevisionNote}` : ""}`
-          );
-        }
-        fieldRow("Jewellery Exchange Value", `₹${Number(order.discountAmount || 0).toLocaleString()}`);
-        fieldRow("Original Cart Value (Incl. GST, Before Exchange)", `₹${originalAmount.toLocaleString()}`);
-        fieldRow("GST (3% on Metal + VA)", `₹${Number(order.gst ?? order.gstAmount ?? 0).toLocaleString()}`);
-
-        sectionTitle("Payment Summary");
-        const actualCashPaid = getActualCashPaid(order);
-        const actualMoneyPaid = getActualMoneyPaid(order);
-        const totalPaymentCleared = getTotalPaymentCleared(order);
-
-        fieldRow("Original Cart Value", `₹${originalAmount.toLocaleString()}`, { color: black });
-        fieldRow("Total Money Paid", `₹${actualCashPaid.toLocaleString()}`, { color: emerald });
-
-        if (actualMoneyPaid !== actualCashPaid) {
-          fieldRow("Total Money Paid (All Modes)", `₹${actualMoneyPaid.toLocaleString()}`, { color: emerald });
-        }
-
-        fieldRow(
-          "Jewellery Exchange Cleared",
-          `₹${getExchangeValue(order).toLocaleString()}`,
-          { color: emerald }
-        );
-        fieldRow(
-          "Total Payment (Money + Exchange)",
-          `₹${totalPaymentCleared.toLocaleString()}`,
-          { color: emerald }
-        );
-        const balanceBeforeFinalAdjustment = getPreAdjustmentBalanceForFinalPayment(order);
-        const finalPaymentAmount = getFinalPaymentAmount(order);
-
-        fieldRow(
-          "Balance Due Before Adjustment",
-          `₹${balanceBeforeFinalAdjustment.toLocaleString()}`,
-          { color: black }
-        );
-
-        if (Number(order.adjustmentCost || 0) !== 0) {
-          fieldRow(
-            "Final Payment",
-            `₹${balanceBeforeFinalAdjustment.toLocaleString()} ${Number(order.adjustmentCost || 0) > 0 ? "+" : "-"} ₹${Math.abs(Number(order.adjustmentCost || 0)).toLocaleString()} = ₹${finalPaymentAmount.toLocaleString()}`,
-            { color: gold }
-          );
-        } else {
-          fieldRow(
-            "Final Payment",
-            `₹${finalPaymentAmount.toLocaleString()}`,
-            { color: gold }
-          );
-        }
-        const orderModeTotals = getPaymentModeTotals([order]);
-        fieldRow("Cash Collected", `₹${orderModeTotals.CASH.toLocaleString()}`);
-        fieldRow("UPI Collected", `₹${orderModeTotals.UPI.toLocaleString()}`);
-        fieldRow("Card Collected", `₹${orderModeTotals.CARD.toLocaleString()}`);
-        fieldRow("Check Collected", `₹${orderModeTotals.CHECK.toLocaleString()}`);
-        if (orderModeTotals.untracked > 0) {
-          fieldRow("Legacy / Unclassified", `₹${orderModeTotals.untracked.toLocaleString()}`);
-        }
-        fieldRow(
-          "Final Balance Due",
-          balance <= 0 ? "₹0 — FULLY PAID" : `₹${balance.toLocaleString()}`,
-          { color: balance > 0 ? rose : emerald }
-        );
-
-        sectionTitle("Payment History");
-        const payments = getAdjustedPaymentRows(order);
-        if (payments.length) {
-          payments.forEach((payment: any, paymentIndex: number) => {
-            const paidDate = payment.paidAt ? format(new Date(payment.paidAt), "dd MMM yyyy, h:mm a") : "Date unavailable";
-            const mode = paymentModeLabel(payment.mode || payment.paymentMode);
-            const reference = payment.checkNumber || payment.referenceNumber;
-            const meta = [mode, reference, payment.bankName].filter(Boolean).join(" • ");
-            const note = payment.note ? ` • ${payment.note}` : "";
-            const adjusted =
-              paymentIndex === payments.length - 1 &&
-              Number(order.adjustmentCost || 0) !== 0
-                ? " • Final Payment Adjusted"
-                : "";
-
-            fieldRow(
-              `Payment ${paymentIndex + 1}`,
-              `₹${Number(payment.amount || 0).toLocaleString()} — ${paidDate}${meta ? ` • ${meta}` : ""}${adjusted}${note}`
-            );
+        columns.forEach((col, idx) => {
+          const w = widths[idx];
+          page.drawText(fit(col[1], w - 4, 5.5), {
+            x: x + 2, y: y - 8, size: 5.5, font, color: black,
           });
-        } else {
-          fieldRow("Payments", "No payment recorded yet.");
+          page.drawLine({
+            start: { x: x + w, y: y - HEADER_H + 5 },
+            end: { x: x + w, y: y + 5 },
+            thickness: 0.25,
+            color: lineGrey,
+          });
+          x += w;
+        });
+        y -= HEADER_H;
+      };
+
+      const nextPage = () => {
+        page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+        y = PAGE_H - MARGIN;
+        drawTop();
+        drawHeader();
+      };
+
+      drawTop();
+      drawHeader();
+
+      ordersToExport.forEach((order, index) => {
+        if (y - ROW_H < 115) nextPage();
+
+        const modes = getPaymentModeTotals([order]);
+        const orderDate = getOrderDate(order);
+        const row: Record<string, any> = {
+          orderId: order.orderId,
+          date: orderDate ? format(orderDate, "dd-MM-yy") : "-",
+          customerName: order.customerName,
+          phoneNumber: order.phoneNumber,
+          address: order.address || "-",
+          itemName: order.itemName,
+          itemDescription: order.itemDescription || "-",
+          metalType: order.metalType,
+          purity: order.purity,
+          pricingMode: order.pricingMode,
+          pieceCost: money(order.pieceCost),
+          liveRate: money(order.liveRate),
+          netWeight: Number(order.netWeight || 0).toFixed(3),
+          stoneWeight: Number(order.stoneWeight || 0).toFixed(3),
+          grossWeight: Number(order.grossWeight || 0).toFixed(3),
+          vaPercentage: Number(order.vaPercentage || 0).toFixed(2),
+          stoneCost: money(order.stoneCost),
+          gst: money(order.gst),
+          originalCartValue: money(order.originalCartValue),
+          exchangeJewelleryName: order.exchangeJewelleryName || "-",
+          exchangeJewelleryGrams: Number(order.exchangeJewelleryGrams || 0).toFixed(3),
+          discountAmount: money(order.discountAmount),
+          weightAdjustmentGrams: Number(order.weightAdjustmentGrams || 0).toFixed(3),
+          adjustmentCost: money(order.adjustmentCost),
+          payable: money(getFinalPayableBeforePayments(order)),
+          cash: money(modes.CASH),
+          upi: money(modes.UPI),
+          card: money(modes.CARD),
+          check: money(modes.CHECK),
+          paid: money(getActualMoneyPaid(order)),
+          pending: money(getFinalBalanceDue(order)),
+          totalAmount: money(order.totalAmount),
+          advanceCash: money(order.advanceCash),
+          balanceAmount: money(order.balanceAmount),
+          pricingRevisionAmount: money(order.pricingRevisionAmount),
+          pricingRevisionNote: order.pricingRevisionNote || "-",
+          deadlineDate: order.deadlineDate ? format(new Date(order.deadlineDate), "dd-MM-yy") : "-",
+          createdAt: order.createdAt ? format(new Date(order.createdAt), "dd-MM-yy HH:mm") : "-",
+          updatedAt: order.updatedAt ? format(new Date(order.updatedAt), "dd-MM-yy HH:mm") : "-",
+          createdBy: order.createdBy || "-",
+          jobWorkId: order.jobWorkId || "-",
+          paymentRefs: getOrderPayments(order)
+            .map((p: any) => {
+              const ref = p.checkNumber || p.referenceNumber || "";
+              const bank = p.bankName ? `/${p.bankName}` : "";
+              return `${paymentModeLabel(p.mode)}:${money(p.amount)}${ref ? `#${ref}${bank}` : ""}`;
+            })
+            .join(" | ") || "-",
+          status: order.status || "-",
+        };
+
+        if (index % 2 === 1) {
+          page.drawRectangle({
+            x: MARGIN,
+            y: y - ROW_H + 4,
+            width: PAGE_W - MARGIN * 2,
+            height: ROW_H,
+            color: rgb(0.992, 0.992, 0.992),
+          });
         }
 
-        ensureSpace(30);
-        cursorY -= 4;
-        line(cursorY, gold, 0.6);
-        cursorY -= 15;
+        let x = MARGIN;
+        columns.forEach((col, idx) => {
+          const w = widths[idx];
+          const key = col[0];
+          page.drawText(fit(row[key], w - 4), {
+            x: x + 2,
+            y: y - 10,
+            size: FONT_SIZE,
+            font,
+            color:
+              key === "pending" && getFinalBalanceDue(order) > 0
+                ? rose
+                : key === "status" && order.status === "DELIVERED"
+                ? emerald
+                : black,
+          });
+          page.drawLine({
+            start: { x: x + w, y: y - ROW_H + 4 },
+            end: { x: x + w, y: y + 4 },
+            thickness: 0.2,
+            color: lineGrey,
+          });
+          x += w;
+        });
+
+        page.drawLine({
+          start: { x: MARGIN, y: y - ROW_H + 4 },
+          end: { x: PAGE_W - MARGIN, y: y - ROW_H + 4 },
+          thickness: 0.3,
+          color: lineGrey,
+        });
+
+        y -= ROW_H;
       });
 
-      // Page numbers
-      const pages = pdfDoc.getPages();
-      pages.forEach((pdfPage: any, index: number) => {
-        const footer = `Page ${index + 1} of ${pages.length}`;
-        pdfPage.drawText(footer, {
-          x: A4_W - MARGIN - textWidth(footer, 7),
-          y: 20,
-          size: 7,
-          font: customFont,
-          color: grey,
+      if (y < 220) {
+        page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+        y = PAGE_H - MARGIN;
+      }
+
+      const modeTotals = getPaymentModeTotals(ordersToExport);
+      const totalAmount = ordersToExport.reduce((s, o) => s + getFinalPayableBeforePayments(o), 0);
+      const totalPaid = ordersToExport.reduce((s, o) => s + getActualMoneyPaid(o), 0);
+      const totalPending = ordersToExport.reduce((s, o) => s + getFinalBalanceDue(o), 0);
+      const totalCleared = Math.max(0, totalAmount - totalPending);
+      const totalExchange = ordersToExport.reduce((s, o) => s + getExchangeValue(o), 0);
+      const netAdjustments = ordersToExport.reduce((s, o) => s + Number(o.adjustmentCost || 0), 0);
+      const delivered = ordersToExport.filter((o) => o.status === "DELIVERED").length;
+      const active = ordersToExport.length - delivered;
+
+      y -= 14;
+      page.drawText("OVERALL SUMMARY", { x: MARGIN, y, size: 11, font, color: gold });
+      y -= 20;
+
+      const summary = [
+        ["Orders", ordersToExport.length],
+        ["Total Amount", money(totalAmount)],
+        ["Total Cash", money(modeTotals.CASH)],
+        ["Total UPI", money(modeTotals.UPI)],
+        ["Total Card", money(modeTotals.CARD)],
+        ["Total Check", money(modeTotals.CHECK)],
+        ["Total Received", money(totalPaid)],
+        ["Cleared Amount", money(totalCleared)],
+        ["Pending Amount", money(totalPending)],
+        ["Exchange Value", money(totalExchange)],
+        ["Net Adjustment", money(netAdjustments)],
+        ["Delivered Orders", delivered],
+        ["Active Orders", active],
+      ];
+
+      const boxW = (PAGE_W - MARGIN * 2 - 18) / 2;
+      summary.forEach(([label, value], index) => {
+        const col = index % 2;
+        const row = Math.floor(index / 2);
+        const x = MARGIN + col * (boxW + 18);
+        const boxY = y - row * 29;
+
+        page.drawRectangle({
+          x, y: boxY - 20, width: boxW, height: 24,
+          color: soft, borderColor: lineGrey, borderWidth: 0.5,
+        });
+        page.drawText(String(label), {
+          x: x + 8, y: boxY - 12, size: 7.4, font, color: grey,
+        });
+        const v = String(value);
+        page.drawText(v, {
+          x: x + boxW - 8 - textWidth(v, 8.2),
+          y: boxY - 12,
+          size: 8.2,
+          font,
+          color: String(label).includes("Pending")
+            ? rose
+            : String(label).includes("Cleared")
+            ? emerald
+            : black,
         });
       });
 
-      const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
-      const pdfUrl = URL.createObjectURL(blob);
+      const bytes = await pdfDoc.save();
+      const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      const first = ordersToExport[0];
-      const safeCustomer = String(first?.customerName || "Customer").replace(/[^a-zA-Z0-9_-]+/g, "_");
-      const filename = ordersToExport.length === 1
-        ? `${safeCustomer}_${first?.orderId || "Order"}_Full_Details.pdf`
-        : `Order_Registry_Full_Details_${format(new Date(), "dd-MM-yyyy")}.pdf`;
-      link.href = pdfUrl;
-      link.download = filename;
-      document.body.appendChild(link);
+      link.href = url;
+
+      const rangeName =
+        datePreset === "OVERALL"
+          ? "OVERALL"
+          : `${datePreset}_${fromDate || "START"}_${toDate || "TODAY"}`;
+
+      link.download = `ORDER_REPORT_${rangeName}_${format(new Date(), "ddMMyy")}.pdf`;
       link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(pdfUrl), 1000);
+      URL.revokeObjectURL(url);
     } catch (error) {
-      console.error("REGISTRY_PDF_EXPORT_ERROR", error);
-      alert("Could not generate the PDF report.");
+      console.error("REPORT_PDF_ERROR", error);
+      alert("Failed to generate report PDF.");
     }
   };
 
@@ -2705,7 +2784,7 @@ export default function OrderManagementPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-slate-400">Order Value</p>
-                    <p className="text-xl lg:text-2xl font-serif font-bold text-slate-900 mt-1.5">₹{Math.round(registrySummary.orderValue).toLocaleString()}</p>
+                    <p className="text-xl lg:text-2xl font-serif font-bold text-slate-900 mt-1.5">₹{Math.round(registrySummary.totalAmount).toLocaleString()}</p>
                     <p className="text-[10px] text-slate-400 mt-1">Value of visible bookings</p>
                   </div>
                   <div className="h-9 w-9 rounded-lg bg-slate-50 flex items-center justify-center shrink-0"><TrendingUp className="w-5 h-5 text-slate-700" /></div>
@@ -2886,6 +2965,7 @@ export default function OrderManagementPage() {
                           </div>
                           <p className="text-base font-serif font-bold text-slate-800">{o.customerName}</p>
                           <p className="text-xs text-slate-400 font-medium">Contact: {o.phoneNumber}</p>
+                          {o.address && <p className="text-[11px] text-slate-400 mt-1 line-clamp-1">Address: {o.address}</p>}
                         </td>
                         <td className="px-6 py-4">
                           <span className="inline-block text-[11px] font-bold text-gold uppercase bg-gold/5 px-3 py-1 rounded-lg border border-gold/10 mb-2">
@@ -3350,6 +3430,12 @@ export default function OrderManagementPage() {
           <div className="grid grid-cols-2 gap-4 mt-4">
             <Input placeholder="Customer Name" value={editForm.customerName || ""} onChange={(e) => handleEditChange("customerName", e.target.value)} />
             <Input placeholder="Phone Number" value={editForm.phoneNumber || ""} onChange={(e) => handleEditChange("phoneNumber", e.target.value)} />
+            <textarea
+              placeholder="Customer Address"
+              value={editForm.address || ""}
+              onChange={(e) => handleEditChange("address", e.target.value)}
+              className="w-full min-h-[90px] border border-slate-200 rounded-xl p-3 text-sm outline-none"
+            />
             <Input placeholder="Item Name" value={editForm.itemName || ""} onChange={(e) => handleEditChange("itemName", e.target.value)} />
 
             {String(editForm.metalType || viewingOrder?.metalType || "").toUpperCase() === "SILVER" &&
@@ -3433,6 +3519,15 @@ export default function OrderManagementPage() {
                 <div className="space-y-5">
                   <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Full Name</label><Input placeholder="Legal name for invoice" value={form.customerName} onChange={(e) => handleInputChange("customerName", e.target.value)} className="h-12 rounded-xl" /></div>
                   <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Mobile</label><Input placeholder="10 Digits" type="tel" value={form.phoneNumber} onChange={(e) => handleInputChange("phoneNumber", e.target.value)} className="h-12 rounded-xl" /></div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Address</label>
+                    <textarea
+                      placeholder="Customer billing / delivery address"
+                      value={form.address}
+                      onChange={(e) => handleInputChange("address", e.target.value)}
+                      className="w-full min-h-[88px] border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-2 focus:ring-gold/10"
+                    />
+                  </div>
                   <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Article</label><Input placeholder="Item Name" value={form.itemName} onChange={(e) => handleInputChange("itemName", e.target.value)} className="h-12 rounded-xl" /></div>
                   <textarea className="w-full min-h-[120px] border border-slate-200 rounded-2xl p-4 text-sm outline-none" placeholder="Requirements..." value={form.itemDescription} onChange={(e) => handleInputChange("itemDescription", e.target.value)} />
                 </div>
@@ -3451,7 +3546,7 @@ export default function OrderManagementPage() {
                       if (!(metalType === "SILVER" && nextPurity === "92.5")) {
                         setForm((prev) => ({ ...prev, pricingMode: "GRAMS", pieceCost: "" }));
                       }
-                    }} className="h-14 border border-slate-200 rounded-xl px-4 text-sm bg-white font-bold">{metalType === "GOLD" ? (<><option value="24">24K</option><option value="22">22K</option><option value="18">18K</option></>) : (<><option value="80">80%</option><option value="92.5">92.5%</option><option value="other">other</option></>)}</select>
+                    }} className="h-14 border border-slate-200 rounded-xl px-4 text-sm bg-white font-bold">{metalType === "GOLD" ? (<><option value="24">24K</option><option value="22">22K</option><option value="18">18K</option></>) : (<><option value="999">999%</option><option value="92.5">92.5%</option><option value="80">80%</option></>)}</select>
                   <Input type="number" min="0" value={form.liveRate} onChange={(e) => handleInputChange("liveRate", e.target.value)} placeholder="Live Rate" className="h-14 font-bold" />
                 </div>
               </section>
