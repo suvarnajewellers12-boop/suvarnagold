@@ -5,6 +5,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { format } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
+import{AdminSidebar} from "@/components/AdminSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { LuxuryCard } from "@/components/LuxuryCard";
@@ -486,7 +487,8 @@ export default function OrderManagementPage() {
   // Creation Form State
   const [form, setForm] = useState({
     customerName: "",
-    phoneNumber: "",
+    phoneNumber: "", // primary / backward-compatible phone
+    phoneNumbers: [""] as string[],
     address: "",
     itemName: "",
     itemDescription: "",
@@ -527,6 +529,10 @@ export default function OrderManagementPage() {
       setEditForm({
         customerName: viewingOrder.customerName || "",
         phoneNumber: viewingOrder.phoneNumber || "",
+        phoneNumbers:
+          Array.isArray(viewingOrder.phoneNumbers) && viewingOrder.phoneNumbers.length > 0
+            ? viewingOrder.phoneNumbers
+            : [viewingOrder.phoneNumber || ""],
         address: viewingOrder.address || "",
         itemName: viewingOrder.itemName || "",
         itemDescription: viewingOrder.itemDescription || "",
@@ -1048,16 +1054,32 @@ const handleOrderReceipt = async (
       black
     );
 
-    // Phone number
-    draw(
-      `Ph: +91 ${
-        order.phoneNumber || ""
-      }`,
-      MARGIN_L,
-      CUST_Y + 22,
-      7.5,
-      grey
+    // Phone numbers
+    const receiptPhoneNumbers =
+      Array.isArray(order.phoneNumbers) && order.phoneNumbers.length > 0
+        ? order.phoneNumbers
+        : [order.phoneNumber].filter(Boolean);
+
+    const receiptPhoneText = receiptPhoneNumbers
+      .map((phone: string) => `+91 ${phone}`)
+      .join(" / ");
+
+    const receiptPhoneLines = wrapText(
+      `Ph: ${receiptPhoneText}`,
+      MARGIN_R - MARGIN_L - 150,
+      customFont,
+      7.5
     );
+
+    receiptPhoneLines.forEach((line: string, index: number) => {
+      draw(
+        line,
+        MARGIN_L,
+        CUST_Y + 22 + index * 8,
+        7.5,
+        grey
+      );
+    });
 
     // Additional gold rates
     const gold24Display = `24K: ₹${Math.round(
@@ -1087,7 +1109,7 @@ const handleOrderReceipt = async (
         )
       : [];
 
-    let addressStartY = CUST_Y + 32;
+    let addressStartY = CUST_Y + 32 + Math.max(0, receiptPhoneLines.length - 1) * 8;
     const linePitch = 8; // Reduced gap between address lines
 
     addressLines.forEach(
@@ -1128,7 +1150,8 @@ const handleOrderReceipt = async (
 
     const CUST_SECTION_HEIGHT =
       Math.max(
-        addressLines.length * linePitch +
+        Math.max(0, receiptPhoneLines.length - 1) * 8 +
+          addressLines.length * linePitch +
           20,
         60
       );
@@ -2068,12 +2091,49 @@ const handleOrderReceipt = async (
 
   useEffect(() => { fetchOrders(); }, []);
 
+  const normalizePhoneInput = (value: string) =>
+    value.replace(/\D/g, "").slice(0, 10);
+
   const handleInputChange = (field: string, value: string) => {
-    if (field === "phoneNumber") {
-      setForm((prev) => ({ ...prev, [field]: value.replace(/\D/g, "").slice(0, 10) }));
-      return;
-    }
     setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handlePhoneChange = (index: number, value: string) => {
+    const normalized = normalizePhoneInput(value);
+
+    setForm((prev) => {
+      const nextPhoneNumbers = [...(prev.phoneNumbers || [""])];
+      nextPhoneNumbers[index] = normalized;
+
+      return {
+        ...prev,
+        phoneNumbers: nextPhoneNumbers,
+        // Keep the old field populated so older APIs/components still work.
+        phoneNumber: nextPhoneNumbers[0] || "",
+      };
+    });
+  };
+
+  const addPhoneNumber = () => {
+    setForm((prev) => ({
+      ...prev,
+      phoneNumbers: [...(prev.phoneNumbers || [""]), ""],
+    }));
+  };
+
+  const removePhoneNumber = (index: number) => {
+    setForm((prev) => {
+      const current = [...(prev.phoneNumbers || [""])];
+      if (current.length <= 1) return prev;
+
+      current.splice(index, 1);
+
+      return {
+        ...prev,
+        phoneNumbers: current,
+        phoneNumber: current[0] || "",
+      };
+    });
   };
 
   const handleEditChange = (field: string, value: string) => {
@@ -2179,8 +2239,20 @@ const handleOrderReceipt = async (
   }, [form, metalType, initialPaymentSplits]);
 
   const handleSubmit = async () => {
-    if (!form.customerName || form.phoneNumber.length < 10) {
-      return alert("Complete Customer Name and provide 10-digit phone number.");
+    const normalizedPhoneNumbers = (form.phoneNumbers || [])
+      .map((phone) => normalizePhoneInput(phone))
+      .filter(Boolean);
+
+    if (!form.customerName || normalizedPhoneNumbers.length === 0) {
+      return alert("Complete Customer Name and provide at least one phone number.");
+    }
+
+    if (normalizedPhoneNumbers.some((phone) => phone.length !== 10)) {
+      return alert("Every phone number must contain exactly 10 digits.");
+    }
+
+    if (new Set(normalizedPhoneNumbers).size !== normalizedPhoneNumbers.length) {
+      return alert("Duplicate phone numbers are not allowed.");
     }
     if (totals.isPieceCost) {
       if (!form.pieceCost || Number(form.pieceCost) <= 0) {
@@ -2209,6 +2281,9 @@ const handleOrderReceipt = async (
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           ...form,
+          // New API field. phoneNumber remains the primary number for compatibility.
+          phoneNumbers: normalizedPhoneNumbers,
+          phoneNumber: normalizedPhoneNumbers[0],
           metalType,
           pricingMode: totals.pricingMode,
           pieceCost: totals.pieceCost,
@@ -2238,7 +2313,7 @@ const handleOrderReceipt = async (
         setShowToast(true);
         setIsFormOpen(false);
         setForm({
-          customerName: "", phoneNumber: "", address: "", itemName: "", itemDescription: "",
+          customerName: "", phoneNumber: "", phoneNumbers: [""], address: "", itemName: "", itemDescription: "",
           exchangeJewelleryName: "", exchangeJewelleryGrams: "",
           hasSilverExchange: false, silverExchangeJewelleryName: "",
           silverExchangeJewelleryGrams: "", silverExchangeValue: "",
@@ -2531,6 +2606,7 @@ const handleOrderReceipt = async (
         order.orderId,
         order.customerName,
         order.phoneNumber,
+        ...(Array.isArray(order.phoneNumbers) ? order.phoneNumbers : []),
         order.address,
         order.itemName,
         order.metalType,
@@ -3188,7 +3264,11 @@ const handleOrderReceipt = async (
                             <span className="text-sm font-bold font-mono tracking-tighter text-slate-500">{o.orderId}</span>
                           </div>
                           <p className="text-base font-serif font-bold text-slate-800">{o.customerName}</p>
-                          <p className="text-xs text-slate-400 font-medium">Contact: {o.phoneNumber}</p>
+                          <p className="text-xs text-slate-400 font-medium">
+                            Contact: {Array.isArray(o.phoneNumbers) && o.phoneNumbers.length > 0
+                              ? o.phoneNumbers.map((phone: string) => `+91 ${phone}`).join(" • ")
+                              : `+91 ${o.phoneNumber || "-"}`}
+                          </p>
                           {o.address && <p className="text-[11px] text-slate-400 mt-1 line-clamp-1">Address: {o.address}</p>}
                         </td>
                         <td className="px-6 py-4">
@@ -3769,7 +3849,63 @@ const handleOrderReceipt = async (
                 <div className="flex items-center gap-3 border-b border-slate-100 pb-3"><User className="w-5 h-5 text-gold" /><h3 className="text-xs font-bold uppercase tracking-widest text-slate-800">Client Profile</h3></div>
                 <div className="space-y-5">
                   <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Full Name</label><Input placeholder="Legal name for invoice" value={form.customerName} onChange={(e) => handleInputChange("customerName", e.target.value)} className="h-12 rounded-xl" /></div>
-                  <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Mobile</label><Input placeholder="10 Digits" type="tel" value={form.phoneNumber} onChange={(e) => handleInputChange("phoneNumber", e.target.value)} className="h-12 rounded-xl" /></div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between px-2">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">
+                        Mobile Numbers
+                      </label>
+                      <button
+                        type="button"
+                        onClick={addPhoneNumber}
+                      >
+                        
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {(form.phoneNumbers || [""]).map((phone, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                          <div className="flex h-12 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:ring-2 focus-within:ring-gold/10">
+                            <span className="flex items-center border-r border-slate-100 bg-slate-50 px-3 text-sm font-bold text-slate-500">
+                              +91
+                            </span>
+                            <input
+                              type="tel"
+                              inputMode="numeric"
+                              placeholder={index === 0 ? "Primary 10-digit number" : "Additional 10-digit number"}
+                              value={phone}
+                              onChange={(e) => handlePhoneChange(index, e.target.value)}
+                              className="h-full min-w-0 flex-1 bg-transparent px-3 text-sm outline-none"
+                            />
+                          </div>
+
+                          {index === 0 ? (
+                            <button
+                              type="button"
+                              onClick={addPhoneNumber}
+                              title="Add another phone number"
+                              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100"
+                            >
+                              <Plus className="h-5 w-5" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => removePhoneNumber(index)}
+                              title="Remove phone number"
+                              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
+                            >
+                              <X className="h-5 w-5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <p className="px-2 text-[10px] text-slate-400">
+                      Use + to attach more than one contact number to the same order.
+                    </p>
+                  </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Address</label>
                     <textarea
