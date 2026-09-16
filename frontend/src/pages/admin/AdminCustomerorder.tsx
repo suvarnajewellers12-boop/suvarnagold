@@ -23,7 +23,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-const API_BASE = "http://localhost:3000/api/gold/order";
+const API_BASE = "https://suvarnagold-16e5.vercel.app/api/gold/order";
 
 const getOrderDate = (order: any) => {
   const raw = order?.createdAt || order?.bookingDate || order?.orderDate || order?.date;
