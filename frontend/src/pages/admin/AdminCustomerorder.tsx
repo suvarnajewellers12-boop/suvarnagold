@@ -559,12 +559,101 @@ export default function OrderManagementPage() {
   // ---------------------------------------------------------------------------
   // PDF GENERATION
   // ---------------------------------------------------------------------------
-  const handleOrderReceipt = async (
+  // ============================================================
+// UTILITY: FETCH LIVE RATES
+// ============================================================
+
+const fetchLiveRates = async () => {
+  try {
+    const response = await fetch(
+      "https://suvarnagold-16e5.vercel.app/api/rates"
+    );
+    const data = await response.json();
+
+    return {
+      gold24: parseFloat(
+        data.gold24?.replace(/[₹,]/g, "") || "0"
+      ),
+      gold22: parseFloat(
+        data.gold22?.replace(/[₹,]/g, "") || "0"
+      ),
+      gold18: parseFloat(
+        data.gold18?.replace(/[₹,]/g, "") || "0"
+      ),
+      silver: parseFloat(
+        data.silver?.replace(/[₹,]/g, "") || "0"
+      ),
+    };
+  } catch (error) {
+    console.error("Failed to fetch live rates:", error);
+    return {
+      gold24: 0,
+      gold22: 0,
+      gold18: 0,
+      silver: 0,
+    };
+  }
+};
+
+// ============================================================
+// UTILITY: WRAP TEXT TO MULTIPLE LINES
+// ============================================================
+
+const wrapText = (
+  text: string,
+  maxWidth: number,
+  font: any,
+  fontSize: number
+): string[] => {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    const testLine =
+      currentLine === ""
+        ? word
+        : `${currentLine} ${word}`;
+
+    const width = font.widthOfTextAtSize(
+      testLine,
+      fontSize
+    );
+
+    if (width > maxWidth) {
+      if (currentLine !== "") {
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        // Word itself is too long, add it anyway
+        lines.push(word);
+        currentLine = "";
+      }
+    } else {
+      currentLine = testLine;
+    }
+  }
+
+  if (currentLine !== "") {
+    lines.push(currentLine);
+  }
+
+  return lines;
+};
+
+// ============================================================
+// MAIN HANDLER
+// ============================================================
+
+const handleOrderReceipt = async (
   order: any,
   mode: "download" | "print",
   type: "BOOKING" | "DELIVERY" = "BOOKING"
 ) => {
   try {
+    // Fetch live rates
+    const liveRates = await fetchLiveRates();
+
     const fontBytes = await fetch(
       "/fonts/NotoSans-VariableFont_wdth,wght.ttf"
     ).then((res) => res.arrayBuffer());
@@ -590,11 +679,13 @@ export default function OrderManagementPage() {
     let pdfDoc: any;
 
     if (mode === "download") {
-      const templateBytes = await fetch("/receipt.pdf").then((res) =>
-        res.arrayBuffer()
-      );
+      const templateBytes = await fetch(
+        "/receipt.pdf"
+      ).then((res) => res.arrayBuffer());
 
-      pdfDoc = await PDFDocument.load(templateBytes);
+      pdfDoc = await PDFDocument.load(
+        templateBytes
+      );
       pdfDoc.getPages()[0].setSize(A5_W, A5_H);
     } else {
       pdfDoc = await PDFDocument.create();
@@ -603,7 +694,8 @@ export default function OrderManagementPage() {
 
     pdfDoc.registerFontkit(fontkit);
 
-    const customFont = await pdfDoc.embedFont(fontBytes);
+    const customFont =
+      await pdfDoc.embedFont(fontBytes);
     const page = pdfDoc.getPages()[0];
 
     // ============================================================
@@ -636,10 +728,11 @@ export default function OrderManagementPage() {
       ) => {
         const safeText = String(text ?? "");
 
-        const width = customFont.widthOfTextAtSize(
-          safeText,
-          size
-        );
+        const width =
+          customFont.widthOfTextAtSize(
+            safeText,
+            size
+          );
 
         page.drawText(safeText, {
           x: rightX - width,
@@ -687,17 +780,14 @@ export default function OrderManagementPage() {
       Number(order.netWeight) || 0;
 
     const weightAdj =
-      Number(order.weightAdjustmentGrams) || 0;
+      Number(
+        order.weightAdjustmentGrams
+      ) || 0;
 
-    // adjustmentCost MUST already contain the correct sign.
-    // Example:
-    // -0.05g => -710
-    // +0.05g => +710
     const adjustmentCost =
       Number(order.adjustmentCost) || 0;
 
-    const finalNetWt =
-      bookedWt + weightAdj;
+    const finalNetWt = bookedWt + weightAdj;
 
     const stoneWt =
       Number(order.stoneWeight) || 0;
@@ -715,30 +805,13 @@ export default function OrderManagementPage() {
     const stoneCost =
       Number(order.stoneCost) || 0;
 
-    // TOTAL EXCHANGE DEDUCTION used by receipt calculations.
-    //
-    // Existing discountAmount = GOLD exchange value.
-    // silverExchangeValue = SILVER exchange value.
-    //
-    // IMPORTANT: use BOTH here. Previously the receipt used only
-    // discountAmount, so Silver Exchange was displayed but was not
-    // deducted from Payable After Exchange / Balance Due.
-    const exchangeValue =
-      roundMoneyValue(
-        getGoldExchangeValue(order) +
-          getSilverExchangeValue(order)
-      );
+    const exchangeValue = roundMoneyValue(
+      getGoldExchangeValue(order) +
+        getSilverExchangeValue(order)
+    );
 
     // ============================================================
     // PRICING MODE
-    //
-    // Works for:
-    // - Gold all carats
-    // - Silver all purities
-    // - GRAMS pricing
-    // - PIECE pricing
-    //
-    // Do NOT hard-code 22K, 18K, 92.5 etc.
     // ============================================================
 
     const pricingMode =
@@ -750,7 +823,7 @@ export default function OrderManagementPage() {
       pricingMode === "PIECE";
 
     // ============================================================
-    // 1. METAL / PIECE VALUE
+    // PRICING CALCULATIONS
     // ============================================================
 
     const metalValue =
@@ -761,65 +834,27 @@ export default function OrderManagementPage() {
           )
         : bookedWt * rate;
 
-    // ============================================================
-    // 2. VA
-    // ============================================================
-
     const vaAmount =
       isPieceCostOrder
         ? 0
         : metalValue * (vaPer / 100);
 
-    // ============================================================
-    // 3. STONE COST
-    //
-    // Added exactly ONCE.
-    // ============================================================
-
     const gstTaxableBase =
       roundMoneyValue(
         Math.max(
           0,
-          metalValue +
-            vaAmount +
-            stoneCost
+          metalValue + vaAmount + stoneCost
         )
       );
 
-    // ============================================================
-    // 4. GST AFTER STONE COST
-    // ============================================================
-
-    const gstAmount =
-      roundMoneyValue(
-        gstTaxableBase * 0.03
-      );
-
-    // ============================================================
-    // 5. ORIGINAL BILL BEFORE +/- ADJUSTMENT
-    //
-    // Metal/Piece
-    // + VA
-    // + Stone
-    // + GST
-    // ============================================================
+    const gstAmount = roundMoneyValue(
+      gstTaxableBase * 0.03
+    );
 
     const amountBeforeAdjustment =
       roundMoneyValue(
-        gstTaxableBase +
-          gstAmount
+        gstTaxableBase + gstAmount
       );
-
-    // ============================================================
-    // 6. APPLY WEIGHT / AMOUNT ADJUSTMENT ONCE
-    //
-    // Example:
-    //
-    // 169,641
-    // -   710
-    // --------
-    // 168,931
-    // ============================================================
 
     const adjustedAmountBeforeExchange =
       roundMoneyValue(
@@ -829,20 +864,6 @@ export default function OrderManagementPage() {
             adjustmentCost
         )
       );
-
-    // ============================================================
-    // 7. DEDUCT TOTAL JEWELLERY EXCHANGE
-    //
-    // totalExchange =
-    // Gold Exchange Value + Silver Exchange Value
-    //
-    // Example:
-    //
-    // 12,360
-    // -2,360 Silver Exchange
-    // -------
-    // 10,000
-    // ============================================================
 
     const payableAfterExchange =
       roundMoneyValue(
@@ -855,15 +876,6 @@ export default function OrderManagementPage() {
 
     // ============================================================
     // PAYMENT CALCULATION
-    //
-    // IMPORTANT:
-    //
-    // DO NOT USE:
-    // getAdjustedPaymentRows(order)
-    //
-    // Because adjustmentCost was ALREADY applied above.
-    //
-    // The top calculation is now the ONLY source of truth.
     // ============================================================
 
     const rawPayments: any[] =
@@ -877,22 +889,11 @@ export default function OrderManagementPage() {
         })
       );
 
-    let payments: any[] =
-      rawPayments.map((payment: any) => ({
+    let payments: any[] = rawPayments.map(
+      (payment: any) => ({
         ...payment,
-      }));
-    // ============================================================
-    // DELIVERY / FINAL SETTLEMENT
-    // ============================================================
-    // IMPORTANT: never rewrite the last row.
-    // A final settlement may contain several rows (Cash + UPI + Card + Check).
-    // The API already stores the exact final split, so the receipt prints those
-    // rows exactly as recorded.
-    // ============================================================
-
-    // ============================================================
-    // TOTAL CASH / UPI / CARD / CHEQUE PAID
-    // ============================================================
+      })
+    );
 
     const totalMoneyPaid =
       roundMoneyValue(
@@ -904,53 +905,30 @@ export default function OrderManagementPage() {
             total +
             Math.max(
               0,
-              Number(
-                payment.amount || 0
-              )
+              Number(payment.amount || 0)
             ),
           0
         )
       );
 
-    // ============================================================
-    // TOTAL CLEARED INCLUDING GOLD + SILVER EXCHANGE
-    // ============================================================
-
     const totalPaidCleared =
       roundMoneyValue(
-        totalMoneyPaid +
-          exchangeValue
+        totalMoneyPaid + exchangeValue
       );
 
-    // ============================================================
-    // FINAL BALANCE
-    //
-    // IMPORTANT:
-    //
-    // Use PAYABLE AFTER EXCHANGE.
-    //
-    // Do NOT subtract exchange again here.
-    //
-    // payableAfterExchange
-    // - money paid
-    // = balance
-    // ============================================================
-
-    const balance =
-      roundMoneyValue(
-        Math.max(
-          0,
-          payableAfterExchange -
-            totalMoneyPaid
-        )
-      );
+    const balance = roundMoneyValue(
+      Math.max(
+        0,
+        payableAfterExchange -
+          totalMoneyPaid
+      )
+    );
 
     // ============================================================
     // HEADER
     // ============================================================
 
-    const HDR_Y =
-      SAFE_TOP + 10;
+    const HDR_Y = SAFE_TOP + 10;
 
     const typeLabel =
       type === "DELIVERY"
@@ -987,12 +965,12 @@ export default function OrderManagementPage() {
     hLine(HDR_Y + 26);
 
     // ============================================================
-    // CUSTOMER
+    // CUSTOMER SECTION WITH LIVE RATES
     // ============================================================
 
-    const CUST_Y =
-      HDR_Y + 38;
+    const CUST_Y = HDR_Y + 38;
 
+    // Customer label
     draw(
       "CUSTOMER",
       MARGIN_L,
@@ -1001,6 +979,16 @@ export default function OrderManagementPage() {
       grey
     );
 
+    // Live rates label on the right
+    drawR(
+      "LIVE RATES",
+      MARGIN_R,
+      CUST_Y,
+      7.5,
+      grey
+    );
+
+    // Customer name
     draw(
       order.customerName || "",
       MARGIN_L,
@@ -1009,6 +997,19 @@ export default function OrderManagementPage() {
       black
     );
 
+    // Gold rates (24K, 22K, 18K)
+    const goldRateDisplay = `22K: ₹${Math.round(
+      liveRates.gold22
+    ).toLocaleString()}`;
+    drawR(
+      goldRateDisplay,
+      MARGIN_R,
+      CUST_Y + 11,
+      6.5,
+      black
+    );
+
+    // Phone number
     draw(
       `Ph: +91 ${
         order.phoneNumber || ""
@@ -1019,23 +1020,90 @@ export default function OrderManagementPage() {
       grey
     );
 
-    const customerAddress = String(order.address || "").trim();
-    if (customerAddress) {
-      const shortAddress =
-        customerAddress.length > 68
-          ? `${customerAddress.slice(0, 65)}...`
-          : customerAddress;
-      draw(`Address: ${shortAddress}`, MARGIN_L, CUST_Y + 32, 7, grey);
-    }
+    // Additional gold rates
+    const gold24Display = `24K: ₹${Math.round(
+      liveRates.gold24
+    ).toLocaleString()}`;
+    drawR(
+      gold24Display,
+      MARGIN_R,
+      CUST_Y + 22,
+      6.5,
+      black
+    );
 
-    hLine(CUST_Y + (customerAddress ? 43 : 32));
+    // Address with smart wrapping
+    const customerAddress = String(
+      order.address || ""
+    ).trim();
+    const maxAddressWidth =
+      MARGIN_R - MARGIN_L - 150; // Reserve space on right for rates
+
+    const addressLines = customerAddress
+      ? wrapText(
+          `Address: ${customerAddress}`,
+          maxAddressWidth,
+          customFont,
+          7
+        )
+      : [];
+
+    let addressStartY = CUST_Y + 32;
+    const linePitch = 8; // Reduced gap between address lines
+
+    addressLines.forEach(
+      (line: string, index: number) => {
+        draw(
+          line,
+          MARGIN_L,
+          addressStartY + index * linePitch,
+          7,
+          grey
+        );
+      }
+    );
+
+    // Silver rate (positioned below gold rates)
+    const silverDisplay = `18k: ₹${Math.round(
+      liveRates.gold18
+    ).toLocaleString()}`;
+    drawR(
+      silverDisplay,
+      MARGIN_R,
+      CUST_Y + 33,
+      6.5,
+      black
+    );
+
+    // 18K gold rate (if needed, positioned further down)
+    const gold18Display = `Silver: ₹${Math.round(
+      liveRates.silver
+    ).toLocaleString()}`;
+    drawR(
+      gold18Display,
+      MARGIN_R,
+      CUST_Y + 44,
+      6.5,
+      black
+    );
+
+    const CUST_SECTION_HEIGHT =
+      Math.max(
+        addressLines.length * linePitch +
+          20,
+        60
+      );
+
+    hLine(
+      CUST_Y + CUST_SECTION_HEIGHT
+    );
 
     // ============================================================
     // ITEM TABLE
     // ============================================================
 
     const TBL_Y =
-      CUST_Y + (customerAddress ? 61 : 50);
+      CUST_Y + CUST_SECTION_HEIGHT + 15;
 
     const col = {
       name: MARGIN_L,
@@ -1098,8 +1166,7 @@ export default function OrderManagementPage() {
 
     hLine(TBL_Y + 9);
 
-    const ROW_Y =
-      TBL_Y + 19;
+    const ROW_Y = TBL_Y + 19;
 
     draw(
       order.itemName ||
@@ -1150,7 +1217,6 @@ export default function OrderManagementPage() {
       black
     );
 
-    // Original bill BEFORE adjustment/exchange.
     drawR(
       `₹${Math.round(
         amountBeforeAdjustment
@@ -1164,11 +1230,10 @@ export default function OrderManagementPage() {
     hLine(ROW_Y + 13);
 
     // ============================================================
-    // CART SUMMARY
+    // CART SUMMARY (REDUCED GAPS)
     // ============================================================
 
-    let cursorY =
-      ROW_Y + 22;
+    let cursorY = ROW_Y + 22;
 
     draw(
       "CART SUMMARY",
@@ -1203,12 +1268,10 @@ export default function OrderManagementPage() {
       );
     };
 
-    let offset = 14;
+    // Reduced offset from 14 to 10 for more compact layout
+    let offset = 10;
 
-    // ============================================================
-    // METAL / PIECE VALUE
-    // ============================================================
-
+    // Metal / Piece Value
     cartRow(
       isPieceCostOrder
         ? "Piece Cost"
@@ -1219,27 +1282,9 @@ export default function OrderManagementPage() {
       cursorY + offset
     );
 
-    offset += 7;
+    offset += 6; // Reduced from 7
 
-    // ============================================================
-    // PRICING BASIS
-    // ============================================================
-
-    const metalName =
-      String(
-        order.metalType || ""
-      ).toUpperCase();
-
-    const purityName =
-      String(
-        order.purity || ""
-      );
-
-
-    // ============================================================
     // VA
-    // ============================================================
-
     cartRow(
       "VA",
       isPieceCostOrder
@@ -1250,12 +1295,9 @@ export default function OrderManagementPage() {
       cursorY + offset
     );
 
-    offset += 7;
+    offset += 6;
 
-    // ============================================================
-    // STONE
-    // ============================================================
-
+    // Stone Cost
     cartRow(
       "Stone Cost",
       `+₹${Math.round(
@@ -1265,12 +1307,9 @@ export default function OrderManagementPage() {
       gold
     );
 
-    offset += 7;
+    offset += 6;
 
-    // ============================================================
-    // GST TAXABLE BASE
-    // ============================================================
-
+    // GST Taxable Base
     cartRow(
       "GST Taxable Base",
       `₹${Math.round(
@@ -1279,12 +1318,9 @@ export default function OrderManagementPage() {
       cursorY + offset
     );
 
-    offset += 7;
+    offset += 6;
 
-    // ============================================================
     // GST
-    // ============================================================
-
     cartRow(
       "GST (3%)",
       `+₹${Math.round(
@@ -1293,12 +1329,9 @@ export default function OrderManagementPage() {
       cursorY + offset
     );
 
-    offset += 7;
+    offset += 6;
 
-    // ============================================================
-    // ORIGINAL AMOUNT
-    // ============================================================
-
+    // Amount Before Adjustment
     cartRow(
       "Amount Before Adjustment",
       `₹${Math.round(
@@ -1308,12 +1341,9 @@ export default function OrderManagementPage() {
       emerald
     );
 
-    offset += 7;
+    offset += 6;
 
-    // ============================================================
-    // WEIGHT / MONEY ADJUSTMENT
-    // ============================================================
-
+    // Weight / Money Adjustment
     if (
       weightAdj !== 0 ||
       adjustmentCost !== 0
@@ -1347,13 +1377,10 @@ export default function OrderManagementPage() {
         adjustmentColor
       );
 
-      offset += 7;
+      offset += 6;
     }
 
-    // ============================================================
-    // ADJUSTED AMOUNT
-    // ============================================================
-
+    // Adjusted Amount Before Exchange
     cartRow(
       "Adjusted Amount Before Exchange",
       `₹${Math.round(
@@ -1363,43 +1390,45 @@ export default function OrderManagementPage() {
       emerald
     );
 
-    offset += 7;
+    offset += 6;
 
-    // ============================================================
-    // JEWELLERY EXCHANGE
-    // ============================================================
-
-    const goldExchangeValue = getGoldExchangeValue(order);
-    const silverExchangeValue = getSilverExchangeValue(order);
+    // Jewellery Exchange
+    const goldExchangeValue =
+      getGoldExchangeValue(order);
+    const silverExchangeValue =
+      getSilverExchangeValue(order);
 
     if (goldExchangeValue > 0) {
       cartRow(
         `Gold Exchange [${
-          order.exchangeJewelleryName || "N/A"
+          order.exchangeJewelleryName ||
+          "N/A"
         }]`,
-        `-₹${Math.round(goldExchangeValue).toLocaleString()}`,
+        `-₹${Math.round(
+          goldExchangeValue
+        ).toLocaleString()}`,
         cursorY + offset,
         gold
       );
-      offset += 7;
+      offset += 6;
     }
 
     if (silverExchangeValue > 0) {
       cartRow(
         `Silver Exchange [${
-          order.silverExchangeJewelleryName || "N/A"
+          order.silverExchangeJewelleryName ||
+          "N/A"
         }]`,
-        `-₹${Math.round(silverExchangeValue).toLocaleString()}`,
+        `-₹${Math.round(
+          silverExchangeValue
+        ).toLocaleString()}`,
         cursorY + offset,
         grey
       );
-      offset += 7;
+      offset += 6;
     }
 
-    // ============================================================
-    // FINAL PAYABLE AFTER EXCHANGE
-    // ============================================================
-
+    // Final Payable After Exchange
     cartRow(
       "Payable After Exchange",
       `₹${Math.round(
@@ -1409,7 +1438,7 @@ export default function OrderManagementPage() {
       emerald
     );
 
-    offset += 7;
+    offset += 6;
 
     hLine(
       cursorY +
@@ -1423,7 +1452,7 @@ export default function OrderManagementPage() {
       6;
 
     // ============================================================
-    // ROW HELPER
+    // WEIGHT DETAILS (COMPACT)
     // ============================================================
 
     const finRow = (
@@ -1449,11 +1478,7 @@ export default function OrderManagementPage() {
       );
     };
 
-    // ============================================================
-    // WEIGHT DETAILS
-    // ============================================================
-
-    cursorY += 10;
+    cursorY += 8;
 
     draw(
       "WEIGHT DETAILS",
@@ -1478,7 +1503,7 @@ export default function OrderManagementPage() {
           ? "+"
           : ""
       }${weightAdj}g`,
-      cursorY + 21,
+      cursorY + 20, // Reduced from 21
       weightAdj > 0
         ? rose
         : weightAdj < 0
@@ -1499,7 +1524,7 @@ export default function OrderManagementPage() {
           adjustmentCost
         )
       ).toLocaleString()}`,
-      cursorY + 28,
+      cursorY + 26, // Reduced from 28
       adjustmentCost > 0
         ? rose
         : adjustmentCost < 0
@@ -1510,18 +1535,18 @@ export default function OrderManagementPage() {
     finRow(
       "Final Physical Net Weight",
       `${finalNetWt}g`,
-      cursorY + 35
+      cursorY + 32 // Reduced from 35
     );
 
-    hLine(cursorY + 41);
+    hLine(cursorY + 38); // Adjusted accordingly
 
-    cursorY += 41;
+    cursorY += 38;
 
     // ============================================================
-    // PAYMENT HISTORY
+    // PAYMENT HISTORY (COMPACT)
     // ============================================================
 
-    cursorY += 10;
+    cursorY += 8;
 
     draw(
       "PAYMENT HISTORY",
@@ -1535,13 +1560,9 @@ export default function OrderManagementPage() {
 
     cursorY += 8;
 
-    let payLineY =
-      cursorY + 6;
+    let payLineY = cursorY + 6;
 
-    // ============================================================
-    // SHOW FINAL ADJUSTED BILL BEFORE EXCHANGE
-    // ============================================================
-
+    // Adjusted Amount Before Exchange
     finRow(
       "Adjusted Amount Before Exchange",
       `₹${Math.round(
@@ -1551,9 +1572,9 @@ export default function OrderManagementPage() {
       black
     );
 
-    payLineY += 7;
+    payLineY += 6;
 
-    // Also show the actual payable after exchange.
+    // Payable After Exchange
     finRow(
       "Payable After Exchange",
       `₹${Math.round(
@@ -1563,12 +1584,9 @@ export default function OrderManagementPage() {
       emerald
     );
 
-    payLineY += 9;
+    payLineY += 8;
 
-    // ============================================================
-    // PAYMENT ROWS
-    // ============================================================
-
+    // Payment Rows
     if (payments.length > 0) {
       payments.forEach(
         (
@@ -1597,7 +1615,13 @@ export default function OrderManagementPage() {
 
           const isFinalSettlement =
             type === "DELIVERY" &&
-            String(payment.note || "").toLowerCase().includes("final settlement");
+            String(
+              payment.note || ""
+            )
+              .toLowerCase()
+              .includes(
+                "final settlement"
+              );
 
           const label =
             `${modeLabel} • ${dateStr}` +
@@ -1625,7 +1649,7 @@ export default function OrderManagementPage() {
               : black
           );
 
-          payLineY += 7;
+          payLineY += 6;
         }
       );
     } else {
@@ -1636,16 +1660,13 @@ export default function OrderManagementPage() {
         grey
       );
 
-      payLineY += 7;
+      payLineY += 6;
     }
 
-    // ============================================================
-    // TOTAL MONEY PAID
-    // ============================================================
-
+    // Total Money Paid
     hLine(payLineY + 1);
 
-    payLineY += 8;
+    payLineY += 7;
 
     finRow(
       "Total Amount Paid",
@@ -1656,14 +1677,24 @@ export default function OrderManagementPage() {
       emerald
     );
 
-    payLineY += 8;
+    payLineY += 7;
 
+    // Mode Totals
     const receiptModeTotals = payments.reduce(
-      (acc: Record<PaymentMode, number>, payment: any) => {
-        const mode = String(payment.mode || "").toUpperCase() as PaymentMode;
+      (
+        acc: Record<PaymentMode, number>,
+        payment: any
+      ) => {
+        const mode = String(
+          payment.mode || ""
+        ).toUpperCase() as PaymentMode;
         if (mode in acc) {
           acc[mode] = roundMoneyValue(
-            acc[mode] + Math.max(0, Number(payment.amount) || 0)
+            acc[mode] +
+              Math.max(
+                0,
+                Number(payment.amount) || 0
+              )
           );
         }
         return acc;
@@ -1671,53 +1702,63 @@ export default function OrderManagementPage() {
       { CASH: 0, UPI: 0, CARD: 0, CHECK: 0 }
     );
 
-    (["CASH", "UPI", "CARD", "CHECK"] as PaymentMode[]).forEach((mode) => {
-      if (receiptModeTotals[mode] > 0) {
+    (
+      [
+        "CASH",
+        "UPI",
+        "CARD",
+        "CHECK",
+      ] as PaymentMode[]
+    ).forEach((mode) => {
+      if (
+        receiptModeTotals[mode] > 0
+      ) {
         finRow(
-          `${paymentModeLabel(mode)} Total`,
-          `₹${Math.round(receiptModeTotals[mode]).toLocaleString()}`,
+          `${paymentModeLabel(
+            mode
+          )} Total`,
+          `₹${Math.round(
+            receiptModeTotals[mode]
+          ).toLocaleString()}`,
           payLineY,
           black
         );
-        payLineY += 7;
+        payLineY += 6;
       }
     });
 
-    // ============================================================
-    // EXCHANGE
-    // ============================================================
-
+    // Exchange values
     if (goldExchangeValue > 0) {
       finRow(
         `Gold Exchange [${
-          order.exchangeJewelleryName || "N/A"
+          order.exchangeJewelleryName ||
+          "N/A"
         }]`,
-        `₹${Math.round(goldExchangeValue).toLocaleString()}`,
+        `₹${Math.round(
+          goldExchangeValue
+        ).toLocaleString()}`,
         payLineY,
         emerald
       );
-      payLineY += 8;
+      payLineY += 7;
     }
 
     if (silverExchangeValue > 0) {
       finRow(
         `Silver Exchange [${
-          order.silverExchangeJewelleryName || "N/A"
+          order.silverExchangeJewelleryName ||
+          "N/A"
         }]`,
-        `₹${Math.round(silverExchangeValue).toLocaleString()}`,
+        `₹${Math.round(
+          silverExchangeValue
+        ).toLocaleString()}`,
         payLineY,
         emerald
       );
-      payLineY += 8;
+      payLineY += 7;
     }
 
-    // ============================================================
-    // TOTAL PAID / CLEARED
-    //
-    // This should equal adjustedAmountBeforeExchange
-    // when fully settled.
-    // ============================================================
-
+    // Total Paid / Cleared
     finRow(
       "Total Paid / Cleared",
       `₹${Math.round(
@@ -1727,14 +1768,14 @@ export default function OrderManagementPage() {
       emerald
     );
 
-    payLineY += 8;
+    payLineY += 7;
 
     hLine(payLineY);
 
-    payLineY += 8;
+    payLineY += 7;
 
     // ============================================================
-    // BALANCE
+    // BALANCE DUE
     // ============================================================
 
     if (balance <= 0) {
@@ -1757,8 +1798,7 @@ export default function OrderManagementPage() {
 
     hLine(payLineY + 7);
 
-    cursorY =
-      payLineY + 7;
+    cursorY = payLineY + 7;
 
     // ============================================================
     // SETTLEMENT BOX
@@ -1768,8 +1808,7 @@ export default function OrderManagementPage() {
     const settBoxH = 45;
 
     const settBoxX =
-      MARGIN_R -
-      settBoxW;
+      MARGIN_R - settBoxW;
 
     const SETT_TOP_Y =
       cursorY + 10;
@@ -1872,22 +1911,19 @@ export default function OrderManagementPage() {
     const pdfBytes =
       await pdfDoc.save();
 
-    const blob =
-      new Blob(
-        [
-          new Uint8Array(
-            pdfBytes
-          ),
-        ],
-        {
-          type: "application/pdf",
-        }
-      );
+    const blob = new Blob(
+      [
+        new Uint8Array(
+          pdfBytes
+        ),
+      ],
+      {
+        type: "application/pdf",
+      }
+    );
 
     const pdfUrl =
-      URL.createObjectURL(
-        blob
-      );
+      URL.createObjectURL(blob);
 
     // ============================================================
     // DOWNLOAD / PRINT
@@ -1895,14 +1931,14 @@ export default function OrderManagementPage() {
 
     if (mode === "download") {
       const link =
-        document.createElement(
-          "a"
-        );
+        document.createElement("a");
 
       link.href = pdfUrl;
 
       link.download =
-        `${type}_${order.orderId}_${format(
+        `${type}_${
+          order.orderId
+        }_${format(
           new Date(),
           "ddMMyy"
         )}.pdf`;
@@ -1927,6 +1963,8 @@ export default function OrderManagementPage() {
     );
   }
 };
+
+
   // ---------------------------------------------------------------------------
   // API OPERATIONS
   // ---------------------------------------------------------------------------
