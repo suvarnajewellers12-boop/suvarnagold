@@ -309,6 +309,8 @@ model CustomerScheme {
   id               String           @id @default(uuid())
   customerId       String
   schemeId         String
+  installmentAmount Float @default(0)
+
   totalPaid        Float            @default(0)
   remainingAmount  Float
   installmentsPaid Int              @default(0)
@@ -331,7 +333,7 @@ model PaymentHistory {
   id               String         @id @default(uuid())
   customerSchemeId String
   amountPaid       Float
-  liveRate24K      Float?
+  liveRate22K      Float?
   gramsAdded       Float?
   paidAt           DateTime       @default(now())
   customerScheme   CustomerScheme @relation(fields: [customerSchemeId], references: [id])

@@ -75,7 +75,7 @@ export async function POST(req: Request) {
           customerSchemeId: customerSchemeId,
           amountPaid: cs.scheme.monthlyAmount,
           gramsAdded: gramsAdded || null,
-          liveRate24K: liveRateUsed || null,
+          liveRate22K: liveRateUsed || null,
         }
       });
 

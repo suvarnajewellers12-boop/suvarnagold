@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-// 🔹 CORS helper
+// ============================================================
+// CORS
+// ============================================================
+
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
@@ -10,7 +13,10 @@ function corsHeaders() {
   };
 }
 
-// 🔹 Handle Preflight
+// ============================================================
+// PREFLIGHT
+// ============================================================
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
@@ -18,10 +24,12 @@ export async function OPTIONS() {
   });
 }
 
-// ================= GET ALL SCHEMES (Public) =================
+// ============================================================
+// GET ALL SCHEMES
+// ============================================================
+
 export async function GET(req: Request) {
   try {
-    // 🔹 Fetch Schemes with Enrollments, Customers, AND Coupons
     const schemes = await prisma.scheme.findMany({
       include: {
         enrollments: {
@@ -34,33 +42,43 @@ export async function GET(req: Request) {
                 phone: true,
               },
             },
-            // 🚀 ADDED: Include full coupon details for this enrollment
-            coupon: true, 
+
+            coupon: true,
           },
         },
       },
+
       orderBy: {
         createdAt: "desc",
       },
     });
 
     return new NextResponse(
-      JSON.stringify({ schemes }),
-      { 
-        status: 200, 
+      JSON.stringify({
+        schemes,
+      }),
+      {
+        status: 200,
         headers: {
           ...corsHeaders(),
-          "Content-Type": "application/json"
-        } 
+          "Content-Type": "application/json",
+        },
       }
     );
-
   } catch (error) {
-    console.error("Fetch schemes error:", error);
+    console.error(
+      "Fetch schemes error:",
+      error
+    );
 
     return new NextResponse(
-      JSON.stringify({ error: "Internal Server Error" }),
-      { status: 500, headers: corsHeaders() }
+      JSON.stringify({
+        error: "Internal Server Error",
+      }),
+      {
+        status: 500,
+        headers: corsHeaders(),
+      }
     );
   }
 }
