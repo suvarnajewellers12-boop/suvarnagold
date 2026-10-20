@@ -412,7 +412,7 @@ export async function POST(
               String(id)
           )
           .filter(
-            (id: string) =>
+            (id: any) =>
               id.trim()
                   .isNotEmpty
           );
