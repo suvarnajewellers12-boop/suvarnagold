@@ -3007,7 +3007,7 @@ const handleOrderReceipt = async (
         <main className="flex-1 min-w-0 flex flex-col min-h-screen text-left">
           <header className="bg-white/95 backdrop-blur-md border-b border-gold/10 px-6 lg:px-10 py-5 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 sticky top-0 z-30">
             <div>
-              <h1 className="text-3xl lg:text-4xl font-serif font-bold text-slate-900 tracking-tight">Order Registry</h1>
+              <h1 className=         "text-3xl lg:text-4xl font-serif font-bold text-slate-900 tracking-tight">Order Registry</h1>
               <div className="flex items-center gap-3 mt-1">
                 <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 <p className="text-xs text-slate-400 uppercase tracking-widest font-bold font-sans">

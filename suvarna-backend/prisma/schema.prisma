@@ -7,6 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================
+// SUPER ADMIN
+// ============================================================
+
 model SuperAdmin {
   id        String     @id @default(uuid())
   username  String     @unique
@@ -15,19 +19,30 @@ model SuperAdmin {
   purchases Purchase[]
 }
 
+// ============================================================
+// ADMIN
+// ============================================================
+
 model Admin {
-  id         String     @id @default(uuid())
-  username   String     @unique
+  id         String @id @default(uuid())
+  username   String @unique
   branchName String
   state      String
   password   String
-  Address    String     @default("D.No. 13-1-12, Main Road,Near YSR Statue, New Gajuwaka,Visakhapatnam - 530026,Andhra Pradesh")
-  Gmail      String     @default("suvarnajewellers12@gmail.com")
-  role       String     @default("ADMIN")
-  createdAt  DateTime   @default(now())
-  createdBy  String
-  purchases  Purchase[]
+
+  Address String @default("D.No. 13-1-12, Main Road,Near YSR Statue, New Gajuwaka,Visakhapatnam - 530026,Andhra Pradesh")
+  Gmail   String @default("suvarnajewellers12@gmail.com")
+
+  role      String   @default("ADMIN")
+  createdAt DateTime @default(now())
+  createdBy String
+
+  purchases Purchase[]
 }
+
+// ============================================================
+// GOLD PURCHASE
+// ============================================================
 
 model GoldPurchase {
   id            String   @id @default(uuid())
@@ -44,89 +59,114 @@ model GoldPurchase {
   createdAt     DateTime @default(now())
 }
 
+// ============================================================
+// GOLD JOB WORK
+// ============================================================
+
 model GoldJobWork {
-  id                String    @id @default(uuid())
-  workerName        String?
-  totalGrams        Float?
-  productType       String?
-  advancePaid       Float     @default(0)
-  makingCharge      Float?
-  totalAmount       Float?    @default(0)
-  balanceAmount     Float?    @default(0)
-  status            String    @default("PENDING")
-  dateGiven         DateTime  @default(now())
-  dateReceived      DateTime?
+  id            String  @id @default(uuid())
+  workerName    String?
+  totalGrams    Float?
+  productType   String?
+  advancePaid   Float   @default(0)
+  makingCharge  Float?
+  totalAmount   Float?  @default(0)
+  balanceAmount Float?  @default(0)
+  status        String  @default("PENDING")
+
+  dateGiven    DateTime  @default(now())
+  dateReceived DateTime?
+
   wastageGrams      Float?
   returnedGoldGrams Float?
-  notes             String?
-  createdBy         String
-  createdAt         DateTime  @default(now())
-  totalPaid         Float?    @default(0)
-  assignedOrders    Order[]
+
+  notes     String?
+  createdBy String
+  createdAt DateTime @default(now())
+  totalPaid Float?   @default(0)
+
+  assignedOrders Order[]
 }
+
+// ============================================================
+// ORDER
+// ============================================================
 
 model Order {
-  id                     String    @id @default(uuid())
-  orderId                String    @unique
-  customerName           String
-  phoneNumber            String
-  itemName               String
-  itemDescription        String?
-  address                String?
-  metalType              String
-  purity                 String
-  // "GRAMS" = netWeight × liveRate and VA can apply.
-  // "PIECE" = direct pieceCost. Used for Silver 92.5; VA is forced to 0.
-  pricingMode            String    @default("GRAMS")
-  pieceCost              Float     @default(0)
-  silverExchangeJewelleryName  String?
-  silverExchangeJewelleryGrams Float  @default(0)
-  silverExchangeValue          Float  @default(0)
-  liveRate               Float
-  netWeight              Float
-  stoneWeight            Float
-  grossWeight            Float
-  vaPercentage           Float
-  stoneCost              Float
+  id      String @id @default(uuid())
+  orderId String @unique
 
-  gst                    Float
-  originalCartValue      Float
+  customerName String
+  phoneNumber  String
+
+  itemName        String
+  itemDescription String?
+
+  address String?
+
+  metalType String
+  purity    String
+
+  // GRAMS = weight-based pricing
+  // PIECE = fixed piece pricing
+  pricingMode String @default("GRAMS")
+
+  pieceCost Float @default(0)
+
+  silverExchangeJewelleryName  String?
+  silverExchangeJewelleryGrams Float   @default(0)
+  silverExchangeValue          Float   @default(0)
+
+  liveRate Float
+
+  netWeight   Float
+  stoneWeight Float
+  grossWeight Float
+
+  vaPercentage Float
+  stoneCost    Float
+
+  gst Float
+
+  originalCartValue Float
 
   exchangeJewelleryName  String?
-  exchangeJewelleryGrams Float     @default(0)
-  discountAmount         Float     @default(0)
+  exchangeJewelleryGrams Float   @default(0)
 
-  totalAmount            Float
+  discountAmount Float @default(0)
 
-  // Cached sum of actual money payments only.
-  advanceCash            Float     @default(0)
+  totalAmount Float
 
-  // Cached remaining amount after exchange/payment/edit recalculation.
-  balanceAmount          Float     @default(0)
+  advanceCash Float @default(0)
 
-  // Final-settlement-only adjustment.
-  weightAdjustmentGrams  Float     @default(0)
-  adjustmentCost         Float     @default(0)
+  balanceAmount Float @default(0)
 
-  // Records the most recent pricing edit (stone cost, weight, piece cost, rate, etc.)
-  // so the receipt can explain why an already-paid order got an extra balance
-  // or why its price reduced.
-  pricingRevisionAmount  Float     @default(0)
-  pricingRevisionNote    String?
+  weightAdjustmentGrams Float @default(0)
+  adjustmentCost        Float @default(0)
 
-  deadlineDate           DateTime?
-  status                 String
-  createdBy              String
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt @default(now())
+  pricingRevisionAmount Float   @default(0)
+  pricingRevisionNote   String?
 
-  payments               Payment[]
+  deadlineDate DateTime?
+
+  status String
+
+  createdBy String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  payments Payment[]
+
   phoneNumbers String[] @default([])
 
-  jobWorkId              String?
-  jobWork                GoldJobWork? @relation(fields: [jobWorkId], references: [id])
+  jobWorkId String?
+  jobWork   GoldJobWork? @relation(fields: [jobWorkId], references: [id])
 }
 
+// ============================================================
+// PAYMENT MODE
+// ============================================================
 
 enum PaymentMode {
   CASH
@@ -135,66 +175,104 @@ enum PaymentMode {
   CHECK
 }
 
-model Payment {
-  id              String      @id @default(uuid())
-  orderId         String
-  order           Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+// ============================================================
+// ORDER PAYMENT
+// ============================================================
 
-  amount          Float
-  mode            PaymentMode @default(CASH)
+model Payment {
+  id String @id @default(uuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  amount Float
+
+  mode PaymentMode @default(CASH)
 
   referenceNumber String?
   checkNumber     String?
   bankName        String?
 
-  note            String?
-  paidAt          DateTime    @default(now())
-  createdBy       String
-  createdAt       DateTime    @default(now())
+  note String?
+
+  paidAt DateTime @default(now())
+
+  createdBy String
+
+  createdAt DateTime @default(now())
 
   @@index([orderId, paidAt])
   @@index([mode])
 }
+
+// ============================================================
+// STAFF ROLE
+// ============================================================
+
 enum StaffRole {
   CASHIER
   SALESMAN
 }
 
+// ============================================================
+// STAFF
+// ============================================================
+
 model Staff {
-  id                 String      @id
-  fullName           String
-  dateOfJoining      DateTime
-  monthlySalary      Float
-  gender             String
-  phoneNumber        String      @unique
-  aadharNumber       String      @unique
-  panCardNumber      String?     @unique
+  id String @id
+
+  fullName      String
+  dateOfJoining DateTime
+  monthlySalary Float
+  gender        String
+
+  phoneNumber   String  @unique
+  aadharNumber  String  @unique
+  panCardNumber String? @unique
+
   nomineeName        String
   nomineeRelation    String
-  nomineePhoneNumber String      @unique
+  nomineePhoneNumber String @unique
   nomineeAddress     String
-  createdAt          DateTime    @default(now())
-  createdBy          String
-  passwordHash       String?
-  branch             String?
-  roles              StaffRole[] @default([])
-  mpinHash           String?
-  appSessions        StaffAppSession[]
+
+  createdAt DateTime @default(now())
+  createdBy String
+
+  passwordHash String?
+
+  branch String?
+
+  roles StaffRole[] @default([])
+
+  mpinHash String?
+
+  appSessions StaffAppSession[]
 
   @@index([branch])
 }
 
+// ============================================================
+// STAFF SESSION
+// ============================================================
+
 model StaffAppSession {
-  tokenHash    String   @id
-  staffId      String
-  staff        Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  expiresAt    DateTime
-  mpinVerified Boolean  @default(false)
+  tokenHash String @id
+
+  staffId String
+  staff   Staff  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  mpinVerified Boolean @default(false)
 
   @@index([staffId])
   @@index([expiresAt])
 }
+
+// ============================================================
+// STAFF AUTH ATTEMPT
+// ============================================================
 
 model StaffAppAuthAttempt {
   key         String   @id
@@ -204,212 +282,504 @@ model StaffAppAuthAttempt {
   @@index([windowStart])
 }
 
+// ============================================================
+// PRODUCT
+// ============================================================
 
 model Product {
-  id              String         @id @default(uuid())
-  name            String
-  metalType       String
-  carats          String
-  category        String         @default("others")
-  bodyPart        String         @default("others")
-  grams           Float
-  grossWeight     Float
-  stoneWeight     Float          @default(0)
-  netWeight       Float          @default(0)
-  itemCode        String?
-  uniqueCode      String         @unique
-  sku             String         @unique
-  isSold          Boolean        @default(false)
+  id String @id @default(uuid())
+
+  name      String
+  metalType String
+  carats    String
+
+  category String @default("others")
+  bodyPart String @default("others")
+
+  grams       Float
+  grossWeight Float
+  stoneWeight Float @default(0)
+  netWeight   Float @default(0)
+
+  itemCode String?
+
+  uniqueCode String @unique
+  sku        String @unique
+
+  isSold Boolean @default(false)
+
   manufactureDate DateTime
-  createdAt       DateTime       @default(now())
-  soldAt          DateTime?
-  branchName      String         @default("Gajuwaka")
-  va              Float          @default(2.5)
-  stoneCost       Float          @default(0)
-  pieceCost       Float          @default(0)
-  purchaseItems   PurchaseItem[]
+
+  createdAt DateTime @default(now())
+
+  soldAt DateTime?
+
+  branchName String @default("Gajuwaka")
+
+  va Float @default(2.5)
+
+  stoneCost Float @default(0)
+  pieceCost Float @default(0)
+
+  purchaseItems PurchaseItem[]
 }
 
+// ============================================================
+// PURCHASE
+// ============================================================
+
 model Purchase {
-  id                        String         @id @default(uuid())
-  customerName              String
-  emailid                   String?
-  Address                   String?
-  totalAmount               Float
-  discountAmount            Float
-  finalAmount               Float
-  phoneNumber               String
-  paymentId                 String?        @default("MANUAL_POS")
-  paymentStatus             String         @default("SUCCESS")
-  purchasedAt               DateTime       @default(now())
-  adminId                   String?
-  superAdminId              String?
-  cgstAmount                Float          @default(0)
-  sgstAmount                Float          @default(0)
+  id String @id @default(uuid())
+
+  customerName String
+  emailid      String?
+  Address      String?
+
+  totalAmount    Float
+  discountAmount Float
+  finalAmount    Float
+
+  phoneNumber String
+
+  paymentId     String? @default("MANUAL_POS")
+  paymentStatus String  @default("SUCCESS")
+
+  purchasedAt DateTime @default(now())
+
+  adminId      String?
+  superAdminId String?
+
+  cgstAmount Float @default(0)
+  sgstAmount Float @default(0)
+
   excahngejewellrygrams     Float?
   excahngejewellryname      String?
   jewelleryexchangediscount Float?
-  silverExchangeGrams       Float?         
-  silverExchangeName        String?
-  silverExchangeDiscount    Float?
-  couponDiscount            Float?         @default(0)
-  cardAmount                Float          @default(0)
-  cashAmount                Float          @default(0)
-  chequeAmount              Float          @default(0)
-  upiAmount                 Float          @default(0)
-  invoice                   String         @default("svj-234")
-  cashierId                 String?
-  cashierName               String?
-  salesmanId                String?
-  salesmanName              String?
-  admin                     Admin?         @relation(fields: [adminId], references: [id])
-  superAdmin                SuperAdmin?    @relation(fields: [superAdminId], references: [id])
-  items                     PurchaseItem[]
+
+  silverExchangeGrams    Float?
+  silverExchangeName     String?
+  silverExchangeDiscount Float?
+
+  couponDiscount Float? @default(0)
+
+  cardAmount   Float @default(0)
+  cashAmount   Float @default(0)
+  chequeAmount Float @default(0)
+  upiAmount    Float @default(0)
+
+  invoice String @default("svj-234")
+
+  cashierId   String?
+  cashierName String?
+
+  salesmanId   String?
+  salesmanName String?
+
+  admin      Admin?      @relation(fields: [adminId], references: [id])
+  superAdmin SuperAdmin? @relation(fields: [superAdminId], references: [id])
+
+  items PurchaseItem[]
 }
+
+// ============================================================
+// PURCHASE ITEM
+// ============================================================
 
 model PurchaseItem {
-  id         String   @id @default(uuid())
+  id String @id @default(uuid())
+
   purchaseId String
   productId  String
-  name       String
-  grams      Float
-  cost       Float
-  isReturned Boolean  @default(false)
-  product    Product  @relation(fields: [productId], references: [id])
-  purchase   Purchase @relation(fields: [purchaseId], references: [id])
+
+  name String
+
+  grams Float
+  cost  Float
+
+  isReturned Boolean @default(false)
+
+  product  Product  @relation(fields: [productId], references: [id])
+  purchase Purchase @relation(fields: [purchaseId], references: [id])
 }
+
+// ============================================================
+// SCHEME ENUMS
+// ============================================================
+
+enum SchemeRateType {
+  CASH
+  GOLD_22K
+  GOLD_18K
+  SILVER
+}
+
+enum InstallmentStatus {
+  UPCOMING
+  PAID
+  MISSED
+}
+
+enum InstallmentPaymentMode {
+  ONLINE
+  OFFLINE
+}
+
+// ============================================================
+// SCHEME
+// ============================================================
 
 model Scheme {
-  id             String           @id @default(uuid())
-  name           String
+  id String @id @default(uuid())
+
+  name String
+
   durationMonths Int
-  monthlyAmount  Float
-  createdAt      DateTime         @default(now())
-  isWeightBased  Boolean          @default(false)
+
+  // Existing field retained for compatibility.
+  monthlyAmount Float
+
+  createdAt DateTime @default(now())
+
+  // Legacy field.
+  // New payment logic should use rateType.
+  isWeightBased Boolean @default(false)
+
+  // CASH / GOLD_22K / GOLD_18K / SILVER
+  rateType SchemeRateType @default(CASH)
+
   maturityMonths Int?
-  coupons        Coupon[]
-  enrollments    CustomerScheme[]
+
+  coupons Coupon[]
+
+  enrollments CustomerScheme[]
 }
+
+// ============================================================
+// CREDIT NOTE
+// ============================================================
 
 model CreditNote {
-  id          String       @id @default(uuid())
+  id String @id @default(uuid())
+
   productName String
-  grams       Float
-  carats      String?
+
+  grams Float
+
+  carats String?
+
   stoneWeight Float?
+
   overallCost Float
-  pricingMode String       @default("WEIGHT") // "WEIGHT" | "PIECE"
-  pieceCost   Float?
-  couponId    String
-  createdAt   DateTime     @default(now())
-  isUsed      Boolean      @default(false)
-  coupon      ReturnCoupon @relation(fields: [couponId], references: [id])
+
+  pricingMode String @default("WEIGHT")
+
+  pieceCost Float?
+
+  couponId String
+
+  createdAt DateTime @default(now())
+
+  isUsed Boolean @default(false)
+
+  coupon ReturnCoupon @relation(fields: [couponId], references: [id])
 }
+
+// ============================================================
+// CUSTOMER SCHEME
+// ============================================================
+
 model CustomerScheme {
-  id               String           @id @default(uuid())
-  customerId       String
-  schemeId         String
+  id String @id @default(uuid())
+
+  customerId String
+  schemeId   String
+
+  // Customer selected amount.
   installmentAmount Float @default(0)
 
-  totalPaid        Float            @default(0)
-  remainingAmount  Float
-  installmentsPaid Int              @default(0)
+  totalPaid Float @default(0)
+
+  remainingAmount Float
+
+  installmentsPaid Int @default(0)
+
   installmentsLeft Int
-  isCompleted      Boolean          @default(false)
-  startDate        DateTime         @default(now())
-  accumulatedGrams Float            @default(0)
-  customerAddress  String?
-  nomineeAddress   String?
-  nomineeName      String           @default("")
-  nomineePhone     String           @default("")
-  nomineeRelation  String           @default("")
-  coupon           Coupon?
-  customer         Customer         @relation(fields: [customerId], references: [id])
-  scheme           Scheme           @relation(fields: [schemeId], references: [id])
-  payments         PaymentHistory[]
+
+  isCompleted Boolean @default(false)
+
+  startDate DateTime @default(now())
+
+  // Gold or silver accumulated by the enrollment.
+  accumulatedGrams Float @default(0)
+
+  customerAddress String?
+
+  nomineeAddress String?
+
+  nomineeName String @default("")
+
+  nomineePhone String @default("")
+
+  nomineeRelation String @default("")
+
+  coupon Coupon?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  scheme Scheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+
+  payments PaymentHistory[]
+
+  // NEW monthly installment records.
+  installments SchemeInstallment[]
+
+  @@index([customerId])
+  @@index([schemeId])
+  @@index([customerId, schemeId])
 }
+
+// ============================================================
+// SCHEME INSTALLMENT
+// ============================================================
+//
+// Example:
+//
+// 1 -> PAID
+// 2 -> PAID
+// 3 -> MISSED
+// 4 -> UPCOMING
+//
+// Online payment for Month 4 is blocked until Month 3
+// is cleared through the admin/store.
+// ============================================================
+
+model SchemeInstallment {
+  id String @id @default(uuid())
+
+  customerSchemeId String
+
+  installmentNumber Int
+
+  dueDate DateTime
+
+  amount Float
+
+  status InstallmentStatus @default(UPCOMING)
+
+  paidAt DateTime?
+
+  paymentMode InstallmentPaymentMode?
+
+  // CASH
+  // GOLD_22K
+  // GOLD_18K
+  // SILVER
+  rateType SchemeRateType
+
+  // Actual metal rate used when payment was processed.
+  rateUsed Float?
+
+  // installmentAmount / rateUsed
+  gramsAdded Float?
+
+  // Razorpay payment id.
+  // Null for offline payments.
+  razorpayPaymentId String? @unique
+
+  note String?
+
+  customerScheme CustomerScheme @relation(fields: [customerSchemeId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([customerSchemeId, installmentNumber])
+  @@index([customerSchemeId])
+  @@index([customerSchemeId, status])
+  @@index([dueDate])
+}
+
+// ============================================================
+// PAYMENT HISTORY
+// ============================================================
 
 model PaymentHistory {
-  id               String         @id @default(uuid())
+  id String @id @default(uuid())
+
   customerSchemeId String
-  amountPaid       Float
-  liveRate22K      Float?
-  gramsAdded       Float?
-  paidAt           DateTime       @default(now())
-  customerScheme   CustomerScheme @relation(fields: [customerSchemeId], references: [id])
+
+  amountPaid Float
+
+  // Legacy field kept temporarily.
+  liveRate22K Float?
+
+  // New generic rate type.
+  rateType SchemeRateType @default(CASH)
+
+  // Actual rate used for:
+  // GOLD_22K / GOLD_18K / SILVER
+  rateUsed Float?
+
+  gramsAdded Float?
+
+  paidAt DateTime @default(now())
+
+  paymentMode InstallmentPaymentMode?
+
+  reference String?
+
+  customerScheme CustomerScheme @relation(fields: [customerSchemeId], references: [id], onDelete: Cascade)
+
+  @@index([customerSchemeId])
+  @@index([paidAt])
+  @@index([rateType])
 }
+
+// ============================================================
+// COUPON
+// ============================================================
 
 model Coupon {
-  id               String          @id @default(uuid())
-  code             String          @unique
-  isUsed           Boolean         @default(false)
-  usedAt           DateTime?
-  createdAt        DateTime        @default(now())
-  customerSchemeId String?         @unique
-  customerId       String
-  schemeId         String?
-  isActive         Boolean         @default(true)
-  totalCashValue   Float           @default(0)
-  totalWeightGrams Float           @default(0)
-  description      String?
-  type             String          @default("WEIGHT")
-  value            Float           @default(0)
-  isPreClosed      Boolean         @default(false)
-  preClosedAt      DateTime?
-  invoiceNumber    String?
-  customer         Customer        @relation(fields: [customerId], references: [id])
-  customerScheme   CustomerScheme? @relation(fields: [customerSchemeId], references: [id])
-  scheme           Scheme?         @relation(fields: [schemeId], references: [id])
+  id String @id @default(uuid())
+
+  code String @unique
+
+  isUsed Boolean @default(false)
+
+  usedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  customerSchemeId String? @unique
+
+  customerId String
+
+  schemeId String?
+
+  isActive Boolean @default(true)
+
+  // Cash scheme value.
+  totalCashValue Float @default(0)
+
+  // GOLD_22K / GOLD_18K / SILVER accumulated weight.
+  totalWeightGrams Float @default(0)
+
+  description String?
+
+  type String @default("WEIGHT")
+
+  value Float @default(0)
+
+  isPreClosed Boolean @default(false)
+
+  preClosedAt DateTime?
+
+  invoiceNumber String?
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  customerScheme CustomerScheme? @relation(fields: [customerSchemeId], references: [id])
+
+  scheme Scheme? @relation(fields: [schemeId], references: [id])
 }
+
+// ============================================================
+// CUSTOMER
+// ============================================================
 
 model Customer {
-  id        String           @id @default(uuid())
-  name      String
-  username  String           @unique
-  password  String
-  phone     String
-  createdAt DateTime         @default(now())
-  mpin      String?
-  coupons   Coupon[]
-  schemes   CustomerScheme[]
+  id String @id @default(uuid())
+
+  name String
+
+  username String @unique
+
+  password String
+
+  phone String
+
+  createdAt DateTime @default(now())
+
+  mpin String?
+
+  coupons Coupon[]
+
+  schemes CustomerScheme[]
 }
 
+// ============================================================
+// OTP
+// ============================================================
+
 model OtpVerification {
-  id            String    @id @default(cuid())
-  phoneNumber   String    @db.VarChar(15)
-  otpCode       String    @db.VarChar(6)
-  purpose       String    @db.VarChar(50)
+  id String @id @default(cuid())
+
+  phoneNumber String @db.VarChar(15)
+
+  otpCode String @db.VarChar(6)
+
+  purpose String @db.VarChar(50)
+
   requestedById String?
-  attempts      Int       @default(0)
-  isUsed        Boolean   @default(false)
-  expiresAt     DateTime
-  verifiedAt    DateTime?
-  createdAt     DateTime  @default(now())
+
+  attempts Int @default(0)
+
+  isUsed Boolean @default(false)
+
+  expiresAt DateTime
+
+  verifiedAt DateTime?
+
+  createdAt DateTime @default(now())
 
   @@index([phoneNumber])
   @@index([purpose])
   @@index([phoneNumber, purpose])
 }
 
+// ============================================================
+// RETURN COUPON
+// ============================================================
+
 model ReturnCoupon {
-  id          String       @id @default(uuid())
-  code        String       @unique
-  cashAmount  Float
-  isUsed      Boolean      @default(false)
-  createdAt   DateTime     @default(now())
-  invoice     String       @default("#svn")
-  pastinvoice String       @default("svn-invoice")
+  id String @id @default(uuid())
+
+  code String @unique
+
+  cashAmount Float
+
+  isUsed Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  invoice String @default("#svn")
+
+  pastinvoice String @default("svn-invoice")
+
   creditNotes CreditNote[]
 }
 
+// ============================================================
+// PRODUCT IMAGES
+// ============================================================
+
 model ProductImgs {
-  id          String   @id @default(uuid())
-  title       String
+  id String @id @default(uuid())
+
+  title String
+
   description String?
-  weight      Float
-  image       Bytes
-  mimeType    String   @default("image/jpeg")
-  metalType   String   @default("gold")
-  carats      String   @default("24k")
-  createdAt   DateTime @default(now())
+
+  weight Float
+
+  image Bytes
+
+  mimeType String @default("image/jpeg")
+
+  metalType String @default("gold")
+
+  carats String @default("24k")
+
+  createdAt DateTime @default(now())
 }

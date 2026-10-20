@@ -2,94 +2,432 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
 
+// ============================================================
+// CORS
+// ============================================================
+
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Methods": "POST,OPTIONS",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization",
+    "Access-Control-Allow-Methods":
+      "POST, OPTIONS",
   };
 }
 
+// ============================================================
+// OPTIONS
+// ============================================================
 
 export async function OPTIONS() {
   return new NextResponse(null, {
-    status: 200,
+    status: 204,
     headers: corsHeaders(),
   });
 }
 
+// ============================================================
+// VALID RATE TYPES
+// ============================================================
+
+const VALID_RATE_TYPES = [
+  "CASH",
+  "GOLD_22K",
+  "GOLD_18K",
+  "SILVER",
+] as const;
+
+type SchemeRateType =
+  (typeof VALID_RATE_TYPES)[number];
+
+// ============================================================
+// POST - CREATE SCHEME
+// ============================================================
+
 export async function POST(req: Request) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.split(" ")[1];
-    const decoded: any = verifyToken(token || "");
+    // ==========================================================
+    // 1. AUTHENTICATION
+    // ==========================================================
 
-    if (!decoded || (decoded.role !== "ADMIN" && decoded.role !== "SUPER_ADMIN")) {
-      return new NextResponse(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: corsHeaders() });
+    const authHeader =
+      req.headers.get("authorization");
+
+    const token =
+      authHeader?.startsWith("Bearer ")
+        ? authHeader.split(" ")[1]
+        : null;
+
+    if (!token) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized",
+        },
+        {
+          status: 401,
+          headers: corsHeaders(),
+        }
+      );
     }
 
-    const body = await req.json();
+    const decoded: any =
+      verifyToken(token);
 
-    const { 
-      name, 
-      category, 
-      durationMonths, 
-      monthlyAmount, 
+    if (
+      !decoded ||
+      (
+        decoded.role !== "ADMIN" &&
+        decoded.role !== "SUPER_ADMIN"
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Forbidden",
+        },
+        {
+          status: 403,
+          headers: corsHeaders(),
+        }
+      );
+    }
+
+    // ==========================================================
+    // 2. REQUEST BODY
+    // ==========================================================
+
+    const body =
+      await req.json();
+
+    const {
+      name,
+      durationMonths,
+
+      // --------------------------------------------------------
+      // Kept because Scheme model still contains monthlyAmount.
+      //
+      // Customer actual installment is selected separately
+      // during enrollment and stored in:
+      //
+      // CustomerScheme.installmentAmount
+      // --------------------------------------------------------
+      monthlyAmount,
+
+      // CASH scheme benefit / maturity months
       maturityMonths,
-      goldRate24k // Passed from your frontend via the /api/rates call
+
+      // NEW
+      //
+      // CASH
+      // GOLD_22K
+      // GOLD_18K
+      // SILVER
+      rateType,
     } = body;
 
-    // 1. Core Validation
-    if (!name || !durationMonths || !monthlyAmount || !category) {
-      return new NextResponse(JSON.stringify({ error: "Missing required fields" }), { status: 400 });
+    // ==========================================================
+    // 3. BASIC VALIDATION
+    // ==========================================================
+
+    const cleanName =
+      String(name ?? "").trim();
+
+    if (!cleanName) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Scheme name is required.",
+        },
+        {
+          status: 400,
+          headers: corsHeaders(),
+        }
+      );
     }
 
-    const isWeightBased = category === "Category-B";
-    const tenure = Number(durationMonths);
-    const monthly = Number(monthlyAmount);
+    // ==========================================================
+    // DURATION
+    // ==========================================================
 
-    let schemeData: any = {
-      name,
-      durationMonths: tenure,
-      monthlyAmount: monthly,
-      isWeightBased: isWeightBased,
+    const tenure =
+      Number(durationMonths);
+
+    if (
+      !Number.isInteger(tenure) ||
+      tenure <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "durationMonths must be a positive whole number.",
+        },
+        {
+          status: 400,
+          headers: corsHeaders(),
+        }
+      );
+    }
+
+    // ==========================================================
+    // RATE TYPE
+    // ==========================================================
+
+    const normalizedRateType =
+      String(
+        rateType ?? ""
+      )
+        .trim()
+        .toUpperCase() as SchemeRateType;
+
+    if (
+      !VALID_RATE_TYPES.includes(
+        normalizedRateType
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          error:
+            "Invalid rateType.",
+
+          allowedRateTypes:
+            VALID_RATE_TYPES,
+        },
+        {
+          status: 400,
+          headers: corsHeaders(),
+        }
+      );
+    }
+
+    // ==========================================================
+    // 4. DERIVE WEIGHT-BASED STATUS
+    //
+    // Do NOT allow frontend to control this independently.
+    // ==========================================================
+
+    const isWeightBased =
+      normalizedRateType ===
+        "GOLD_22K" ||
+      normalizedRateType ===
+        "GOLD_18K" ||
+      normalizedRateType ===
+        "SILVER";
+
+    // ==========================================================
+    // 5. MONTHLY AMOUNT
+    //
+    // Scheme.monthlyAmount is now effectively legacy/template
+    // information because the customer selects their actual
+    // installment amount during enrollment.
+    //
+    // Keep a valid value because your Prisma model still has
+    // monthlyAmount as required.
+    // ==========================================================
+
+    let monthly =
+      Number(monthlyAmount);
+
+    if (
+      !Number.isFinite(monthly) ||
+      monthly < 0
+    ) {
+      monthly = 0;
+    }
+
+    // ==========================================================
+    // 6. MATURITY / BENEFIT MONTHS
+    // ==========================================================
+
+    let normalizedMaturityMonths:
+        number | null =
+      null;
+
+    // ----------------------------------------------------------
+    // CASH SCHEME
+    //
+    // Maturity months can be used as the benefit period.
+    // ----------------------------------------------------------
+
+    if (
+      normalizedRateType ===
+      "CASH"
+    ) {
+      if (
+        maturityMonths ===
+          undefined ||
+        maturityMonths ===
+          null ||
+        maturityMonths ===
+          ""
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "maturityMonths is required for CASH schemes.",
+          },
+          {
+            status: 400,
+            headers:
+              corsHeaders(),
+          }
+        );
+      }
+
+      const maturity =
+        Number(
+          maturityMonths
+        );
+
+      if (
+        !Number.isInteger(
+          maturity
+        ) ||
+        maturity < 0
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "maturityMonths must be zero or a positive whole number.",
+          },
+          {
+            status: 400,
+            headers:
+              corsHeaders(),
+          }
+        );
+      }
+
+      normalizedMaturityMonths =
+        maturity;
+    }
+
+    // ----------------------------------------------------------
+    // GOLD / SILVER
+    //
+    // Weight-locking schemes don't need cash maturity months.
+    // ----------------------------------------------------------
+
+    else {
+      normalizedMaturityMonths =
+        null;
+    }
+
+    // ==========================================================
+    // 7. CREATE DATABASE DATA
+    // ==========================================================
+
+    const schemeData = {
+      name:
+        cleanName,
+
+      durationMonths:
+        tenure,
+
+      monthlyAmount:
+        monthly,
+
+      rateType:
+        normalizedRateType,
+
+      isWeightBased,
+
+      maturityMonths:
+        normalizedMaturityMonths,
     };
 
-    // ================= SWITCHING LOGIC =================
+    // ==========================================================
+    // 8. CREATE SCHEME
+    // ==========================================================
 
-    if (isWeightBased) {
-      // 🔹 CATEGORY-B: WEIGHT LOGIC
-      // We don't need maturityMonths here.
-      schemeData.maturityMonths = null;
-      
-      // We can log or store the 'Reference Rate' at the time of creation
-      // so the Admin knows what the market was like when they launched this scheme.
-      console.log(`[CAT-B] Scheme Created. Current 24K Rate: ${goldRate24k}`);
-      
-    } else {
-      // 🔹 CATEGORY-A: VALUE LOGIC
-      if (!maturityMonths) {
-        return new NextResponse(JSON.stringify({ error: "Maturity Months required for Category-A" }), { status: 400 });
-      }
-      schemeData.maturityMonths = Number(maturityMonths);
-    }
+    const scheme =
+      await prisma.scheme.create({
+        data: schemeData,
+      });
 
-    // 2. Database Execution
-    const scheme = await prisma.scheme.create({
-      data: schemeData,
-    });
+    // ==========================================================
+    // 9. RESPONSE
+    // ==========================================================
 
-    return new NextResponse(
-      JSON.stringify({
-        message: `${category} scheme initialized successfully`,
+    return NextResponse.json(
+      {
+        success: true,
+
+        message:
+          `${getRateTypeLabel(
+            normalizedRateType
+          )} scheme created successfully.`,
+
         scheme,
-        marketReference: isWeightBased ? { gold24: goldRate24k } : null
-      }),
-      { status: 201, headers: corsHeaders() }
+
+        configuration: {
+          rateType:
+            normalizedRateType,
+
+          isWeightBased,
+
+          lockingRate:
+            normalizedRateType ===
+            "CASH"
+              ? null
+              : "LIVE_RATE_AT_PAYMENT_TIME",
+        },
+      },
+      {
+        status: 201,
+        headers: corsHeaders(),
+      }
+    );
+  } catch (error: any) {
+    console.error(
+      "[CREATE SCHEME ERROR]",
+      error
     );
 
-  } catch (error) {
-    console.error("Scheme creation failed:", error);
-    return new NextResponse(JSON.stringify({ error: "Internal Server Error" }), { status: 500 });
+    return NextResponse.json(
+      {
+        success: false,
+
+        error:
+          error?.message ||
+          "Internal Server Error",
+      },
+      {
+        status: 500,
+        headers: corsHeaders(),
+      }
+    );
+  }
+}
+
+// ============================================================
+// DISPLAY LABEL
+// ============================================================
+
+function getRateTypeLabel(
+  rateType: SchemeRateType
+) {
+  switch (rateType) {
+    case "GOLD_22K":
+      return "22K Gold Locking";
+
+    case "GOLD_18K":
+      return "18K Gold Locking";
+
+    case "SILVER":
+      return "Silver Locking";
+
+    case "CASH":
+      return "Cash";
+
+    default:
+      return "Scheme";
   }
 }
