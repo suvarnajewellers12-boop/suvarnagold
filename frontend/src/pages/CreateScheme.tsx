@@ -225,7 +225,7 @@ const SuperAdminCreateScheme = () => {
       setIsInitialLoading(true);
 
       const res = await fetch(
-        "http://localhost:3000/api/schemes/all",
+        "https://suvarnagold-16e5.vercel.app/api/schemes/all",
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -450,7 +450,7 @@ const SuperAdminCreateScheme = () => {
       };
 
       const res = await fetch(
-        "http://localhost:3000/api/schemes/create",
+        "https://suvarnagold-16e5.vercel.app/api/schemes/create",
         {
           method: "POST",
           headers: {

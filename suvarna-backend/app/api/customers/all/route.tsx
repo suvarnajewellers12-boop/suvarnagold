@@ -2,85 +2,233 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
 
-// 🔹 CORS helper
+// ============================================================
+// CORS
+// ============================================================
+
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization",
+    "Access-Control-Allow-Methods":
+      "GET, OPTIONS",
   };
 }
 
-// 🔹 Handle Preflight
+// ============================================================
+// PREFLIGHT
+// ============================================================
+
 export async function OPTIONS() {
   return new NextResponse(null, {
-    status: 200,
+    status: 204,
     headers: corsHeaders(),
   });
 }
 
-// ================= GET ALL CUSTOMERS =================
+// ============================================================
+// RATE TYPE NORMALIZER
+// ============================================================
+
+function normalizeRateType(
+  rateType: string | null | undefined,
+  isWeightBased: boolean
+) {
+  const raw =
+    String(rateType ?? "")
+      .trim()
+      .toUpperCase();
+
+  if (
+    raw === "GOLD_22K" ||
+    raw === "GOLD_18K" ||
+    raw === "SILVER"
+  ) {
+    return raw;
+  }
+
+  // Legacy weighted schemes
+  if (isWeightBased) {
+    return "GOLD_22K";
+  }
+
+  return "CASH";
+}
+
+// ============================================================
+// GET ALL CUSTOMERS
+// ============================================================
+
 export async function GET(req: Request) {
   try {
-    // 🔐 AUTHORIZATION
-    const authHeader = req.headers.get("authorization");
+    // ==========================================================
+    // AUTH
+    // ==========================================================
 
-    if (!authHeader) {
-      return new NextResponse(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: corsHeaders() }
+    const authHeader =
+      req.headers.get(
+        "authorization"
+      );
+
+    const token =
+      authHeader?.startsWith(
+        "Bearer "
+      )
+        ? authHeader.split(
+            " "
+          )[1]
+        : null;
+
+    if (!token) {
+      return NextResponse.json(
+        {
+          error: "Unauthorized",
+        },
+        {
+          status: 401,
+          headers: corsHeaders(),
+        }
       );
     }
 
-    const token = authHeader.split(" ")[1];
-    const decoded: any = verifyToken(token);
+    const decoded: any =
+      verifyToken(token);
 
     if (!decoded) {
-      return new NextResponse(
-        JSON.stringify({ error: "Invalid Token" }),
-        { status: 401, headers: corsHeaders() }
+      return NextResponse.json(
+        {
+          error: "Invalid Token",
+        },
+        {
+          status: 401,
+          headers: corsHeaders(),
+        }
       );
     }
-    console.log("Decoded token in GET customers:", decoded.role);
 
-     if (decoded.role !== "ADMIN" && decoded.role !== "SUPER_ADMIN") {
-     return new NextResponse(
-         JSON.stringify({ error: "Forbidden" }),
-        { status: 403, headers: corsHeaders() }
-       );
-     }
+    if (
+      decoded.role !== "ADMIN" &&
+      decoded.role !==
+        "SUPER_ADMIN"
+    ) {
+      return NextResponse.json(
+        {
+          error: "Forbidden",
+        },
+        {
+          status: 403,
+          headers: corsHeaders(),
+        }
+      );
+    }
 
-    // 🔹 Fetch Customers with Schemes
-    const customers = await prisma.customer.findMany({
-      select: {
-        id: true,
-        name: true,
-        username: true,
-        password: true,
-        phone: true,
-        createdAt: true,
-        schemes: {
-          include: {
-            scheme: true, // include scheme details
+    // ==========================================================
+    // FETCH CUSTOMERS
+    // ==========================================================
+
+    const customers =
+      await prisma.customer.findMany({
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          phone: true,
+          createdAt: true,
+
+          schemes: {
+            include: {
+              scheme: true,
+
+              coupon: true,
+
+              installments: {
+                orderBy: {
+                  installmentNumber:
+                    "asc",
+                },
+              },
+
+              payments: {
+                orderBy: {
+                  paidAt: "desc",
+                },
+                take: 10,
+              },
+            },
           },
         },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
 
-    return new NextResponse(
-      JSON.stringify({ customers }),
-      { status: 200, headers: corsHeaders() }
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
+
+    // ==========================================================
+    // NORMALIZE SCHEME TYPE
+    // ==========================================================
+
+    const normalizedCustomers =
+      customers.map(
+        (customer) => ({
+          ...customer,
+
+          schemes:
+            customer.schemes.map(
+              (customerScheme) => {
+                const rateType =
+                  normalizeRateType(
+                    customerScheme
+                      .scheme
+                      .rateType,
+                    customerScheme
+                      .scheme
+                      .isWeightBased
+                  );
+
+                return {
+                  ...customerScheme,
+
+                  scheme: {
+                    ...customerScheme.scheme,
+
+                    rateType,
+
+                    isWeightBased:
+                      rateType !==
+                      "CASH",
+                  },
+                };
+              }
+            ),
+        })
+      );
+
+    return NextResponse.json(
+      {
+        customers:
+          normalizedCustomers,
+      },
+      {
+        status: 200,
+        headers: corsHeaders(),
+      }
+    );
+  } catch (error) {
+    console.error(
+      "Fetch customers error:",
+      error
     );
 
-  } catch (error) {
-    console.error("Fetch customers error:", error);
-
-    return new NextResponse(
-      JSON.stringify({ error: "Internal Server Error" }),
-      { status: 500, headers: corsHeaders() }
+    return NextResponse.json(
+      {
+        error:
+          "Internal Server Error",
+      },
+      {
+        status: 500,
+        headers: corsHeaders(),
+      }
     );
   }
 }
