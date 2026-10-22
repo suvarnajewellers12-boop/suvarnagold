@@ -684,6 +684,43 @@ model Coupon {
   scheme Scheme? @relation(fields: [schemeId], references: [id])
 }
 
+
+
+enum SchemeNotificationType {
+  DAILY_REMINDER
+  DUE_TOMORROW
+  DUE_TODAY_MORNING
+  DUE_TODAY_AFTERNOON
+  DUE_TODAY_FINAL
+  MISSED_PAYMENT
+}
+
+model SchemeNotificationLog {
+  id String @id @default(uuid())
+
+  customerId       String
+  customerSchemeId String
+  installmentId    String
+
+  type SchemeNotificationType
+
+  // Example: 2026-10-22
+  // Used to prevent duplicate notifications on the same day.
+  dayKey String
+
+  title String
+  body  String
+
+  sentAt DateTime @default(now())
+
+  @@unique([installmentId, type, dayKey])
+
+  @@index([customerId])
+  @@index([customerSchemeId])
+  @@index([installmentId])
+  @@index([sentAt])
+}
+
 // ============================================================
 // CUSTOMER
 // ============================================================
@@ -699,11 +736,12 @@ model Customer {
 
   phone String
 
+  fcmToken String?
+
+
   createdAt DateTime @default(now())
 
   mpin String?
-
-  fcmToken String?
 
   coupons Coupon[]
 
